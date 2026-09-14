@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "Vinted Relist",
+  "version": "1.0.0",
+  "description": "Ripubblica un articolo Vinted con un clic: clona l'annuncio (foto e dati) e rimuove quello vecchio.",
+  "permissions": ["storage", "webRequest"],
+  "host_permissions": [
+    "https://www.vinted.it/*",
+    "https://*.vinted.net/*",
+    "https://*.vinted.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.vinted.it/*"],
+      "js": [
+        "src/utils.js",
+        "src/api.js",
+        "src/relist.js",
+        "src/ui.js",
+        "src/content.js"
+      ],
+      "css": ["src/styles.css"],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": ["https://www.vinted.it/*"],
+      "js": ["src/page-bridge.js"],
+      "world": "MAIN",
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "action": {
+    "default_popup": "src/popup.html",
+    "default_title": "Vinted Relist"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
