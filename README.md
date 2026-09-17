@@ -135,6 +135,10 @@ src/popup.*          impostazioni e recupero bozze
 ```
 
 ## Nota
+Ripubblicare: Sera, tra le 20 e le 22. 
+La domenica sera (20:00–22:00) risulta la fascia migliore in assoluto, 
+e nei giorni feriali dal lunedì al venerdì la fascia 21:00–22:00 è quella indicata più spesso, 
+mentre nel weekend ci si sposta verso le 11:00–13:00. 
 
 Automatizzare azioni sul sito non è previsto dai termini di servizio di Vinted. Uso personale,
 poche richieste, pause generose: è quello per cui questa estensione è scritta. Prova la prima
