@@ -10,9 +10,85 @@ armadio su `vinted.it`:
 Al primo avvio compare una schermata di benvenuto con i tre passaggi, una volta sola.
 Puoi rivederla dal popup dell'estensione.
 
+---
+
+## Quando ripubblicare
+
+Lo strumento ti fa ripubblicare in un clic, ma *quando* lo fai conta quanto il come. Vinted
+ordina il feed e le ricerche per data di aggiornamento: ripubblicare rimette l'articolo in
+cima, e l'algoritmo misura l'interesse iniziale nelle prime ore. Se quella spinta parte alle
+tre di notte, si consuma nel vuoto.
+
+### Fasce per giorno
+
+Indice di rendimento su oltre 12.000 annunci (gennaio–aprile 2026). 100 = media settimanale.
+
+| Giorno | 7–9 | 12–14 | 19–22 | Totale |
+|---|---|---|---|---|
+| Lunedì | **105** | 98 | 102 | 97 |
+| Martedì | **103** | 100 | 99 | 95 |
+| Mercoledì | 98 | **110** | 106 | 104 |
+| Giovedì | 101 | 97 | **108** | 100 |
+| Venerdì | 96 | 95 | 94 | 92 |
+| Sabato | 112 | **115** | 110 | 112 |
+| Domenica | 108 | 118 | **125** | 123 |
+
+**Domenica sera, 20:00–22:00** è il momento migliore della settimana: traffico del 25% sopra
+la media, perché i compratori preparano la settimana e chiudono gli acquisti prima del lunedì.
+
+**Venerdì** è il giorno peggiore. **Mercoledì** spicca a metà settimana, soprattutto per
+l'abbigliamento bambini.
+
+La mattina presto ha un vantaggio che il totale non mostra: il 28% di annunci pubblicati in
+meno rispetto alla sera, con conversione al 2,1% contro l'1,7% medio. Per questo lunedì e
+martedì, giorni mediocri, rendono meglio alle 7–9 che alle 21.
+
+**Da evitare:** l'1:00–6:00 (sotto il 3% del traffico), il venerdì dopo le 21, il sabato prima
+delle 10, e le due ore di una partita importante (fino a −40% di traffico).
+
+### Ogni quanto
+
+Due intervalli diversi, da non confondere.
+
+**Tra articoli distinti, 15–20 minuti.** Uno o due articoli alla volta ti tengono in cima più
+spesso ed evitano l'effetto spam. Svuotare l'armadio in un blocco unico occupa il feed per
+cinque minuti e poi sparisce.
+
+**Tra due ripubblicazioni dello stesso articolo, 4–7 giorni. Mai ogni giorno.** Uno studio su
+2,4 milioni di articoli trova una curva a U:
+
+| Frequenza | Venduti in 14 giorni | Visualizzazioni medie |
+|---|---|---|
+| 1× al giorno | 4% | 12 |
+| Ogni 2 giorni | 9% | 28 |
+| **Ogni 5–7 giorni** | **23%** | **94** |
+| Ogni 10 giorni | 17% | 67 |
+| Ogni 14 giorni | 11% | 43 |
+| Mai | 6% | 21 |
+
+Ripubblicare tutti i giorni rende meno che non ripubblicare affatto. Una seconda fonte
+consiglia ogni 3–4 giorni sostenendo che la visibilità cala dell'80% dopo tre giorni: le due
+stime si contraddicono, ma concordano sul fatto che la frequenza quotidiana è controproducente.
+
+### Quanto fidarsi di questi numeri
+
+Entrambe le fonti ([Relisted](https://relisted.io/en/blog/best-time-post-vinted),
+[Vinkit](https://vinkit.co/it/blog/con-quale-frequenza-ripubblicare-annunci-vinted-studio-24m-articoli))
+vendono strumenti di ripubblicazione automatica, e i dati vengono dai loro stessi utenti:
+nessuno è verificabile dall'esterno, e hanno interesse a far sembrare il timing decisivo.
+Vinted non pubblica le proprie statistiche di traffico. La direzione generale è comunque
+credibile, perché descrive soltanto quando la gente sta sul telefono.
+
+Il conteggio delle visualizzazioni per articolo è nei dati che l'estensione già legge: se vuoi
+una risposta misurata sul tuo catalogo invece che sulla media di altri, ripubblica metà armadio
+in una fascia e metà in un'altra, poi confronta le visite dopo 24 ore.
+
+---
+
 ## Installazione
 
-1. Scarica questa cartella (`Code → Download ZIP`, oppure `git clone`) e scompattala.
+1. Scarica questa cartella (`Code → Download ZIP`, oppure `git clone`) e scompattala **in una
+   posizione stabile**, non nella cartella temporanea che Windows crea aprendo uno zip.
 2. Apri `brave://extensions` (o `chrome://extensions`).
 3. Attiva **Modalità sviluppatore** in alto a destra.
 4. **Carica estensione non pacchettizzata** e seleziona la cartella.
@@ -62,20 +138,21 @@ che fa il sito stesso e ne registra la forma:
 - carica una foto a mano da `vinted.it/items/new` → registra i campi del multipart;
 - modifica un annuncio a mano e salva → registra i campi del payload dell'annuncio.
 
-Entrambe le cose sono silenziose. Nel popup, sotto "Formato upload foto" e "Formato annuncio",
-vedi cosa ha imparato. I campi imparati si **sommano** a quelli predefiniti, non li
-sostituiscono: una cattura fatta su un articolo da collezione non deve far sparire `size_id`
-da una maglietta.
+Entrambe le cose sono silenziose. Nel popup, le righe "Formato foto" e "Formato annuncio"
+mostrano *appreso* o *predefinito*: il pallino spento non è un errore, significa che sta
+usando la mappatura scritta nel codice. I campi imparati si **sommano** a quelli predefiniti,
+non li sostituiscono: una cattura fatta su un articolo da collezione non deve far sparire
+`size_id` da una maglietta.
 
 ## L'ordine conta
 
 Nelle impostazioni ci sono due modalità:
 
-- **Prima pubblica, poi elimina** (predefinita). Se la creazione fallisce, il vecchio annuncio
-  è ancora lì. Il rischio opposto è un doppione da rimuovere a mano: il guaio meno grave.
-- **Prima elimina, poi pubblica**. Relist pulito, ma se Vinted rifiuta la creazione l'annuncio
-  è già sparito. Prima di cancellare l'estensione salva sempre una copia dei dati: la recuperi
-  dal popup con **Copia le bozze salvate**.
+- **Pubblica, poi elimina** (predefinita). Se la creazione fallisce, il vecchio annuncio è
+  ancora lì. Il rischio opposto è un doppione da rimuovere a mano: il guaio meno grave.
+- **Elimina, poi pubblica**. Relist pulito, ma se Vinted rifiuta la creazione l'annuncio è già
+  sparito. Prima di cancellare l'estensione salva sempre una copia dei dati: la recuperi dal
+  popup, dove la sezione bozze compare solo se c'è qualcosa da recuperare.
 
 ## Impostazioni (popup)
 
@@ -83,7 +160,9 @@ Nelle impostazioni ci sono due modalità:
 - Ricarica la pagina dopo la pubblicazione
 - Mostra i bottoni ovunque — utile se il riconoscimento del tuo profilo sbaglia
 - Ordine delle operazioni
-- Pausa tra le chiamate — alzala a 2500–3000 ms se ripubblichi molti articoli di fila
+- Pausa — tempo tra una chiamata e l'altra e tra due ripubblicazioni in coda. Alzala a
+  2500–3000 ms se ne fai molte di fila. Non è l'intervallo di 15–20 minuti tra articoli
+  descritto sopra: quello per ora va distanziato a mano.
 
 ## Diagnostica
 
@@ -107,6 +186,11 @@ payload è allineato, altrimenti dice esattamente quale campo non torna.
 `[Relist] attivo su`: se c'è, il problema è il selettore della card — aggiungi il tuo in
 `CARD_SELECTORS` (`src/content.js`). Se il riconoscimento del profilo sbaglia, attiva
 "Mostra i bottoni ovunque".
+
+**Icona rotta e popup con `ERR_FILE_NOT_FOUND`.** Il browser non trova più la cartella da cui
+hai caricato l'estensione: nome e versione restano in cache, il resto no. Succede caricando
+dalla cartella temporanea di uno zip aperto con doppio clic. Estrai in una posizione stabile,
+rimuovi l'estensione e ricaricala da lì. In **Dettagli** controlli il percorso di origine.
 
 **"Errore durante il caricamento della foto".** È Vinted a rifiutare il file. Carica una foto
 a mano da `/items/new` per far imparare il formato, poi riprova.
@@ -135,10 +219,6 @@ src/popup.*          impostazioni e recupero bozze
 ```
 
 ## Nota
-Ripubblicare: Sera, tra le 20 e le 22. 
-La domenica sera (20:00–22:00) risulta la fascia migliore in assoluto, 
-e nei giorni feriali dal lunedì al venerdì la fascia 21:00–22:00 è quella indicata più spesso, 
-mentre nel weekend ci si sposta verso le 11:00–13:00. 
 
 Automatizzare azioni sul sito non è previsto dai termini di servizio di Vinted. Uso personale,
 poche richieste, pause generose: è quello per cui questa estensione è scritta. Prova la prima
