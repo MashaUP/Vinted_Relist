@@ -136,6 +136,47 @@ async function downloadAsDataUrl(url) {
 // ---------------------------------------------------------------- messaggi
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "vr:queueStart") {
+    const items = (message.items || []).map((item) => ({
+      id: String(item.id),
+      title: item.title || `Articolo ${item.id}`,
+      status: "pending",
+      error: null,
+    }));
+
+    scriviCoda({
+      items,
+      index: 0,
+      intervalMin: Math.max(1, Number(message.intervalMin) || 20),
+      running: items.length > 0,
+      state: "waiting",
+      startedAt: Date.now(),
+      nextAt: Date.now(),
+      note: null,
+    })
+      .then(() => {
+        chrome.alarms.clear(ALARM_WATCHDOG);
+        return passoCoda();                       // il primo parte subito
+      })
+      .then(() => sendResponse({ ok: true, count: items.length }))
+      .catch((error) => sendResponse({ ok: false, error: String(error) }));
+    return true;
+  }
+
+  if (message?.type === "vr:queueStop") {
+    fermaCoda("Interrotta.")
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: String(error) }));
+    return true;
+  }
+
+  if (message?.type === "vr:relistDone") {
+    esitoCoda(message.itemId, message.ok, message.error)
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: String(error) }));
+    return true;
+  }
+
   if (message?.type === "vr:uploading") {
     ourUploadsInFlight = Math.max(0, ourUploadsInFlight + (message.value ? 1 : -1));
     sendResponse({ ok: true });
@@ -158,4 +199,119 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   return false;
+});
+
+// ---------------------------------------------------- coda di ripubblicazione
+
+/**
+ * La coda vive qui, non nella pagina: un intervallo di 20 minuti dura ore e un
+ * timer nel content script morirebbe alla prima navigazione. chrome.alarms
+ * sopravvive anche alla terminazione del service worker.
+ *
+ * Il lavoro vero lo fa comunque la scheda Vinted: qui decidiamo solo "quando" e
+ * mandiamo un messaggio. Il content script risponde subito e riferisce l'esito
+ * a cose fatte, cosi' nessuno resta appeso a una richiesta lunga.
+ */
+const QUEUE_KEY = "vrQueue";
+const ALARM_NEXT = "vr:queueNext";
+const ALARM_WATCHDOG = "vr:queueWatchdog";
+const WATCHDOG_MIN = 6;          // oltre questo, l'articolo e' considerato fallito
+const MAX_ATTESE = 60;           // minuti di attesa di una scheda Vinted aperta
+
+const leggiCoda = async () => (await chrome.storage.local.get(QUEUE_KEY))[QUEUE_KEY] || null;
+const scriviCoda = (coda) => chrome.storage.local.set({ [QUEUE_KEY]: coda });
+
+async function schedulaProssimo(minuti) {
+  const quando = Date.now() + minuti * 60_000;
+  const coda = await leggiCoda();
+  if (coda) {
+    coda.nextAt = quando;
+    coda.state = "waiting";
+    await scriviCoda(coda);
+  }
+  chrome.alarms.create(ALARM_NEXT, { when: quando });
+}
+
+async function fermaCoda(motivo) {
+  const coda = await leggiCoda();
+  if (!coda) return;
+
+  coda.running = false;
+  coda.state = "done";
+  coda.nextAt = null;
+  coda.finishedAt = Date.now();
+  if (motivo) coda.note = motivo;
+  await scriviCoda(coda);
+
+  chrome.alarms.clear(ALARM_NEXT);
+  chrome.alarms.clear(ALARM_WATCHDOG);
+}
+
+async function schedaVinted() {
+  const tabs = await chrome.tabs.query({ url: "https://www.vinted.it/*" });
+  return tabs.find((t) => t.status === "complete") || tabs[0] || null;
+}
+
+/** Manda in lavorazione l'articolo corrente. */
+async function passoCoda() {
+  const coda = await leggiCoda();
+  if (!coda?.running) return;
+
+  const corrente = coda.items[coda.index];
+  if (!corrente) return fermaCoda();
+
+  const tab = await schedaVinted();
+  if (!tab) {
+    coda.waited = (coda.waited || 0) + 1;
+    await scriviCoda(coda);
+    if (coda.waited > MAX_ATTESE) {
+      return fermaCoda("Interrotta: nessuna scheda Vinted aperta.");
+    }
+    return schedulaProssimo(1);
+  }
+
+  coda.waited = 0;
+  coda.state = "working";
+  coda.startedItemAt = Date.now();
+  await scriviCoda(coda);
+
+  try {
+    await chrome.tabs.sendMessage(tab.id, { type: "vr:relistOne", itemId: corrente.id });
+    chrome.alarms.create(ALARM_WATCHDOG, { delayInMinutes: WATCHDOG_MIN });
+  } catch {
+    // content script non pronto: riprovo fra un minuto senza consumare l'articolo
+    coda.state = "waiting";
+    await scriviCoda(coda);
+    schedulaProssimo(1);
+  }
+}
+
+/** Registra l'esito e programma il successivo. */
+async function esitoCoda(itemId, ok, error) {
+  const coda = await leggiCoda();
+  if (!coda?.running) return;
+
+  const corrente = coda.items[coda.index];
+  if (!corrente || String(corrente.id) !== String(itemId)) return;   // esito fuori tempo
+
+  corrente.status = ok ? "done" : "error";
+  corrente.error = ok ? null : error || "errore sconosciuto";
+  coda.index += 1;
+  await scriviCoda(coda);
+
+  chrome.alarms.clear(ALARM_WATCHDOG);
+
+  if (coda.index >= coda.items.length) return fermaCoda();
+  schedulaProssimo(coda.intervalMin);
+}
+
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === ALARM_NEXT) return passoCoda();
+
+  if (alarm.name === ALARM_WATCHDOG) {
+    const coda = await leggiCoda();
+    if (coda?.running && coda.state === "working") {
+      await esitoCoda(coda.items[coda.index]?.id, false, "nessuna risposta dalla scheda");
+    }
+  }
 });

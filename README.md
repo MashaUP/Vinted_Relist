@@ -7,6 +7,9 @@ armadio su `vinted.it`:
   taglia, condizione, colori, prezzo, spedizione) e cancella quello vecchio.
 - **Modifica** — apre una finestra per cambiare titolo, descrizione e prezzo prima di pubblicare.
 
+Con la casella accanto ai bottoni ne selezioni piu' d'uno e li metti in coda, ripubblicati a
+intervalli che scegli tu.
+
 Al primo avvio compare una schermata di benvenuto con i tre passaggi, una volta sola.
 Puoi rivederla dal popup dell'estensione.
 
@@ -45,6 +48,25 @@ martedì, giorni mediocri, rendono meglio alle 7–9 che alle 21.
 
 **Da evitare:** l'1:00–6:00 (sotto il 3% del traffico), il venerdì dopo le 21, il sabato prima
 delle 10, e le due ore di una partita importante (fino a −40% di traffico).
+
+### Coda automatica
+
+Ogni articolo ha una casella accanto ai bottoni. Selezionandone alcuni compare un pannello in
+basso: scegli ogni quanti minuti ripubblicare e premi **Avvia**. Il primo parte subito, gli
+altri a intervalli regolari.
+
+La coda vive nel service worker con `chrome.alarms`, non nella pagina: puoi navigare su Vinted,
+ricaricare, aprire altre schede. Deve però restare **aperta almeno una scheda su `vinted.it`**,
+perche' e' li' che la ripubblicazione viene eseguita. Se la chiudi, la coda aspetta fino a
+un'ora controllando ogni minuto, poi si interrompe.
+
+Mentre la coda gira, ogni card mostra gli stessi riscontri del bottone singolo: l'avanzamento
+sotto i bottoni e, a ripubblicazione avvenuta, la casella che diventa una **spunta verde** con
+accanto "Ripubblicato". Cosi' si vede a colpo d'occhio quali articoli sono gia' passati.
+
+Un articolo che fallisce non blocca gli altri: viene segnato e si passa al successivo. Se una
+scheda non risponde entro sei minuti, un watchdog lo chiude come fallito e prosegue. Avanzamento
+ed errori li vedi nel pannello e nel popup, anche con Vinted in secondo piano.
 
 ### Ogni quanto
 
@@ -87,7 +109,10 @@ in una fascia e metà in un'altra, poi confronta le visite dopo 24 ore.
 
 ## Installazione
 
-1. Scarica questa cartella (`Code → Download ZIP`, oppure `git clone`) e scompattala **in una
+Nella radice del repo c'e' `Vinted_Relist-1.2.0.zip`: e' l'estensione gia' pronta, se preferisci
+scaricare solo quello invece dell'intero repo.
+
+1. Scompatta lo zip (o scarica il repo con `Code → Download ZIP` / `git clone`) **in una
    posizione stabile**, non nella cartella temporanea che Windows crea aprendo uno zip.
 2. Apri `brave://extensions` (o `chrome://extensions`).
 3. Attiva **Modalità sviluppatore** in alto a destra.
@@ -161,8 +186,8 @@ Nelle impostazioni ci sono due modalità:
 - Mostra i bottoni ovunque — utile se il riconoscimento del tuo profilo sbaglia
 - Ordine delle operazioni
 - Pausa — tempo tra una chiamata e l'altra e tra due ripubblicazioni in coda. Alzala a
-  2500–3000 ms se ne fai molte di fila. Non è l'intervallo di 15–20 minuti tra articoli
-  descritto sopra: quello per ora va distanziato a mano.
+  2500–3000 ms se ne fai molte di fila. È altra cosa dall'intervallo della coda, che si
+  imposta nel pannello in basso alla pagina.
 
 ## Diagnostica
 
@@ -212,6 +237,7 @@ background.js        cattura token e formati, download foto senza CORS
 src/utils.js         impostazioni, toast, coda seriale
 src/api.js           tutte le chiamate a Vinted
 src/relist.js        clonazione, conversione dei campi, diagnostica
+src/queue.js         selezione multipla e pannello della coda
 src/ui.js            onboarding, bottoni, dialog di modifica
 src/content.js       rilevamento articoli e injection
 src/page-bridge.js   espone VR nella console della pagina
