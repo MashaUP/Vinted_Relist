@@ -60,12 +60,37 @@ ricaricare, aprire altre schede. Deve però restare **aperta almeno una scheda s
 perche' e' li' che la ripubblicazione viene eseguita. Se la chiudi, la coda aspetta fino a
 un'ora controllando ogni minuto, poi si interrompe.
 
+Il bottone **Opzioni** apre modifiche che valgono per tutti i selezionati — variazione
+percentuale o prezzo fisso, una riga da aggiungere in fondo alla descrizione — e l'orario di
+avvio: lasciandolo vuoto parte subito, altrimenti aspetta il momento che scegli. La percentuale
+si calcola sul prezzo di ogni articolo al momento della ripubblicazione, non quando lo selezioni.
+
+Per selezionare in fretta: **Shift+clic** estende dall'ultima casella toccata a quella cliccata.
+
+Prima di partire la coda fa una **prova a vuoto** su un articolo — legge, costruisce il payload,
+scarica e converte una foto, senza pubblicare né cancellare niente. Se Vinted ha cambiato
+qualcosa te lo dice subito, invece di farti scoprire l'errore venti volte di fila. Puoi comunque
+forzare l'avvio.
+
 Mentre la coda gira, ogni card mostra gli stessi riscontri del bottone singolo: l'avanzamento
 sotto i bottoni e, a ripubblicazione avvenuta, la casella che diventa una **spunta verde** con
 accanto "Ripubblicato". Cosi' si vede a colpo d'occhio quali articoli sono gia' passati.
 
 Un articolo che fallisce non blocca gli altri: viene segnato e si passa al successivo. Se una
-scheda non risponde entro sei minuti, un watchdog lo chiude come fallito e prosegue. Avanzamento
+scheda non risponde entro sei minuti, un watchdog lo chiude come fallito e prosegue.
+
+Un **blocco di Vinted** (429, o un 403 che resta dopo aver rinnovato il token) è trattato
+diversamente da un errore di contenuto: non è colpa dell'articolo, quindi non viene consumato.
+La coda si mette in pausa 5 minuti, poi 15, poi 45; se continua, si ferma. Insistere dopo un
+429 è il modo migliore per peggiorare la situazione.
+
+Con il **ritmo irregolare** attivo (predefinito) l'intervallo varia del ±30% a ogni passo e i
+passi avvengono solo quando sei davvero al computer: venti minuti esatti per tre ore di fila
+sono una firma che nessuna persona lascerebbe. L'avvio programmato è l'unica eccezione — se
+chiedi le 20:00, parte alle 20:00.
+
+A coda finita arriva una **notifica di sistema** con il riepilogo: la coda gira per ore e nel
+frattempo starai guardando altro. Avanzamento
 ed errori li vedi nel pannello e nel popup, anche con Vinted in secondo piano.
 
 ### Ogni quanto
@@ -109,7 +134,7 @@ in una fascia e metà in un'altra, poi confronta le visite dopo 24 ore.
 
 ## Installazione
 
-Nella radice del repo c'e' `Vinted_Relist-1.2.0.zip`: e' l'estensione gia' pronta, se preferisci
+Nella radice del repo c'e' `Vinted_Relist-1.4.1.zip`: e' l'estensione gia' pronta, se preferisci
 scaricare solo quello invece dell'intero repo.
 
 1. Scompatta lo zip (o scarica il repo con `Code → Download ZIP` / `git clone`) **in una
@@ -179,15 +204,31 @@ Nelle impostazioni ci sono due modalità:
   sparito. Prima di cancellare l'estensione salva sempre una copia dei dati: la recuperi dal
   popup, dove la sezione bozze compare solo se c'è qualcosa da recuperare.
 
-## Impostazioni (popup)
+## Il popup
 
-- Elimina il vecchio annuncio — se lo disattivi ottieni un duplicato invece di un relist
-- Ricarica la pagina dopo la pubblicazione
-- Mostra i bottoni ovunque — utile se il riconoscimento del tuo profilo sbaglia
-- Ordine delle operazioni
-- Pausa — tempo tra una chiamata e l'altra e tra due ripubblicazioni in coda. Alzala a
-  2500–3000 ms se ne fai molte di fila. È altra cosa dall'intervallo della coda, che si
-  imposta nel pannello in basso alla pagina.
+Si apre sull'icona dell'estensione e segue il tema del browser, chiaro o scuro.
+
+**Coda** in cima quando è attiva: avanzamento, articolo in lavorazione, conto alla rovescia che
+scorre davvero, e i comandi **Pausa**, **Salta** e **Interrompi**. La pausa non spezza l'articolo
+in corso: lo lascia finire e si ferma dopo, riprendendo poi dal tempo residuo. Gli articoli
+falliti sono cliccabili e aprono l'annuncio. Senza coda attiva, qui trovi il collegamento al tuo
+armadio.
+
+**Ripubblicazione** — elimina il vecchio annuncio (se lo disattivi ottieni un duplicato),
+ricarica la pagina dopo, ordine delle operazioni.
+
+**Coda** — ritmo irregolare, controllo prima di avviare, notifica a fine coda.
+
+**Attività** — quante ripubblicazioni hai fatto oggi, negli ultimi 7 e negli ultimi 30 giorni, e
+quanti articoli hai ripubblicato più di una volta nell'ultima settimana. È il numero che ti
+protegge dall'errore più costoso: ripubblicare ogni giorno rende meno che non farlo affatto.
+
+**Formati** — stato dei due formati appresi, e il bottone **Verifica formato** che esegue la
+prova a vuoto sul primo articolo del tuo armadio senza aprire la console.
+
+**Avanzate**, richiudibile — mostra i bottoni ovunque, e la pausa tra le chiamate (2500–3000 ms
+se ne fai molte di fila). È altra cosa dall'intervallo della coda, che si imposta nel pannello
+in basso alla pagina.
 
 ## Diagnostica
 
@@ -199,7 +240,7 @@ await VR.source(ID)        // payload grezzo che Vinted restituisce per l'artico
 await VR.captured()        // payload vero catturato da una modifica fatta a mano
 await VR.compare(ID)       // confronto: campi mancanti, di troppo, tipi diversi
 await VR.debugDraft(ID)    // cosa verrebbe inviato, senza pubblicare niente
-await VR.debug(ID)         // prova il ciclo delle foto su un articolo
+await VR.canary(ID)        // prova a vuoto: legge e prepara tutto senza pubblicare
 ```
 
 `VR.compare` è lo strumento da usare quando Vinted cambia qualcosa: se stampa liste vuote il

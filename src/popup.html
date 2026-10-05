@@ -7,11 +7,29 @@
   </head>
   <body>
     <header class="head">
+      <img src="../icons/icon48.png" alt="" class="head-icon" />
       <h1>Vinted Relist</h1>
       <span class="version" id="version"></span>
     </header>
 
+    <!-- La coda sta in cima: se ne hai una attiva, e' il motivo per cui sei qui -->
+    <section class="block queue" id="queueBlock">
+      <div class="queue-head">
+        <span id="queueState" class="queue-state"></span>
+        <span id="queueCount" class="queue-count"></span>
+      </div>
+      <div class="bar" id="queueBar"><div class="bar-fill" id="queueFill"></div></div>
+      <div id="queueItem" class="queue-item"></div>
+      <div id="queueErrors" class="queue-errors"></div>
+      <div class="queue-actions" id="queueActions"></div>
+      <div id="queueEmpty" class="empty" hidden>
+        Nessuna coda attiva. <a id="wardrobeLink" href="#" target="_blank">Apri il tuo armadio</a>
+        per selezionare gli articoli.
+      </div>
+    </section>
+
     <section class="block">
+      <div class="block-title">Ripubblicazione</div>
       <label class="check">
         <input type="checkbox" id="deleteOld" />
         <span>Elimina il vecchio annuncio</span>
@@ -20,27 +38,47 @@
         <input type="checkbox" id="autoReload" />
         <span>Ricarica la pagina dopo la pubblicazione</span>
       </label>
-      <label class="check">
-        <input type="checkbox" id="showOnOtherProfiles" />
-        <span>Mostra i bottoni ovunque</span>
-      </label>
-    </section>
-
-    <section class="block fields">
-      <label class="field">
-        <span class="field-label">Ordine</span>
+      <label class="field wide">
+        <span class="field-label">Ordine delle operazioni</span>
         <select id="order">
           <option value="safe">Pubblica, poi elimina</option>
           <option value="clean">Elimina, poi pubblica</option>
         </select>
       </label>
-      <label class="field narrow">
-        <span class="field-label">Pausa</span>
-        <input type="number" id="delayMs" min="300" step="100" />
+    </section>
+
+    <section class="block">
+      <div class="block-title">Coda</div>
+      <label class="check">
+        <input type="checkbox" id="humanRhythm" />
+        <span>Ritmo irregolare</span>
+      </label>
+      <p class="desc">Intervalli variabili e pause quando non sei al computer.</p>
+
+      <label class="check">
+        <input type="checkbox" id="canary" />
+        <span>Controllo prima di avviare</span>
+      </label>
+      <p class="desc">Prova a vuoto su un articolo: niente viene pubblicato.</p>
+
+      <label class="check">
+        <input type="checkbox" id="notifyOnFinish" />
+        <span>Notifica a coda finita</span>
       </label>
     </section>
 
-    <section class="block status">
+    <section class="block">
+      <div class="block-title">Attività</div>
+      <div class="stats">
+        <div class="stat"><b id="statToday">—</b><span>oggi</span></div>
+        <div class="stat"><b id="statWeek">—</b><span>7 giorni</span></div>
+        <div class="stat"><b id="statMonth">—</b><span>30 giorni</span></div>
+      </div>
+      <p class="desc" id="statHint"></p>
+    </section>
+
+    <section class="block">
+      <div class="block-title">Formati</div>
       <div class="status-row">
         <span class="dot" id="photoDot"></span>
         <span class="status-name">Formato foto</span>
@@ -51,19 +89,23 @@
         <span class="status-name">Formato annuncio</span>
         <span class="status-state" id="itemState">—</span>
       </div>
-      <p class="hint" id="statusHint"></p>
+      <p class="desc" id="statusHint"></p>
+      <button id="verify" class="btn">Verifica formato</button>
+      <p class="desc" id="verifyResult" hidden></p>
     </section>
 
-    <section class="block" id="queueBlock" hidden>
-      <div class="block-title">Coda</div>
-      <div class="queue-head">
-        <span id="queueState"></span>
-        <span id="queueCount" class="queue-count"></span>
-      </div>
-      <div class="bar"><div class="bar-fill" id="queueFill"></div></div>
-      <div id="queueErrors" class="queue-errors"></div>
-      <button id="queueStop" class="btn">Interrompi</button>
-    </section>
+    <details class="block advanced">
+      <summary>Avanzate</summary>
+      <label class="check">
+        <input type="checkbox" id="showOnOtherProfiles" />
+        <span>Mostra i bottoni ovunque</span>
+      </label>
+      <label class="field wide">
+        <span class="field-label">Pausa tra le chiamate (ms)</span>
+        <input type="number" id="delayMs" min="300" step="100" />
+      </label>
+      <p class="desc">Tempo tra una chiamata e l'altra, non l'intervallo della coda.</p>
+    </details>
 
     <section class="block" id="draftsBlock" hidden>
       <div class="block-title">Bozze in sospeso</div>

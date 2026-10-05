@@ -1,4 +1,8 @@
 /* Palette Vinted */
+[hidden] {
+  display: none !important;
+}
+
 :root {
   --vr-teal: #007782;
   --vr-teal-dark: #005f68;
@@ -105,6 +109,11 @@
 
 .vr-bar--busy .vr-bar__status {
   color: var(--vr-teal);
+}
+
+/* Sulla pagina di un singolo articolo la selezione multipla non ha senso */
+.vr-bar--floating .vr-bar__pick {
+  display: none;
 }
 
 .vr-bar--floating {

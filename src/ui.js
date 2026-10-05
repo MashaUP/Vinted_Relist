@@ -24,6 +24,8 @@
     return close;
   }
 
+  VR.openOverlay = openOverlay;
+
   // ---------------------------------------------------------------- onboarding
 
   const STEPS = [
@@ -152,8 +154,6 @@
     });
   }
 
-  VR.openEditDialog = openEditDialog;
-
   // ---------------------------------------------------------------- barra bottoni
 
   /**
@@ -168,8 +168,10 @@
     const pick = h("input", {
       type: "checkbox",
       class: "vr-check vr-bar__pick",
-      title: "Aggiungi alla coda",
-      onchange: (event) => VR.selection.cambia(itemId, event.target.checked),
+      title: "Aggiungi alla coda — Shift per selezionare un intervallo",
+      dataset: { vrId: String(itemId) },
+      // "click" e non "change": shiftKey esiste solo sull'evento del mouse.
+      onclick: (event) => VR.selection.clic(String(itemId), event),
     });
     VR.selection.registra(itemId, pick);
 

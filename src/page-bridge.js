@@ -42,8 +42,8 @@
   window.VR = {
     /** Payload che verrebbe inviato, senza pubblicare niente. */
     debugDraft: (itemId) => call("debugDraft", [itemId]),
-    /** Prova il ciclo delle foto su un articolo. */
-    debug: (itemId) => call("debug", [itemId]),
+    /** Prova a vuoto: legge e prepara tutto senza pubblicare niente. */
+    canary: (itemId) => call("canary", [itemId]),
     /** Impostazioni correnti, formati imparati compresi. */
     settings: () => call("settings", []),
     /** Il payload grezzo che Vinted restituisce per l'articolo. */
@@ -59,6 +59,6 @@
   console.log(
     "%c[Relist]",
     "color:#007782;font-weight:600",
-    "console pronta — VR.debugDraft(id), VR.debug(id), VR.settings()"
+    "console pronta — VR.canary(id), VR.compare(id), VR.debugDraft(id), VR.settings()"
   );
 })();

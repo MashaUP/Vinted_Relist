@@ -127,7 +127,7 @@
 
   const BRIDGE = {
     debugDraft: (itemId) => VR.debugDraft(itemId),
-    debug: (itemId) => VR.debug(itemId),
+    canary: (itemId) => VR.canary(itemId),
     settings: async () => ({ ...VR.settings }),
     source: (itemId) => VR.source(itemId),
     captured: () => VR.captured(),
@@ -182,6 +182,11 @@
     Object.assign(VR.settings, patch);
     if (changes.seenOnboarding?.newValue === false) VR.showOnboarding({ force: true });
   });
+
+  // Il popup non puo' leggere i cookie di Vinted: gli lasciamo qui l'id,
+  // cosi' puo' offrire il collegamento al tuo armadio.
+  const mioId = currentUserId();
+  if (mioId) chrome.storage.local.set({ userId: mioId });
 
   VR.showOnboarding();
   refresh();

@@ -4,138 +4,265 @@ const DEFAULTS = {
   showOnOtherProfiles: false,
   order: "safe",
   delayMs: 1200,
+  humanRhythm: true,
+  notifyOnFinish: true,
+  canary: true,
 };
 
-document.getElementById("version").textContent = chrome.runtime.getManifest().version;
+const el = (id) => document.getElementById(id);
+el("version").textContent = chrome.runtime.getManifest().version;
 
 // --------------------------------------------------------------- impostazioni
 
-const fields = {
-  deleteOld: document.getElementById("deleteOld"),
-  autoReload: document.getElementById("autoReload"),
-  showOnOtherProfiles: document.getElementById("showOnOtherProfiles"),
-  order: document.getElementById("order"),
-  delayMs: document.getElementById("delayMs"),
-};
+const campi = {};
+for (const chiave of Object.keys(DEFAULTS)) campi[chiave] = el(chiave);
 
-const valueOf = (input) => {
+const valoreDi = (input) => {
   if (input.type === "checkbox") return input.checked;
   if (input.type === "number") return Number(input.value);
   return input.value;
 };
 
-chrome.storage.local.get(DEFAULTS).then((settings) => {
-  for (const [key, input] of Object.entries(fields)) {
-    if (input.type === "checkbox") input.checked = settings[key];
-    else input.value = settings[key];
+chrome.storage.local.get(DEFAULTS).then((impostazioni) => {
+  for (const [chiave, input] of Object.entries(campi)) {
+    if (input.type === "checkbox") input.checked = impostazioni[chiave];
+    else input.value = impostazioni[chiave];
 
-    input.addEventListener("change", () => {
-      chrome.storage.local.set({ [key]: valueOf(input) });
-    });
+    input.addEventListener("change", () =>
+      chrome.storage.local.set({ [chiave]: valoreDi(input) })
+    );
   }
 });
 
-document.getElementById("tutorial").addEventListener("click", async () => {
+el("tutorial").addEventListener("click", async () => {
   await chrome.storage.local.set({ seenOnboarding: false });
   window.close();
 });
 
-// ---------------------------------------------------------------------- stato
-
-/**
- * "Appreso" = l'estensione ha visto una richiesta vera di Vinted e usa quella.
- * "Predefinito" non e' un errore: sono i formati scritti nel codice, che
- * funzionano finche' Vinted non cambia qualcosa.
- */
-function showStatus(name, learned, detail) {
-  document.getElementById(`${name}Dot`).classList.toggle("on", Boolean(learned));
-
-  const state = document.getElementById(`${name}State`);
-  state.textContent = learned ? "appreso" : "predefinito";
-  state.title = detail || "";
-}
-
-chrome.storage.local.get(["photoFormat", "itemFormat"]).then(({ photoFormat, itemFormat }) => {
-  const photoFields = photoFormat
-    ? [...Object.keys(photoFormat.constants || {}), photoFormat.uuidField, photoFormat.fileField]
-        .filter(Boolean)
-        .join(", ")
-    : "";
-
-  showStatus("photo", photoFormat, photoFields);
-  showStatus("item", itemFormat?.fields?.length, (itemFormat?.fields || []).join(", "));
-
-  document.getElementById("statusHint").textContent = photoFormat && itemFormat?.fields?.length
-    ? "Entrambi rilevati dalle richieste di Vinted."
-    : "Si aggiornano da soli quando pubblichi o modifichi un annuncio su Vinted.";
-});
-
 // ----------------------------------------------------------------------- coda
 
-function mostraCoda(coda) {
-  const blocco = document.getElementById("queueBlock");
+let coda = null;
+let tic = null;
+
+const comando = (tipo) => chrome.runtime.sendMessage({ type: tipo });
+
+function manca(ms) {
+  if (ms <= 0) return "a momenti";
+  const min = Math.floor(ms / 60000);
+  const sec = Math.floor((ms % 60000) / 1000);
+  return min > 0 ? `${min}:${String(sec).padStart(2, "0")}` : `${sec}s`;
+}
+
+function bottone(testo, tipo, classe = "btn") {
+  const b = document.createElement("button");
+  b.className = classe;
+  b.textContent = testo;
+  b.addEventListener("click", () => comando(tipo));
+  return b;
+}
+
+function disegnaCoda() {
+  const vuoto = el("queueEmpty");
+  const azioni = el("queueActions");
+  const errori = el("queueErrors");
+
+  // Senza coda, lo spazio serve a dirti da dove si parte.
   if (!coda?.items?.length) {
-    blocco.hidden = true;
+    el("queueBar").hidden = true;
+    el("queueItem").hidden = true;
+    el("queueState").textContent = "";
+    el("queueCount").textContent = "";
+    azioni.textContent = "";
+    errori.textContent = "";
+    vuoto.hidden = false;
+    clearInterval(tic);
+    tic = null;
     return;
   }
-  blocco.hidden = false;
+
+  vuoto.hidden = true;
+  el("queueBar").hidden = false;
 
   const fatti = coda.items.filter((i) => i.status !== "pending").length;
   const falliti = coda.items.filter((i) => i.status === "error");
+  const corrente = coda.items[coda.index];
 
-  document.getElementById("queueCount").textContent = `${fatti} / ${coda.items.length}`;
-  document.getElementById("queueFill").style.width = `${(fatti / coda.items.length) * 100}%`;
+  el("queueCount").textContent = `${fatti} / ${coda.items.length}`;
+  el("queueFill").style.width = `${(fatti / coda.items.length) * 100}%`;
 
-  const stato = document.getElementById("queueState");
-  if (coda.running && coda.state === "working") stato.textContent = "In corso";
-  else if (coda.running && coda.nextAt) {
-    const min = Math.max(0, Math.round((coda.nextAt - Date.now()) / 60000));
-    stato.textContent = min > 0 ? `Prossimo tra ${min} min` : "A momenti";
-  } else stato.textContent = coda.note || "Finita";
+  const stato = el("queueState");
+  if (!coda.running) stato.textContent = coda.note || "Finita";
+  else if (coda.state === "paused") stato.textContent = "In pausa";
+  else if (coda.state === "scheduled") {
+    stato.textContent = `Programmata ${new Date(coda.nextAt).toLocaleString("it-IT", {
+      weekday: "short", hour: "2-digit", minute: "2-digit",
+    })}`;
+  } else if (coda.note) stato.textContent = coda.note;
+  else if (coda.state === "working") stato.textContent = "In corso";
+  else stato.textContent = `Prossimo tra ${manca((coda.nextAt || 0) - Date.now())}`;
 
-  const errori = document.getElementById("queueErrors");
+  const riga = el("queueItem");
+  riga.hidden = !corrente || !coda.running;
+  if (corrente && coda.running) riga.textContent = corrente.title;
+
+  // Gli articoli falliti esistono ancora: cliccandoli li apri.
   errori.textContent = "";
   for (const item of falliti) {
-    const riga = document.createElement("div");
-    riga.textContent = `${item.title}: ${item.error}`;
-    errori.append(riga);
+    const a = document.createElement("a");
+    a.href = `https://www.vinted.it/items/${item.id}`;
+    a.target = "_blank";
+    a.textContent = `${item.title} — ${item.error}`;
+    a.title = item.error;
+    errori.append(a);
   }
 
-  const stop = document.getElementById("queueStop");
-  stop.textContent = coda.running ? "Interrompi" : "Nascondi";
-  stop.onclick = async () => {
-    if (coda.running) await chrome.runtime.sendMessage({ type: "vr:queueStop" });
-    else await chrome.storage.local.remove("vrQueue");
-    blocco.hidden = true;
-  };
+  azioni.textContent = "";
+  if (!coda.running) {
+    const chiudi = document.createElement("button");
+    chiudi.className = "btn quiet";
+    chiudi.textContent = "Nascondi";
+    chiudi.addEventListener("click", async () => {
+      await chrome.storage.local.remove("vrQueue");
+      coda = null;
+      disegnaCoda();
+    });
+    azioni.append(chiudi);
+  } else if (coda.state === "paused") {
+    azioni.append(bottone("Riprendi", "vr:queueResume"), bottone("Interrompi", "vr:queueStop", "btn danger"));
+  } else if (coda.state === "scheduled") {
+    azioni.append(bottone("Annulla", "vr:queueStop", "btn danger"));
+  } else {
+    azioni.append(
+      bottone("Pausa", "vr:queuePause", "btn quiet"),
+      bottone("Salta", "vr:queueSkip", "btn quiet"),
+      bottone("Interrompi", "vr:queueStop", "btn danger")
+    );
+  }
+
+  // Il conto alla rovescia deve scorrere anche col popup aperto fermo.
+  const serveTic = coda.running && coda.state !== "working" && coda.state !== "paused";
+  if (serveTic && !tic) tic = setInterval(disegnaCoda, 1000);
+  if (!serveTic && tic) { clearInterval(tic); tic = null; }
 }
 
-chrome.storage.local.get("vrQueue").then(({ vrQueue }) => mostraCoda(vrQueue));
+chrome.storage.local.get("vrQueue").then(({ vrQueue }) => {
+  coda = vrQueue || null;
+  disegnaCoda();
+});
 
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && changes.vrQueue) mostraCoda(changes.vrQueue.newValue);
+// ------------------------------------------------------------------ attivita'
+
+function disegnaAttivita(storia) {
+  const ora = Date.now();
+  const entro = (giorni) => storia.filter((v) => v.at > ora - giorni * 86400000).length;
+
+  const oggi = storia.filter((v) => new Date(v.at).toDateString() === new Date().toDateString()).length;
+  const settimana = entro(7);
+
+  el("statToday").textContent = oggi;
+  el("statWeek").textContent = settimana;
+  el("statMonth").textContent = entro(30);
+
+  // Il dato che conta: ripubblicare lo stesso articolo ogni giorno rende meno
+  // che non farlo affatto. Un numero in chiaro avvisa meglio di un paragrafo.
+  const ripetuti = new Set();
+  const visti = new Set();
+  for (const v of storia.filter((x) => x.at > ora - 7 * 86400000)) {
+    if (visti.has(v.id)) ripetuti.add(v.id);
+    visti.add(v.id);
+  }
+  el("statHint").textContent = ripetuti.size
+    ? `${ripetuti.size} articoli ripubblicati più di una volta negli ultimi 7 giorni.`
+    : "Lo stesso articolo rende di più se ripubblicato ogni 5–7 giorni.";
+}
+
+chrome.storage.local.get("vrHistory").then(({ vrHistory }) => disegnaAttivita(vrHistory || []));
+
+// ------------------------------------------------------------------- formati
+
+function mostraFormato(nome, appreso, dettaglio) {
+  el(`${nome}Dot`).classList.toggle("on", Boolean(appreso));
+  const stato = el(`${nome}State`);
+  stato.textContent = appreso ? "appreso" : "predefinito";
+  stato.title = dettaglio || "";
+}
+
+chrome.storage.local.get(["photoFormat", "itemFormat", "userId"]).then(
+  ({ photoFormat, itemFormat, userId }) => {
+    const campiFoto = photoFormat
+      ? [...Object.keys(photoFormat.constants || {}), photoFormat.uuidField, photoFormat.fileField]
+          .filter(Boolean).join(", ")
+      : "";
+
+    mostraFormato("photo", photoFormat, campiFoto);
+    mostraFormato("item", itemFormat?.fields?.length, (itemFormat?.fields || []).join(", "));
+
+    el("statusHint").textContent =
+      photoFormat && itemFormat?.fields?.length
+        ? "Entrambi rilevati dalle richieste di Vinted."
+        : "Si aggiornano da soli quando pubblichi o modifichi un annuncio su Vinted.";
+
+    el("wardrobeLink").href = userId
+      ? `https://www.vinted.it/member/${userId}`
+      : "https://www.vinted.it/";
+  }
+);
+
+el("verify").addEventListener("click", async () => {
+  const bottone = el("verify");
+  const esito = el("verifyResult");
+
+  bottone.disabled = true;
+  bottone.textContent = "Controllo…";
+  esito.hidden = false;
+  esito.textContent = "Leggo un articolo e preparo il payload, senza pubblicare niente.";
+
+  try {
+    const [scheda] = await chrome.tabs.query({ url: "https://www.vinted.it/*" });
+    if (!scheda) throw new Error("Apri una scheda su vinted.it.");
+
+    const risposta = await chrome.tabs.sendMessage(scheda.id, { type: "vr:canaryAny" });
+    esito.textContent = risposta?.ok
+      ? "Tutto in regola: la coda può partire."
+      : `Problemi: ${(risposta?.problemi || ["nessuna risposta"]).join(" · ")}`;
+  } catch (errore) {
+    esito.textContent = `Non riesco a verificare: ${errore.message}`;
+  }
+
+  bottone.disabled = false;
+  bottone.textContent = "Verifica formato";
 });
 
 // ---------------------------------------------------------------------- bozze
 
-chrome.storage.local.get(null).then((everything) => {
-  const entries = Object.entries(everything).filter(([key]) => key.startsWith("vrBackup:"));
-  if (!entries.length) return;                       // sezione nascosta se non serve
+chrome.storage.local.get(null).then((tutto) => {
+  const voci = Object.entries(tutto).filter(([chiave]) => chiave.startsWith("vrBackup:"));
+  if (!voci.length) return;
 
-  document.getElementById("draftsBlock").hidden = false;
+  el("draftsBlock").hidden = false;
+  const contenitore = el("drafts");
 
-  const container = document.getElementById("drafts");
-  for (const [key, value] of entries) {
-    const row = document.createElement("div");
-    const when = new Date(value.at).toLocaleDateString("it-IT");
-    row.textContent = `${value.draft?.title || key.split(":")[1]} — ${when}`;
-    container.append(row);
+  for (const [chiave, valore] of voci) {
+    const riga = document.createElement("div");
+    riga.textContent = `${valore.draft?.title || chiave.split(":")[1]} — ${new Date(valore.at).toLocaleDateString("it-IT")}`;
+    contenitore.append(riga);
   }
 
-  const button = document.getElementById("copy");
-  button.addEventListener("click", async () => {
-    await navigator.clipboard.writeText(JSON.stringify(Object.fromEntries(entries), null, 2));
-    button.textContent = "Copiato";
-    setTimeout(() => (button.textContent = "Copia negli appunti"), 1500);
+  const bottone = el("copy");
+  bottone.addEventListener("click", async () => {
+    await navigator.clipboard.writeText(JSON.stringify(Object.fromEntries(voci), null, 2));
+    bottone.textContent = "Copiato";
+    setTimeout(() => (bottone.textContent = "Copia negli appunti"), 1500);
   });
+});
+
+// ------------------------------------------------------------- aggiornamenti
+
+chrome.storage.onChanged.addListener((modifiche, area) => {
+  if (area !== "local") return;
+  if (modifiche.vrQueue) {
+    coda = modifiche.vrQueue.newValue || null;
+    disegnaCoda();
+  }
+  if (modifiche.vrHistory) disegnaAttivita(modifiche.vrHistory.newValue || []);
 });

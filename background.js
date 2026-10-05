@@ -144,22 +144,60 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       error: null,
     }));
 
+    const parteA = Number(message.startAt) || 0;
+    const programmata = parteA > Date.now() + 1000;
+
     scriviCoda({
       items,
       index: 0,
       intervalMin: Math.max(1, Number(message.intervalMin) || 20),
+      overrides: message.overrides || null,
       running: items.length > 0,
-      state: "waiting",
+      state: programmata ? "scheduled" : "waiting",
       startedAt: Date.now(),
-      nextAt: Date.now(),
+      nextAt: programmata ? parteA : Date.now(),
+      backoff: 0,
       note: null,
     })
       .then(() => {
         chrome.alarms.clear(ALARM_WATCHDOG);
-        return passoCoda();                       // il primo parte subito
+        // L'avvio programmato e' l'unico momento che non va sporcato dallo
+        // scarto casuale: se chiedi le 20:00, parte alle 20:00.
+        if (programmata) return chrome.alarms.create(ALARM_NEXT, { when: parteA });
+        return passoCoda();
       })
       .then(() => sendResponse({ ok: true, count: items.length }))
       .catch((error) => sendResponse({ ok: false, error: String(error) }));
+    return true;
+  }
+
+  if (message?.type === "vr:queuePause") {
+    pausaCoda().then(() => sendResponse({ ok: true }));
+    return true;
+  }
+
+  if (message?.type === "vr:queueResume") {
+    riprendiCoda().then(() => sendResponse({ ok: true }));
+    return true;
+  }
+
+  if (message?.type === "vr:queueSkip") {
+    saltaCorrente().then(() => sendResponse({ ok: true }));
+    return true;
+  }
+
+  /**
+   * Registro delle ripubblicazioni riuscite, singole e in coda.
+   * Serve a mostrarti quante ne hai fatte: ripubblicare troppo spesso rende
+   * meno che non farlo, e un numero in chiaro vale piu' di un avvertimento.
+   */
+  if (message?.type === "vr:relistLogged") {
+    const limite = Date.now() - 30 * 24 * 3600 * 1000;
+    chrome.storage.local.get("vrHistory").then(({ vrHistory }) => {
+      const storia = (vrHistory || []).filter((voce) => voce.at > limite);
+      storia.push({ at: Date.now(), id: String(message.itemId) });
+      return chrome.storage.local.set({ vrHistory: storia });
+    }).then(() => sendResponse({ ok: true }));
     return true;
   }
 
@@ -171,7 +209,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "vr:relistDone") {
-    esitoCoda(message.itemId, message.ok, message.error)
+    esitoCoda(message.itemId, message.ok, message.error, message.blocked)
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: String(error) }));
     return true;
@@ -216,13 +254,24 @@ const QUEUE_KEY = "vrQueue";
 const ALARM_NEXT = "vr:queueNext";
 const ALARM_WATCHDOG = "vr:queueWatchdog";
 const WATCHDOG_MIN = 6;          // oltre questo, l'articolo e' considerato fallito
-const MAX_ATTESE = 60;           // minuti di attesa di una scheda Vinted aperta
+const MAX_ATTESE = 60;           // minuti di attesa complessivi: scheda chiusa o utente assente
+const RALLENTA = [5, 15, 45];    // minuti di pausa dopo un 429 o un 403, in scala
+const JITTER = 0.3;              // ±30% sull'intervallo, per non avere un ritmo a metronomo
+const INATTIVO_SEC = 300;        // oltre, consideriamo che tu non sia al computer
+
+const impostazioni = () =>
+  chrome.storage.local.get({ humanRhythm: true, notifyOnFinish: true });
 
 const leggiCoda = async () => (await chrome.storage.local.get(QUEUE_KEY))[QUEUE_KEY] || null;
 const scriviCoda = (coda) => chrome.storage.local.set({ [QUEUE_KEY]: coda });
 
-async function schedulaProssimo(minuti) {
-  const quando = Date.now() + minuti * 60_000;
+async function schedulaProssimo(minuti, esatto = false) {
+  const { humanRhythm } = await impostazioni();
+
+  // Venti minuti esatti per tre ore sono una firma: nessuna persona e' cosi'
+  // regolare. Lo scarto casuale costa niente e toglie il motivo piu' ovvio.
+  const scarto = humanRhythm && !esatto ? 1 + (Math.random() * 2 - 1) * JITTER : 1;
+  const quando = Date.now() + Math.max(30_000, minuti * 60_000 * scarto);
   const coda = await leggiCoda();
   if (coda) {
     coda.nextAt = quando;
@@ -245,6 +294,84 @@ async function fermaCoda(motivo) {
 
   chrome.alarms.clear(ALARM_NEXT);
   chrome.alarms.clear(ALARM_WATCHDOG);
+
+  const { notifyOnFinish } = await impostazioni();
+  if (!notifyOnFinish || !coda.items?.length) return;
+
+  const fatti = coda.items.filter((i) => i.status === "done").length;
+  const falliti = coda.items.filter((i) => i.status === "error").length;
+  const saltati = coda.items.filter((i) => i.status === "skipped").length;
+
+  chrome.notifications.create({
+    type: "basic",
+    iconUrl: chrome.runtime.getURL("icons/icon128.png"),
+    title: falliti ? "Coda finita con errori" : "Coda finita",
+    message:
+      (motivo ? `${motivo} ` : "") +
+      `${fatti} ripubblicati${falliti ? `, ${falliti} falliti` : ""}` +
+      `${saltati ? `, ${saltati} saltati` : ""}.`,
+  });
+}
+
+/**
+ * Pausa: se un articolo e' in lavorazione non lo interrompiamo a meta',
+ * registriamo l'intenzione e la applichiamo quando arriva il suo esito.
+ */
+async function pausaCoda() {
+  const coda = await leggiCoda();
+  if (!coda?.running || coda.state === "paused") return;
+
+  coda.pauseRequested = true;
+  if (coda.state === "working") return scriviCoda(coda);
+
+  coda.pausedRemainingMs = Math.max(0, (coda.nextAt || Date.now()) - Date.now());
+  coda.state = "paused";
+  coda.nextAt = null;
+  coda.pauseRequested = false;
+  await scriviCoda(coda);
+
+  chrome.alarms.clear(ALARM_NEXT);
+  chrome.alarms.clear(ALARM_WATCHDOG);
+}
+
+async function riprendiCoda() {
+  const coda = await leggiCoda();
+  if (!coda?.running || coda.state !== "paused") return;
+
+  // Riprende da dove si era fermata: il tempo gia' atteso non si butta via.
+  const quando = Date.now() + (coda.pausedRemainingMs || 0);
+  coda.state = "waiting";
+  coda.pauseRequested = false;
+  coda.pausedRemainingMs = null;
+  coda.nextAt = quando;
+  await scriviCoda(coda);
+
+  chrome.alarms.create(ALARM_NEXT, { when: quando });
+}
+
+/** Salta l'articolo corrente: non ha pubblicato niente, quindi non si aspetta. */
+async function saltaCorrente() {
+  const coda = await leggiCoda();
+  if (!coda?.running) return;
+
+  const corrente = coda.items[coda.index];
+  if (corrente) {
+    corrente.status = "skipped";
+    corrente.error = "saltato a mano";
+  }
+  const eraInLavorazione = coda.state === "working";
+  coda.index += 1;
+  coda.backoff = 0;
+  coda.note = null;
+  await scriviCoda(coda);
+
+  chrome.alarms.clear(ALARM_WATCHDOG);
+  if (coda.index >= coda.items.length) return fermaCoda();
+
+  // Se l'articolo saltato e' ancora in volo, non partiamo subito: due
+  // ripubblicazioni sovrapposte nella stessa scheda si ostacolano.
+  if (eraInLavorazione) return schedulaProssimo(coda.intervalMin);
+  return passoCoda();
 }
 
 async function schedaVinted() {
@@ -259,6 +386,19 @@ async function passoCoda() {
 
   const corrente = coda.items[coda.index];
   if (!corrente) return fermaCoda();
+
+  const { humanRhythm } = await impostazioni();
+  if (humanRhythm) {
+    const stato = await chrome.idle.queryState(INATTIVO_SEC);
+    if (stato !== "active") {
+      // Ripubblicare mentre non c'e' nessuno davanti allo schermo e' il
+      // comportamento piu' facile da riconoscere. Aspettiamo che torni.
+      coda.waited = (coda.waited || 0) + 2;
+      await scriviCoda(coda);
+      if (coda.waited > MAX_ATTESE) return fermaCoda("Interrotta: sei stato via troppo.");
+      return schedulaProssimo(2, true);
+    }
+  }
 
   const tab = await schedaVinted();
   if (!tab) {
@@ -276,7 +416,11 @@ async function passoCoda() {
   await scriviCoda(coda);
 
   try {
-    await chrome.tabs.sendMessage(tab.id, { type: "vr:relistOne", itemId: corrente.id });
+    await chrome.tabs.sendMessage(tab.id, {
+      type: "vr:relistOne",
+      itemId: corrente.id,
+      overrides: coda.overrides || {},
+    });
     chrome.alarms.create(ALARM_WATCHDOG, { delayInMinutes: WATCHDOG_MIN });
   } catch {
     // content script non pronto: riprovo fra un minuto senza consumare l'articolo
@@ -287,13 +431,30 @@ async function passoCoda() {
 }
 
 /** Registra l'esito e programma il successivo. */
-async function esitoCoda(itemId, ok, error) {
+async function esitoCoda(itemId, ok, error, blocked = false) {
   const coda = await leggiCoda();
   if (!coda?.running) return;
 
   const corrente = coda.items[coda.index];
   if (!corrente || String(corrente.id) !== String(itemId)) return;   // esito fuori tempo
 
+  // Un blocco non e' colpa dell'articolo: non lo consumiamo, rallentiamo.
+  // Continuare a bussare dopo un 429 e' il modo migliore per peggiorare.
+  if (blocked) {
+    chrome.alarms.clear(ALARM_WATCHDOG);
+    const passo = coda.backoff || 0;
+
+    if (passo >= RALLENTA.length) {
+      return fermaCoda(`Interrotta: Vinted continua a bloccare. ${error || ""}`.trim());
+    }
+    coda.backoff = passo + 1;
+    coda.note = `In pausa ${RALLENTA[passo]} min: ${error || "richiesta bloccata"}`;
+    await scriviCoda(coda);
+    return schedulaProssimo(RALLENTA[passo], true);
+  }
+
+  coda.backoff = 0;
+  coda.note = null;
   corrente.status = ok ? "done" : "error";
   corrente.error = ok ? null : error || "errore sconosciuto";
   coda.index += 1;
@@ -302,6 +463,16 @@ async function esitoCoda(itemId, ok, error) {
   chrome.alarms.clear(ALARM_WATCHDOG);
 
   if (coda.index >= coda.items.length) return fermaCoda();
+
+  if (coda.pauseRequested) {
+    coda.pauseRequested = false;
+    coda.state = "paused";
+    coda.pausedRemainingMs = coda.intervalMin * 60_000;
+    coda.nextAt = null;
+    await scriviCoda(coda);
+    return;
+  }
+
   schedulaProssimo(coda.intervalMin);
 }
 

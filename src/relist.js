@@ -68,6 +68,7 @@
         return await run();
       } catch (error) {
         lastError = error;
+        if (error.blocked) throw error;          // insistere su un 429 lo peggiora
         VR.warn(`${label}: tentativo ${attempt}/${attempts} fallito — ${error.message}`);
         if (attempt < attempts) await VR.sleep(800 * attempt);
       }
@@ -189,6 +190,16 @@
     if (overrides.price != null && overrides.price !== "") {
       draft.price = Number(overrides.price);
     }
+    // Lo sconto percentuale si applica al prezzo dell'articolo, quindi va
+    // calcolato qui e non quando metti gli articoli in coda.
+    if (overrides.pricePercent) {
+      const base = Number(draft.price) || 0;
+      const nuovo = base * (1 + Number(overrides.pricePercent) / 100);
+      draft.price = Math.max(0.5, Math.round(nuovo * 100) / 100);
+    }
+    if (overrides.descriptionAppend) {
+      draft.description = `${draft.description || ""}\n${overrides.descriptionAppend}`.trim();
+    }
     return draft;
   }
 
@@ -285,11 +296,60 @@
     }
 
     await chrome.storage.local.remove(`vrBackup:${itemId}`);
+
+    // Registro delle ripubblicazioni: passa di qui sia il bottone singolo sia la coda.
+    chrome.runtime.sendMessage({ type: "vr:relistLogged", itemId: String(itemId) }).catch(() => {});
+
     onProgress("Fatto");
     return created;
   }
 
   VR.relist = relist;
+
+  /**
+   * Prova a vuoto su un articolo: legge, costruisce il payload e scarica e
+   * converte la prima foto. Non carica, non crea, non cancella niente.
+   * Serve a non far partire una coda di tre ore se Vinted ha cambiato qualcosa.
+   */
+  VR.canary = async (itemId) => {
+    const problemi = [];
+
+    let source;
+    try {
+      source = await VR.api.getUploadDraft(itemId);
+    } catch (error) {
+      return { ok: false, problemi: [`lettura articolo: ${error.message}`] };
+    }
+
+    const urls = photoUrls(source);
+    if (!urls.length) problemi.push("nessuna foto trovata");
+
+    const draft = buildDraft(source, [1], {});
+    for (const campo of ["title", "catalog_id", "price"]) {
+      if (draft[campo] == null || draft[campo] === "") problemi.push(`campo ${campo} vuoto`);
+    }
+    if (Array.isArray(draft.color_ids) && !draft.color_ids.length) {
+      problemi.push("nessun colore: Vinted lo richiede");
+    }
+
+    const attesi = VR.settings.itemFormat?.fields;
+    if (attesi?.length) {
+      const mancanti = attesi.filter((campo) => !(campo in draft));
+      if (mancanti.length) problemi.push(`campi mancanti: ${mancanti.join(", ")}`);
+    }
+
+    if (urls.length) {
+      try {
+        const originale = await VR.api.downloadPhoto(urls[0]);
+        const jpeg = await toJpeg(originale);
+        if (jpeg.size < 2048) problemi.push("la foto convertita e' sospettosamente piccola");
+      } catch (error) {
+        problemi.push(`foto: ${error.message}`);
+      }
+    }
+
+    return { ok: problemi.length === 0, problemi };
+  };
 
   /** Che tipo ha un valore, distinguendo null e array. */
   function typeOf(value) {
@@ -359,30 +419,4 @@
     return draft;
   };
 
-  /**
-   * Diagnostica da console: VR.debug(123456)
-   * Ferma tutto prima di creare o cancellare qualcosa e stampa cosa succede
-   * a ogni passo del ciclo delle foto.
-   */
-  VR.debug = async (itemId) => {
-    const item = await VR.api.getUploadDraft(itemId);
-    const urls = photoUrls(item);
-    console.log("foto trovate:", urls);
-
-    const original = await VR.api.downloadPhoto(urls[0]);
-    console.log("scaricata:", original.type, original.size);
-
-    const jpeg = await toJpeg(original);
-    console.log("convertita:", jpeg.type, jpeg.size);
-
-    const id = await VR.api.uploadPhoto(jpeg, "test.jpg", VR.uuid());
-    console.log("caricata con id:", id);
-
-    return {
-      urls,
-      original: { type: original.type, size: original.size },
-      jpeg: { type: jpeg.type, size: jpeg.size },
-      id,
-    };
-  };
 })();

@@ -1,55 +1,136 @@
 :root {
   --teal: #007782;
-  --teal-dark: #005f68;
   --teal-tint: #e6f1f2;
+  --green: #1a8754;
+  --red: #d93b3b;
+  --bg: #ffffff;
+  --surface: #f7f7f7;
   --text: #171717;
   --muted: #757575;
   --border: #e3e3e3;
   --grey: #c4c4c4;
 }
 
+/* Brave sta quasi sempre in scuro: un rettangolo bianco in faccia e' una scelta, non un default */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --teal: #4db6bd;
+    --teal-tint: #15323a;
+    --green: #4caf7d;
+    --red: #ef6b6b;
+    --bg: #1c1d1f;
+    --surface: #26282b;
+    --text: #e8e8e8;
+    --muted: #9a9a9a;
+    --border: #3a3c40;
+    --grey: #55585d;
+  }
+}
+
 * { box-sizing: border-box; }
 
+/* Senza questa, un elemento con display dichiarato ignora l'attributo hidden */
+[hidden] { display: none !important; }
+
 body {
-  width: 320px;
+  width: 340px;
   margin: 0;
-  padding: 16px 18px 14px;
+  padding: 14px 16px 12px;
+  background: var(--bg);
+  color: var(--text);
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   font-size: 14px;
   line-height: 1.4;
-  color: var(--text);
 }
 
 .head {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
+  align-items: center;
+  gap: 9px;
   margin-bottom: 14px;
 }
+
+.head-icon { width: 20px; height: 20px; border-radius: 5px; }
 
 .head h1 {
   font-size: 15px;
   font-weight: 700;
   margin: 0;
+  flex: 1;
 }
 
-.version {
-  font-size: 11px;
-  color: var(--muted);
-}
+.version { font-size: 11px; color: var(--muted); }
 
 .block {
-  padding-bottom: 14px;
-  margin-bottom: 14px;
+  padding-bottom: 13px;
+  margin-bottom: 13px;
   border-bottom: 1px solid var(--border);
 }
 
 .block-title {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
   color: var(--muted);
+  margin-bottom: 9px;
+}
+
+/* ------------------------------------------------------------------- coda */
+
+.queue-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.queue-state { font-weight: 600; }
+.queue-count { font-size: 12px; color: var(--muted); flex: 0 0 auto; }
+
+.bar {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
   margin-bottom: 8px;
 }
+
+.bar-fill {
+  height: 100%;
+  width: 0;
+  background: var(--teal);
+  transition: width 0.3s ease;
+}
+
+.queue-item {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin-bottom: 9px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-errors { font-size: 12px; margin-bottom: 9px; }
+
+.queue-errors a {
+  display: block;
+  color: var(--red);
+  text-decoration: none;
+  padding: 2px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-errors a:hover { text-decoration: underline; }
+
+.queue-actions { display: flex; gap: 7px; }
+.queue-actions .btn { flex: 1; }
+
+.empty { font-size: 12.5px; color: var(--muted); }
+.empty a { color: var(--teal); }
 
 /* ---------------------------------------------------------------- caselle */
 
@@ -61,8 +142,6 @@ body {
   cursor: pointer;
 }
 
-.check + .check { margin-top: 2px; }
-
 .check input {
   accent-color: var(--teal);
   width: 16px;
@@ -71,16 +150,18 @@ body {
   flex: 0 0 auto;
 }
 
-/* ------------------------------------------------------------------ campi */
-
-.fields {
-  display: flex;
-  gap: 10px;
-  align-items: flex-end;
+.desc {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 1px 0 9px 26px;
 }
 
-.field { flex: 1; min-width: 0; }
-.field.narrow { flex: 0 0 82px; }
+.desc:last-child { margin-bottom: 0; }
+
+/* ------------------------------------------------------------------ campi */
+
+.field { display: block; }
+.field.wide { margin-top: 9px; }
 
 .field-label {
   display: block;
@@ -97,7 +178,7 @@ input[type="number"] {
   border-radius: 8px;
   font: inherit;
   font-size: 13px;
-  background: #fff;
+  background: var(--bg);
   color: var(--text);
 }
 
@@ -107,6 +188,21 @@ input[type="number"]:focus {
   border-color: var(--teal);
   box-shadow: 0 0 0 3px var(--teal-tint);
 }
+
+/* --------------------------------------------------------------- attivita' */
+
+.stats { display: flex; gap: 8px; }
+
+.stat {
+  flex: 1;
+  background: var(--surface);
+  border-radius: 9px;
+  padding: 8px 6px;
+  text-align: center;
+}
+
+.stat b { display: block; font-size: 17px; line-height: 1.2; }
+.stat span { font-size: 11px; color: var(--muted); }
 
 /* ------------------------------------------------------------------ stato */
 
@@ -125,42 +221,48 @@ input[type="number"]:focus {
   flex: 0 0 auto;
 }
 
-.dot.on { background: var(--teal); }
-
+.dot.on { background: var(--green); }
 .status-name { flex: 1; }
+.status-state { font-size: 12px; color: var(--muted); }
 
-.status-state {
-  font-size: 12px;
+/* -------------------------------------------------------------- avanzate */
+
+.advanced summary {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
   color: var(--muted);
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.hint {
-  font-size: 12px;
-  color: var(--muted);
-  margin: 8px 0 0;
+.advanced summary::-webkit-details-marker { display: none; }
+
+.advanced summary::before {
+  content: "›";
+  font-size: 14px;
+  transition: transform 0.15s ease;
 }
+
+.advanced[open] summary::before { transform: rotate(90deg); }
+.advanced[open] summary { margin-bottom: 9px; }
 
 /* ----------------------------------------------------------------- bozze */
 
-.drafts {
-  font-size: 12px;
-  color: var(--muted);
-  margin-bottom: 8px;
-}
-
-.drafts div {
-  padding: 3px 0;
-  color: var(--text);
-}
+.drafts { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.drafts div { padding: 3px 0; color: var(--text); }
 
 /* --------------------------------------------------------------- bottoni */
 
 .btn {
   width: 100%;
-  padding: 9px;
+  padding: 8px;
   border: 1px solid var(--teal);
   border-radius: 8px;
-  background: #fff;
+  background: transparent;
   color: var(--teal);
   font: inherit;
   font-size: 13px;
@@ -169,6 +271,7 @@ input[type="number"]:focus {
 }
 
 .btn:hover { background: var(--teal-tint); }
+.btn:disabled { opacity: 0.5; cursor: default; }
 
 .btn:focus-visible {
   outline: 2px solid var(--teal);
@@ -181,46 +284,8 @@ input[type="number"]:focus {
   font-weight: 500;
 }
 
-.btn.quiet:hover {
-  background: #f7f7f7;
-  color: var(--text);
-}
+.btn.quiet:hover { background: var(--surface); color: var(--text); }
+.btn.danger { border-color: var(--border); color: var(--muted); }
+.btn.danger:hover { border-color: var(--red); color: var(--red); background: transparent; }
 
-.foot { margin-top: -4px; }
-
-/* ------------------------------------------------------------------- coda */
-
-.queue-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: 7px;
-}
-
-.queue-count {
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.bar {
-  height: 5px;
-  border-radius: 3px;
-  background: var(--border);
-  overflow: hidden;
-  margin-bottom: 10px;
-}
-
-.bar-fill {
-  height: 100%;
-  width: 0;
-  background: var(--teal);
-  transition: width 0.3s ease;
-}
-
-.queue-errors {
-  font-size: 12px;
-  color: #d93b3b;
-  margin-bottom: 8px;
-}
-
-.queue-errors div { padding: 2px 0; }
+.foot { margin-top: -3px; }

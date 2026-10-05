@@ -76,6 +76,12 @@
 
   // ---------------------------------------------------------------- request
 
+  /** Marca un errore come "ci stanno sbarrando la strada", non come dato sbagliato. */
+  function bloccato(error) {
+    error.blocked = true;
+    return error;
+  }
+
   async function request(method, path, { body, formData, referrer, retryOn403 = true } = {}) {
     const headers = await baseHeaders();
     const init = { method, credentials: "include", headers };
@@ -93,14 +99,20 @@
 
     const response = await fetch(path.startsWith("http") ? path : BASE + path, init);
 
-    if (response.status === 403 && retryOn403) {
-      cachedCsrf = null;                          // token scaduto: uno e un solo retry
-      await getCsrf(true);
-      return request(method, path, { body, formData, referrer, retryOn403: false });
+    if (response.status === 403) {
+      if (retryOn403) {
+        cachedCsrf = null;                        // token scaduto: uno e un solo retry
+        await getCsrf(true);
+        return request(method, path, { body, formData, referrer, retryOn403: false });
+      }
+      // gia' riprovato con un token nuovo: non e' la sessione, e' l'antibot
+      throw bloccato(new Error("Vinted ha rifiutato la richiesta (403): probabile antibot."));
     }
 
+    // 429 = troppe richieste, 403 persistente = antibot. In coda vanno trattati
+    // diversamente da un errore di contenuto: non si riprova subito, si rallenta.
     if (response.status === 429) {
-      throw new Error("Vinted sta limitando le richieste (429). Aspetta qualche minuto.");
+      throw bloccato(new Error("Vinted sta limitando le richieste (429)."));
     }
 
     const text = await response.text();
@@ -170,8 +182,6 @@
   }
 
   const api = {
-    getCsrf,
-
     /** Dati dell'articolo nel formato che si aspetta il form di pubblicazione. */
     async getUploadDraft(itemId) {
       const payload = await request("GET", `/item_upload/items/${itemId}`);

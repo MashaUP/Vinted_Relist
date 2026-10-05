@@ -1,12 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Vinted Relist",
-  "version": "1.2.0",
+  "version": "1.4.1",
   "description": "Ripubblica un articolo Vinted con un clic: clona l'annuncio (foto e dati) e rimuove quello vecchio.",
   "permissions": [
     "storage",
     "webRequest",
-    "alarms"
+    "alarms",
+    "notifications",
+    "idle"
   ],
   "host_permissions": [
     "https://www.vinted.it/*",
