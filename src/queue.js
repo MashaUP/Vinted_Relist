@@ -89,8 +89,12 @@
     const parti = [];
     const o = bozza.overrides || {};
     if (o.pricePercent) parti.push(`${o.pricePercent > 0 ? "+" : ""}${o.pricePercent}% sul prezzo`);
+    if (o.priceDelta) parti.push(`${o.priceDelta > 0 ? "+" : ""}${o.priceDelta.toFixed(2)} € sul prezzo`);
     if (o.price) parti.push(`prezzo a ${o.price} €`);
     if (o.descriptionAppend) parti.push("riga aggiunta alla descrizione");
+    if (o.colorIds?.length) {
+      parti.push(`colore ${(VR.settings.colorMap || {})[o.colorIds[0]] || o.colorIds[0]} se manca`);
+    }
     if (bozza.startAt) {
       parti.push(
         `parte ${new Date(bozza.startAt).toLocaleString("it-IT", {
@@ -101,6 +105,26 @@
     return parti.join(" · ");
   }
 
+  /**
+   * Menu dei colori costruito sui colori visti nei tuoi articoli.
+   * Nessun elenco inventato: si riempie man mano che leggi gli annunci.
+   */
+  VR.selectColore = (selezionato) => {
+    const noti = Object.entries(VR.settings.colorMap || {}).sort((a, b) =>
+      a[1].localeCompare(b[1], "it")
+    );
+
+    const select = VR.h("select", { class: "vr-input" },
+      VR.h("option", { value: "" }, noti.length ? "Non modificare" : "Nessun colore conosciuto")
+    );
+    for (const [id, nome] of noti) {
+      select.append(VR.h("option", { value: id }, nome));
+    }
+    if (selezionato) select.value = String(selezionato);
+    select.disabled = !noti.length;
+    return select;
+  };
+
   /** Dialog unico: modifiche in blocco e avvio programmato. */
   function apriOpzioni() {
     const h2 = VR.h;
@@ -108,14 +132,17 @@
 
     const modo = h2("select", { class: "vr-input" },
       h2("option", { value: "" }, "Prezzo invariato"),
-      h2("option", { value: "percent" }, "Variazione percentuale"),
+      h2("option", { value: "percent" }, "Variazione in percentuale"),
+      h2("option", { value: "delta" }, "Variazione in euro"),
       h2("option", { value: "fixed" }, "Prezzo fisso")
     );
     const valore = h2("input", { class: "vr-input", type: "number", step: "0.5" });
     const descrizione = h2("textarea", { class: "vr-input vr-input--area", rows: "3" });
     const quando = h2("input", { class: "vr-input", type: "datetime-local" });
+    const colore = VR.selectColore(o.colorIds?.[0]);
 
     if (o.pricePercent) { modo.value = "percent"; valore.value = String(o.pricePercent); }
+    else if (o.priceDelta) { modo.value = "delta"; valore.value = String(o.priceDelta); }
     else if (o.price) { modo.value = "fixed"; valore.value = String(o.price); }
     descrizione.value = o.descriptionAppend || "";
     if (bozza.startAt) {
@@ -123,9 +150,11 @@
       quando.value = d.toISOString().slice(0, 16);
     }
 
+    const esempi = { percent: "es. -10", delta: "es. -0.50", fixed: "es. 8.50" };
     const aggiorna = () => {
       valore.disabled = !modo.value;
-      valore.placeholder = modo.value === "percent" ? "es. -10" : "es. 8.50";
+      valore.step = modo.value === "percent" ? "1" : "0.5";
+      valore.placeholder = esempi[modo.value] || "";
     };
     modo.addEventListener("change", aggiorna);
     aggiorna();
@@ -140,12 +169,20 @@
         h2("span", { class: "vr-field__label" }, "Aggiungi in fondo alla descrizione"),
         descrizione
       ),
-      h2("label", { class: "vr-field" },
-        h2("span", { class: "vr-field__label" }, "Avvia alle (vuoto = subito)"),
-        quando
+      h2("div", { class: "vr-row" },
+        h2("label", { class: "vr-field" },
+          h2("span", { class: "vr-field__label" }, "Colore se manca"),
+          colore
+        ),
+        h2("label", { class: "vr-field" },
+          h2("span", { class: "vr-field__label" }, "Avvia alle (vuoto = subito)"),
+          quando
+        )
       ),
       h2("p", { class: "vr-note" },
-        "La percentuale si calcola sul prezzo di ogni articolo al momento della ripubblicazione."
+        "Percentuale e variazione in euro si calcolano sul prezzo di ogni articolo al momento " +
+        "della ripubblicazione. Il colore viene messo solo dove manca: gli articoli che ne hanno " +
+        "gia' uno restano com'erano."
       ),
       h2("div", { class: "vr-actions" },
         h2("button", { class: "vr-btn vr-btn--ghost", onclick: () => chiudi() }, "Annulla"),
@@ -155,8 +192,10 @@
             const nuovo = {};
             const n = Number(valore.value);
             if (modo.value === "percent" && n) nuovo.pricePercent = n;
+            if (modo.value === "delta" && n) nuovo.priceDelta = n;
             if (modo.value === "fixed" && n > 0) nuovo.price = n;
             if (descrizione.value.trim()) nuovo.descriptionAppend = descrizione.value.trim();
+            if (colore.value) nuovo.colorIds = [Number(colore.value)];
 
             bozza.overrides = Object.keys(nuovo).length ? nuovo : null;
             bozza.startAt = quando.value ? new Date(quando.value).getTime() : null;
@@ -320,7 +359,7 @@
         titolo.textContent = "Controllo in corso…";
         sotto.textContent = "Prova a vuoto su un articolo, senza pubblicare niente.";
 
-        const esito = await VR.canary(items[0].id);
+        const esito = await VR.canary(items[0].id, bozza.overrides || {});
         avvia.disabled = false;
 
         if (!esito.ok) {

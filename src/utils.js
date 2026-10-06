@@ -13,6 +13,7 @@
     humanRhythm: true,        // intervalli irregolari e passi solo quando sei al computer
     notifyOnFinish: true,     // notifica di sistema a coda conclusa
     canary: true,             // prova a vuoto su un articolo prima di avviare la coda
+    colorMap: {},             // id → nome dei colori incontrati negli articoli letti
     photoFormat: null,        // formato multipart imparato dagli upload di Vinted
     itemFormat: null,         // campi del payload annuncio imparati da una modifica
   };

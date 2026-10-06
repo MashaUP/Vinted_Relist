@@ -93,6 +93,7 @@
     const title = h("input", { class: "vr-input", type: "text", maxlength: "100" });
     const description = h("textarea", { class: "vr-input vr-input--area", rows: "5" });
     const price = h("input", { class: "vr-input", type: "number", min: "0.5", step: "0.5" });
+    const colore = VR.selectColore();
     const deleteOld = h("input", { type: "checkbox", class: "vr-check", checked: VR.settings.deleteOld });
 
     const status = h("p", { class: "vr-note vr-note--loading" }, "Carico i dati dell'articolo…");
@@ -105,7 +106,10 @@
       status,
       h("label", { class: "vr-field" }, h("span", { class: "vr-field__label" }, "Titolo"), title),
       h("label", { class: "vr-field" }, h("span", { class: "vr-field__label" }, "Descrizione"), description),
-      h("label", { class: "vr-field" }, h("span", { class: "vr-field__label" }, "Prezzo (EUR)"), price),
+      h("div", { class: "vr-row" },
+        h("label", { class: "vr-field" }, h("span", { class: "vr-field__label" }, "Prezzo (EUR)"), price),
+        h("label", { class: "vr-field" }, h("span", { class: "vr-field__label" }, "Colore se manca"), colore)
+      ),
       h(
         "label",
         { class: "vr-checkline" },
@@ -149,6 +153,7 @@
         title: title.value,
         description: description.value,
         price: price.value,
+        colorIds: colore.value ? [Number(colore.value)] : undefined,
         deleteOld: deleteOld.checked,
       });
     });

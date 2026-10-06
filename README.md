@@ -60,10 +60,19 @@ ricaricare, aprire altre schede. Deve però restare **aperta almeno una scheda s
 perche' e' li' che la ripubblicazione viene eseguita. Se la chiudi, la coda aspetta fino a
 un'ora controllando ogni minuto, poi si interrompe.
 
-Il bottone **Opzioni** apre modifiche che valgono per tutti i selezionati — variazione
-percentuale o prezzo fisso, una riga da aggiungere in fondo alla descrizione — e l'orario di
-avvio: lasciandolo vuoto parte subito, altrimenti aspetta il momento che scegli. La percentuale
-si calcola sul prezzo di ogni articolo al momento della ripubblicazione, non quando lo selezioni.
+Il bottone **Opzioni** apre modifiche che valgono per tutti i selezionati e l'orario di avvio:
+lasciandolo vuoto parte subito, altrimenti aspetta il momento che scegli.
+
+Il prezzo si può toccare in tre modi: **in percentuale** (−10%), **in euro** (−0,50 € o +1,00 €)
+o **fisso** per tutti. Percentuale e variazione in euro si calcolano sul prezzo di ogni articolo
+al momento della ripubblicazione, non quando lo selezioni, e non scendono mai sotto 0,50 €.
+Puoi anche aggiungere una riga in fondo alla descrizione.
+
+**Colore se manca.** Vinted rifiuta la pubblicazione di un articolo senza colore, e molti annunci
+vecchi non ne hanno: è l'errore `color: Compila il campo "colore"`. Qui scegli il colore da
+assegnare, applicato **solo** dove manca — gli articoli che ne hanno già uno non vengono toccati.
+L'elenco non è una lista inventata: si riempie da solo con i colori incontrati negli articoli che
+l'estensione legge, perché la lettura espone sia l'id sia il nome.
 
 Per selezionare in fretta: **Shift+clic** estende dall'ultima casella toccata a quella cliccata.
 
@@ -134,7 +143,7 @@ in una fascia e metà in un'altra, poi confronta le visite dopo 24 ore.
 
 ## Installazione
 
-Nella radice del repo c'e' `Vinted_Relist-1.4.1.zip`: e' l'estensione gia' pronta, se preferisci
+Nella radice del repo c'e' `Vinted_Relist-1.5.0.zip`: e' l'estensione gia' pronta, se preferisci
 scaricare solo quello invece dell'intero repo.
 
 1. Scompatta lo zip (o scarica il repo con `Code → Download ZIP` / `git clone`) **in una

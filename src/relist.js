@@ -190,12 +190,22 @@
     if (overrides.price != null && overrides.price !== "") {
       draft.price = Number(overrides.price);
     }
-    // Lo sconto percentuale si applica al prezzo dell'articolo, quindi va
-    // calcolato qui e non quando metti gli articoli in coda.
+    // Percentuale e variazione in euro si applicano al prezzo dell'articolo,
+    // quindi vanno calcolate qui e non quando lo metti in coda.
     if (overrides.pricePercent) {
       const base = Number(draft.price) || 0;
       const nuovo = base * (1 + Number(overrides.pricePercent) / 100);
       draft.price = Math.max(0.5, Math.round(nuovo * 100) / 100);
+    }
+    if (overrides.priceDelta) {
+      const base = Number(draft.price) || 0;
+      draft.price = Math.max(0.5, Math.round((base + Number(overrides.priceDelta)) * 100) / 100);
+    }
+
+    // Vinted rifiuta la pubblicazione senza colore. Lo mettiamo solo dove manca:
+    // gli articoli che ne hanno gia' uno non vanno toccati.
+    if (overrides.colorIds?.length && Array.isArray(draft.color_ids) && !draft.color_ids.length) {
+      draft.color_ids = overrides.colorIds.map(Number).filter((id) => !Number.isNaN(id));
     }
     if (overrides.descriptionAppend) {
       draft.description = `${draft.description || ""}\n${overrides.descriptionAppend}`.trim();
@@ -311,7 +321,7 @@
    * converte la prima foto. Non carica, non crea, non cancella niente.
    * Serve a non far partire una coda di tre ore se Vinted ha cambiato qualcosa.
    */
-  VR.canary = async (itemId) => {
+  VR.canary = async (itemId, overrides = {}) => {
     const problemi = [];
 
     let source;
@@ -324,12 +334,12 @@
     const urls = photoUrls(source);
     if (!urls.length) problemi.push("nessuna foto trovata");
 
-    const draft = buildDraft(source, [1], {});
+    const draft = buildDraft(source, [1], overrides);
     for (const campo of ["title", "catalog_id", "price"]) {
       if (draft[campo] == null || draft[campo] === "") problemi.push(`campo ${campo} vuoto`);
     }
     if (Array.isArray(draft.color_ids) && !draft.color_ids.length) {
-      problemi.push("nessun colore: Vinted lo richiede");
+      problemi.push("nessun colore impostato: Vinted lo chiede alla pubblicazione, assegnane uno dalle Opzioni");
     }
 
     const attesi = VR.settings.itemFormat?.fields;

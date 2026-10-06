@@ -181,12 +181,31 @@
     };
   }
 
+  /**
+   * La lettura espone sia l'id sia il nome dei colori (color1: "Grigio",
+   * color1_id: 3). Accumulandoli otteniamo l'elenco senza inventarci endpoint:
+   * serve per assegnare un colore agli articoli che non ce l'hanno.
+   */
+  function imparaColori(item) {
+    const visti = {};
+    for (const n of [1, 2]) {
+      const id = item[`color${n}_id`];
+      const nome = item[`color${n}`];
+      if (id != null && nome) visti[String(id)] = nome;
+    }
+
+    const noti = VR.settings.colorMap || {};
+    const nuovi = Object.keys(visti).filter((id) => !noti[id]);
+    if (nuovi.length) VR.saveSettings({ colorMap: { ...noti, ...visti } });
+  }
+
   const api = {
     /** Dati dell'articolo nel formato che si aspetta il form di pubblicazione. */
     async getUploadDraft(itemId) {
       const payload = await request("GET", `/item_upload/items/${itemId}`);
-      if (payload?.item) return payload.item;
-      throw new Error("Non riesco a leggere i dati dell'articolo.");
+      if (!payload?.item) throw new Error("Non riesco a leggere i dati dell'articolo.");
+      imparaColori(payload.item);
+      return payload.item;
     },
 
     /** Fallback: scheda pubblica dell'articolo (serve per le foto e poco altro). */
