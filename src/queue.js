@@ -283,16 +283,13 @@
       const fatti = coda.items.filter((i) => i.status !== "pending").length;
       titolo.textContent = `Coda: ${fatti} di ${coda.items.length}`;
 
+      // Il conto alla rovescia sta nel titolo: nel sottotitolo veniva tagliato
+      // dai nomi lunghi, che su articoli come i giochi da tavolo sono la norma.
       const corrente = coda.items[coda.index];
-      if (coda.note) {
-        sotto.textContent = coda.note;            // pausa antibot: ha la precedenza
-      } else if (coda.state === "working") {
-        sotto.textContent = `In corso: ${corrente?.title || ""}`;
-      } else if (coda.nextAt) {
-        sotto.textContent = `${corrente?.title || ""} — ${manca(coda.nextAt - Date.now())}`;
-      } else {
-        sotto.textContent = "";
-      }
+      if (coda.state === "working") titolo.textContent += " — in corso";
+      else if (coda.nextAt) titolo.textContent += ` — tra ${manca(coda.nextAt - Date.now())}`;
+
+      sotto.textContent = coda.note || corrente?.title || "";
 
       controlli.append(
         h("button", {
@@ -362,9 +359,12 @@
         const esito = await VR.canary(items[0].id, bozza.overrides || {});
         avvia.disabled = false;
 
+        // Gli avvisi raccontano cosa riempiro' da solo: si leggono, non bloccano.
+        if (esito.ok && esito.avvisi?.length) VR.toast(esito.avvisi.join(" · "), "info", 7000);
+
         if (!esito.ok) {
           titolo.textContent = "Qualcosa non torna";
-          sotto.textContent = esito.problemi.join(" · ");
+          sotto.textContent = [...esito.problemi, ...(esito.avvisi || [])].join(" · ");
           controlli.textContent = "";
           controlli.append(
             h("button", {

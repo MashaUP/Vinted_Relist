@@ -199,12 +199,45 @@
     if (nuovi.length) VR.saveSettings({ colorMap: { ...noti, ...visti } });
   }
 
+  const MAX_ARTICOLI_OSSERVATI = 500;
+
+  /**
+   * Scheda di ogni articolo letto: categoria e valori dei campi che sappiamo
+   * riempire. Indicizzata per id, cosi' rileggere lo stesso articolo non
+   * gonfia le statistiche. Serve a dedurre cosa manca da quello che hai gia'
+   * messo tu sugli altri articoli della stessa categoria.
+   */
+  function osservaCampi(item) {
+    if (item.catalog_id == null || item.id == null) return;
+
+    const valori = {};
+    for (const campo of VR.CAMPI_OSSERVATI) {
+      const chiave = VR.chiaveCampo(campo, item);
+      if (chiave != null) valori[campo] = chiave;
+    }
+
+    const storico = { ...(VR.settings.itemStats || {}) };
+    const precedente = storico[item.id];
+    if (precedente && JSON.stringify(precedente.v) === JSON.stringify(valori)) return;
+
+    storico[item.id] = { c: String(item.catalog_id), v: valori, at: Date.now() };
+
+    const voci = Object.entries(storico);
+    if (voci.length > MAX_ARTICOLI_OSSERVATI) {
+      voci.sort((a, b) => b[1].at - a[1].at);
+      VR.saveSettings({ itemStats: Object.fromEntries(voci.slice(0, MAX_ARTICOLI_OSSERVATI)) });
+      return;
+    }
+    VR.saveSettings({ itemStats: storico });
+  }
+
   const api = {
     /** Dati dell'articolo nel formato che si aspetta il form di pubblicazione. */
     async getUploadDraft(itemId) {
       const payload = await request("GET", `/item_upload/items/${itemId}`);
       if (!payload?.item) throw new Error("Non riesco a leggere i dati dell'articolo.");
       imparaColori(payload.item);
+      osservaCampi(payload.item);
       return payload.item;
     },
 

@@ -68,6 +68,26 @@ o **fisso** per tutti. Percentuale e variazione in euro si calcolano sul prezzo 
 al momento della ripubblicazione, non quando lo selezioni, e non scendono mai sotto 0,50 €.
 Puoi anche aggiungere una riga in fondo alla descrizione.
 
+### Campi vuoti
+
+Molti annunci vecchi hanno campi che oggi Vinted pretende, e la ripubblicazione fallisce.
+Con **Riempi i campi vuoti** attivo, l'estensione li completa — ma non tutti, e il criterio è
+quanto costa sbagliare:
+
+| Campo | Cosa succede |
+|---|---|
+| `color_ids`, `is_unisex` | **Riempiti.** Senza colore Vinted rifiuta la pubblicazione; un valore sbagliato costa al massimo una ricerca persa. |
+| `package_size_id` | **Solo segnalato.** Sbagliare la dimensione del pacco si paga in spedizione: la scelta resta tua. |
+| `isbn`, misure, `manufacturer` | **Mai toccati.** Sono dati del singolo oggetto: copiarli da un altro articolo significa pubblicare il falso. |
+
+I valori non sono inventati né dedotti dal titolo: vengono da quello che hai messo tu sugli altri
+articoli **della stessa categoria**. Servono almeno due articoli che concordano, e il valore deve
+essere usato in almeno il 60% dei casi — altrimenti l'estensione non sceglie. Un campo già
+compilato non viene mai sovrascritto, e una tua scelta esplicita nelle Opzioni ha sempre la
+precedenza.
+
+Prima di avviare una coda, il controllo ti dice cosa riempirà e cosa resta vuoto.
+
 **Colore se manca.** Vinted rifiuta la pubblicazione di un articolo senza colore, e molti annunci
 vecchi non ne hanno: è l'errore `color: Compila il campo "colore"`. Qui scegli il colore da
 assegnare, applicato **solo** dove manca — gli articoli che ne hanno già uno non vengono toccati.
@@ -143,7 +163,7 @@ in una fascia e metà in un'altra, poi confronta le visite dopo 24 ore.
 
 ## Installazione
 
-Nella radice del repo c'e' `Vinted_Relist-1.5.0.zip`: e' l'estensione gia' pronta, se preferisci
+Nella radice del repo c'e' `Vinted_Relist-1.6.0.zip`: e' l'estensione gia' pronta, se preferisci
 scaricare solo quello invece dell'intero repo.
 
 1. Scompatta lo zip (o scarica il repo con `Code → Download ZIP` / `git clone`) **in una

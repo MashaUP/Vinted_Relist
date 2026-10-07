@@ -158,6 +158,117 @@
     return photoIds.map((id) => ({ id, orientation: 0 }));
   }
 
+  /**
+   * Riempimento automatico dei campi vuoti.
+   *
+   * Il criterio non e' "riempi tutto": e' quanto costa sbagliare.
+   *   - color_ids e is_unisex si riempiono. Senza colore Vinted rifiuta la
+   *     pubblicazione, e un valore sbagliato costa al massimo una ricerca persa.
+   *   - package_size_id si segnala e basta: sbagliare la dimensione del pacco
+   *     si paga in spedizione, quindi la scelta resta tua.
+   *   - isbn, misure, manufacturer non si toccano mai: sono dati del singolo
+   *     oggetto, copiarli da un altro articolo significa pubblicare il falso.
+   *
+   * I valori non sono inventati: vengono da cosa hai messo tu sugli altri
+   * articoli della stessa categoria.
+   */
+  VR.CAMPI_OSSERVATI = ["color_ids", "is_unisex", "package_size_id"];
+
+  const DA_RIEMPIRE = ["color_ids", "is_unisex"];
+  const DA_SEGNALARE = ["package_size_id"];
+
+  const ETICHETTE = {
+    color_ids: "colore",
+    is_unisex: "unisex",
+    package_size_id: "dimensione del pacco",
+  };
+
+  const MIN_OSSERVAZIONI = 2;    // sotto, non e' un'abitudine ma un caso
+  const QUORUM = 0.6;            // il valore deve essere nettamente il piu' usato
+
+  /** Il valore di un campo ridotto a stringa, per contarlo. */
+  VR.chiaveCampo = (campo, item) => {
+    if (campo === "color_ids") {
+      const ids = [item.color1_id, item.color2_id].filter((id) => id != null);
+      return ids.length ? ids.join(",") : null;
+    }
+    const valore = item[campo];
+    return valore == null || valore === "" ? null : String(valore);
+  };
+
+  const daChiave = (campo, chiave) => {
+    if (campo === "color_ids") return chiave.split(",").map(Number);
+    if (campo === "is_unisex") return chiave === "true";
+    return Number(chiave);
+  };
+
+  const eVuoto = (campo, valore) =>
+    campo === "color_ids" ? !Array.isArray(valore) || !valore.length : valore == null;
+
+  /**
+   * L'anteprima deve vedere i campi com'erano *prima* del riempimento,
+   * altrimenti non trova mai niente di vuoto da segnalare.
+   */
+  let senzaRiempimento = false;
+
+  function bozzaGrezza(source, overrides) {
+    senzaRiempimento = true;
+    try {
+      return buildDraft(source, [1], overrides);
+    } finally {
+      senzaRiempimento = false;
+    }
+  }
+
+  /** Il valore piu' usato nella stessa categoria, se c'e' un'abitudine chiara. */
+  function valorePrevalente(catalogId, campo) {
+    const conteggi = {};
+    let totale = 0;
+
+    for (const scheda of Object.values(VR.settings.itemStats || {})) {
+      if (String(scheda.c) !== String(catalogId)) continue;
+      const chiave = scheda.v?.[campo];
+      if (chiave == null) continue;
+      conteggi[chiave] = (conteggi[chiave] || 0) + 1;
+      totale++;
+    }
+
+    if (totale < MIN_OSSERVAZIONI) return null;
+    const [chiave, quanti] = Object.entries(conteggi).sort((a, b) => b[1] - a[1])[0];
+    if (quanti / totale < QUORUM) return null;
+
+    return { chiave, valore: daChiave(campo, chiave), quanti, totale };
+  }
+
+  const nomeColore = (ids) =>
+    ids.map((id) => (VR.settings.colorMap || {})[id] || id).join(" e ");
+
+  /** Cosa verrebbe riempito, e cosa resta vuoto senza che io ci metta mano. */
+  VR.riempimentiPrevisti = (source, overrides = {}) => {
+    const draft = bozzaGrezza(source, overrides);
+    const previsti = [];
+    const segnalati = [];
+
+    for (const campo of DA_RIEMPIRE) {
+      if (!eVuoto(campo, draft[campo])) continue;
+      const scelto = valorePrevalente(source.catalog_id, campo);
+      if (!scelto) continue;
+      previsti.push({
+        campo,
+        etichetta: ETICHETTE[campo],
+        testo: campo === "color_ids" ? nomeColore(scelto.valore) : String(scelto.valore),
+        quanti: scelto.quanti,
+        totale: scelto.totale,
+      });
+    }
+
+    for (const campo of DA_SEGNALARE) {
+      if (eVuoto(campo, draft[campo])) segnalati.push(ETICHETTE[campo]);
+    }
+
+    return { previsti, segnalati };
+  };
+
   /** {amount: "10.0", currency_code: "EUR"} → "10.0" */
   function scalarAmount(value) {
     if (value == null) return null;
@@ -210,6 +321,25 @@
     if (overrides.descriptionAppend) {
       draft.description = `${draft.description || ""}\n${overrides.descriptionAppend}`.trim();
     }
+
+    if (allowed.has("ai_photo") && draft.ai_photo == null) draft.ai_photo = false;
+
+    // Per ultimo, cosi' qualunque scelta esplicita qui sopra ha la precedenza.
+    if (VR.settings.autoFill !== false && !senzaRiempimento) {
+      for (const campo of DA_RIEMPIRE) {
+        if (!allowed.has(campo) || !eVuoto(campo, draft[campo])) continue;
+
+        const scelto = valorePrevalente(source.catalog_id, campo);
+        if (!scelto) continue;
+
+        draft[campo] = scelto.valore;
+        VR.log(
+          `${ETICHETTE[campo]} mancante: metto quello che usi su ${scelto.quanti} ` +
+            `articoli su ${scelto.totale} della stessa categoria`
+        );
+      }
+    }
+
     return draft;
   }
 
@@ -323,6 +453,7 @@
    */
   VR.canary = async (itemId, overrides = {}) => {
     const problemi = [];
+    const avvisi = [];
 
     let source;
     try {
@@ -339,7 +470,16 @@
       if (draft[campo] == null || draft[campo] === "") problemi.push(`campo ${campo} vuoto`);
     }
     if (Array.isArray(draft.color_ids) && !draft.color_ids.length) {
-      problemi.push("nessun colore impostato: Vinted lo chiede alla pubblicazione, assegnane uno dalle Opzioni");
+      problemi.push("nessun colore: Vinted lo chiede alla pubblicazione, assegnane uno dalle Opzioni");
+    }
+
+    // Non sono problemi, ma e' giusto vederli prima di avviare una coda lunga.
+    const anteprima = VR.riempimentiPrevisti(source, overrides);
+    for (const voce of anteprima.previsti) {
+      avvisi.push(`${voce.etichetta} vuoto, metto \u00ab${voce.testo}\u00bb`);
+    }
+    for (const nome of anteprima.segnalati) {
+      avvisi.push(`${nome} non impostata: la lascio a te`);
     }
 
     const attesi = VR.settings.itemFormat?.fields;
@@ -358,7 +498,7 @@
       }
     }
 
-    return { ok: problemi.length === 0, problemi };
+    return { ok: problemi.length === 0, problemi, avvisi };
   };
 
   /** Che tipo ha un valore, distinguendo null e array. */

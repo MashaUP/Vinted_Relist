@@ -7,6 +7,7 @@ const DEFAULTS = {
   humanRhythm: true,
   notifyOnFinish: true,
   canary: true,
+  autoFill: true,
 };
 
 const el = (id) => document.getElementById(id);
