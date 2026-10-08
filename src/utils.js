@@ -16,6 +16,11 @@
     autoFill: true,           // riempie i campi vuoti con quello che usi nella stessa categoria
     colorMap: {},             // id → nome dei colori incontrati negli articoli letti
     itemStats: {},            // id articolo → categoria e campi, per dedurre cosa manca
+    peakOnly: false,          // esegue la coda solo nelle fasce di traffico alto
+    peakWindows: "12:30-14:00, 19:30-22:30",
+    autoRule: false,          // accoda da sola gli articoli fermi da troppo tempo
+    autoRuleDays: 7,
+    autoRuleMax: 5,
     photoFormat: null,        // formato multipart imparato dagli upload di Vinted
     itemFormat: null,         // campi del payload annuncio imparati da una modifica
   };

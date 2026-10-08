@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Vinted Relist",
-  "version": "1.6.0",
+  "version": "1.8.0",
   "description": "Ripubblica un articolo Vinted con un clic: clona l'annuncio (foto e dati) e rimuove quello vecchio.",
   "permissions": [
     "storage",
@@ -12,8 +12,23 @@
   ],
   "host_permissions": [
     "https://www.vinted.it/*",
-    "https://*.vinted.net/*",
-    "https://*.vinted.com/*"
+    "https://www.vinted.fr/*",
+    "https://www.vinted.es/*",
+    "https://www.vinted.de/*",
+    "https://www.vinted.co.uk/*",
+    "https://www.vinted.com/*",
+    "https://www.vinted.be/*",
+    "https://www.vinted.nl/*",
+    "https://www.vinted.at/*",
+    "https://www.vinted.pt/*",
+    "https://www.vinted.pl/*",
+    "https://www.vinted.cz/*",
+    "https://www.vinted.sk/*",
+    "https://www.vinted.lt/*",
+    "https://www.vinted.lu/*",
+    "https://www.vinted.ro/*",
+    "https://www.vinted.hu/*",
+    "https://*.vinted.net/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -21,7 +36,23 @@
   "content_scripts": [
     {
       "matches": [
-        "https://www.vinted.it/*"
+        "https://www.vinted.it/*",
+        "https://www.vinted.fr/*",
+        "https://www.vinted.es/*",
+        "https://www.vinted.de/*",
+        "https://www.vinted.co.uk/*",
+        "https://www.vinted.com/*",
+        "https://www.vinted.be/*",
+        "https://www.vinted.nl/*",
+        "https://www.vinted.at/*",
+        "https://www.vinted.pt/*",
+        "https://www.vinted.pl/*",
+        "https://www.vinted.cz/*",
+        "https://www.vinted.sk/*",
+        "https://www.vinted.lt/*",
+        "https://www.vinted.lu/*",
+        "https://www.vinted.ro/*",
+        "https://www.vinted.hu/*"
       ],
       "js": [
         "src/utils.js",
@@ -39,7 +70,23 @@
     },
     {
       "matches": [
-        "https://www.vinted.it/*"
+        "https://www.vinted.it/*",
+        "https://www.vinted.fr/*",
+        "https://www.vinted.es/*",
+        "https://www.vinted.de/*",
+        "https://www.vinted.co.uk/*",
+        "https://www.vinted.com/*",
+        "https://www.vinted.be/*",
+        "https://www.vinted.nl/*",
+        "https://www.vinted.at/*",
+        "https://www.vinted.pt/*",
+        "https://www.vinted.pl/*",
+        "https://www.vinted.cz/*",
+        "https://www.vinted.sk/*",
+        "https://www.vinted.lt/*",
+        "https://www.vinted.lu/*",
+        "https://www.vinted.ro/*",
+        "https://www.vinted.hu/*"
       ],
       "js": [
         "src/page-bridge.js"

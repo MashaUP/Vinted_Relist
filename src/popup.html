@@ -77,6 +77,35 @@
     </section>
 
     <section class="block">
+      <div class="block-title">Automazione</div>
+      <label class="check">
+        <input type="checkbox" id="peakOnly" />
+        <span>Solo nelle fasce di picco</span>
+      </label>
+      <label class="field wide">
+        <span class="field-label">Fasce orarie</span>
+        <input type="text" id="peakWindows" placeholder="12:30-14:00, 19:30-22:30" />
+      </label>
+      <p class="desc">Fuori da queste ore la coda aspetta invece di pubblicare nel vuoto.</p>
+
+      <label class="check">
+        <input type="checkbox" id="autoRule" />
+        <span>Ripubblica da sola gli articoli fermi</span>
+      </label>
+      <div class="fields">
+        <label class="field">
+          <span class="field-label">Dopo giorni</span>
+          <input type="number" id="autoRuleDays" min="1" max="60" />
+        </label>
+        <label class="field">
+          <span class="field-label">Max per volta</span>
+          <input type="number" id="autoRuleMax" min="1" max="30" />
+        </label>
+      </div>
+      <p class="desc" id="autoRuleHint"></p>
+    </section>
+
+    <section class="block">
       <div class="block-title">Attività</div>
       <div class="stats">
         <div class="stat"><b id="statToday">—</b><span>oggi</span></div>
@@ -123,6 +152,7 @@
     </section>
 
     <footer class="foot">
+      <button id="dashboard" class="btn">Apri la dashboard dell'armadio</button>
       <button id="tutorial" class="btn quiet">Rivedi il tutorial</button>
     </footer>
 

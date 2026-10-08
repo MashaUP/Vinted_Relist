@@ -8,9 +8,19 @@ const DEFAULTS = {
   notifyOnFinish: true,
   canary: true,
   autoFill: true,
+  peakOnly: false,
+  peakWindows: "12:30-14:00, 19:30-22:30",
+  autoRule: false,
+  autoRuleDays: 7,
+  autoRuleMax: 5,
 };
 
 const el = (id) => document.getElementById(id);
+
+// L'ultimo dominio Vinted visitato: il popup non puo' dedurlo da solo.
+let origine = "https://www.vinted.it";
+const SITI = ["it","fr","es","de","co.uk","com","be","nl","at","pt","pl","cz","sk","lt","lu","ro","hu"]
+  .map((d) => `https://www.vinted.${d}/*`);
 el("version").textContent = chrome.runtime.getManifest().version;
 
 // --------------------------------------------------------------- impostazioni
@@ -33,6 +43,11 @@ chrome.storage.local.get(DEFAULTS).then((impostazioni) => {
       chrome.storage.local.set({ [chiave]: valoreDi(input) })
     );
   }
+});
+
+el("dashboard").addEventListener("click", () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL("src/dashboard.html") });
+  window.close();
 });
 
 el("tutorial").addEventListener("click", async () => {
@@ -93,6 +108,7 @@ function disegnaCoda() {
 
   const stato = el("queueState");
   if (!coda.running) stato.textContent = coda.note || "Finita";
+  else if (coda.state === "recovering") stato.textContent = "Coda interrotta";
   else if (coda.state === "paused") stato.textContent = "In pausa";
   else if (coda.state === "scheduled") {
     stato.textContent = `Programmata ${new Date(coda.nextAt).toLocaleString("it-IT", {
@@ -104,13 +120,17 @@ function disegnaCoda() {
 
   const riga = el("queueItem");
   riga.hidden = !corrente || !coda.running;
-  if (corrente && coda.running) riga.textContent = corrente.title;
+  if (corrente && coda.running) {
+    const rimasti = coda.items.length - coda.index;
+    riga.textContent =
+      coda.state === "recovering" ? `${rimasti} rimanenti — riprende da ${corrente.title}` : corrente.title;
+  }
 
   // Gli articoli falliti esistono ancora: cliccandoli li apri.
   errori.textContent = "";
   for (const item of falliti) {
     const a = document.createElement("a");
-    a.href = `https://www.vinted.it/items/${item.id}`;
+    a.href = `${origine}/items/${item.id}`;
     a.target = "_blank";
     a.textContent = `${item.title} — ${item.error}`;
     a.title = item.error;
@@ -128,6 +148,11 @@ function disegnaCoda() {
       disegnaCoda();
     });
     azioni.append(chiudi);
+  } else if (coda.state === "recovering") {
+    azioni.append(
+      bottone("Riprendi", "vr:queueRecover"),
+      bottone("Annulla", "vr:queueStop", "btn danger")
+    );
   } else if (coda.state === "paused") {
     azioni.append(bottone("Riprendi", "vr:queueResume"), bottone("Interrompi", "vr:queueStop", "btn danger"));
   } else if (coda.state === "scheduled") {
@@ -141,7 +166,8 @@ function disegnaCoda() {
   }
 
   // Il conto alla rovescia deve scorrere anche col popup aperto fermo.
-  const serveTic = coda.running && coda.state !== "working" && coda.state !== "paused";
+  const serveTic =
+    coda.running && !["working", "paused", "recovering"].includes(coda.state);
   if (serveTic && !tic) tic = setInterval(disegnaCoda, 1000);
   if (!serveTic && tic) { clearInterval(tic); tic = null; }
 }
@@ -179,6 +205,14 @@ function disegnaAttivita(storia) {
 
 chrome.storage.local.get("vrHistory").then(({ vrHistory }) => disegnaAttivita(vrHistory || []));
 
+// L'automazione lavora su quello che hai visitato: se l'inventario e' vuoto, dillo.
+chrome.storage.local.get({ inventory: {} }).then(({ inventory }) => {
+  const quanti = Object.keys(inventory).length;
+  el("autoRuleHint").textContent = quanti
+    ? `${quanti} articoli conosciuti, raccolti aprendo il tuo armadio.`
+    : "Apri il tuo armadio almeno una volta: è da lì che l'estensione impara quali articoli hai.";
+});
+
 // ------------------------------------------------------------------- formati
 
 function mostraFormato(nome, appreso, dettaglio) {
@@ -188,8 +222,9 @@ function mostraFormato(nome, appreso, dettaglio) {
   stato.title = dettaglio || "";
 }
 
-chrome.storage.local.get(["photoFormat", "itemFormat", "userId"]).then(
-  ({ photoFormat, itemFormat, userId }) => {
+chrome.storage.local.get(["photoFormat", "itemFormat", "userId", "vintedOrigin"]).then(
+  ({ photoFormat, itemFormat, userId, vintedOrigin }) => {
+    if (vintedOrigin) origine = vintedOrigin;
     const campiFoto = photoFormat
       ? [...Object.keys(photoFormat.constants || {}), photoFormat.uuidField, photoFormat.fileField]
           .filter(Boolean).join(", ")
@@ -204,8 +239,8 @@ chrome.storage.local.get(["photoFormat", "itemFormat", "userId"]).then(
         : "Si aggiornano da soli quando pubblichi o modifichi un annuncio su Vinted.";
 
     el("wardrobeLink").href = userId
-      ? `https://www.vinted.it/member/${userId}`
-      : "https://www.vinted.it/";
+      ? `${origine}/member/${userId}`
+      : origine;
   }
 );
 
@@ -219,8 +254,8 @@ el("verify").addEventListener("click", async () => {
   esito.textContent = "Leggo un articolo e preparo il payload, senza pubblicare niente.";
 
   try {
-    const [scheda] = await chrome.tabs.query({ url: "https://www.vinted.it/*" });
-    if (!scheda) throw new Error("Apri una scheda su vinted.it.");
+    const [scheda] = await chrome.tabs.query({ url: SITI });
+    if (!scheda) throw new Error("Apri una scheda su Vinted.");
 
     const risposta = await chrome.tabs.sendMessage(scheda.id, { type: "vr:canaryAny" });
     esito.textContent = risposta?.ok

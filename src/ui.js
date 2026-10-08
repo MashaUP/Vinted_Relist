@@ -97,6 +97,7 @@
     const deleteOld = h("input", { type: "checkbox", class: "vr-check", checked: VR.settings.deleteOld });
 
     const status = h("p", { class: "vr-note vr-note--loading" }, "Carico i dati dell'articolo…");
+    const qualita = h("div", { class: "vr-quality", hidden: true });
     const confirmButton = h("button", { class: "vr-btn vr-btn--primary", disabled: true }, "Pubblica");
 
     const card = h(
@@ -104,6 +105,7 @@
       { class: "vr-card vr-card--wide", role: "dialog", "aria-modal": "true" },
       h("h2", { class: "vr-card__title" }, "Modifica e ripubblica"),
       status,
+      qualita,
       h("label", { class: "vr-field" }, h("span", { class: "vr-field__label" }, "Titolo"), title),
       h("label", { class: "vr-field" }, h("span", { class: "vr-field__label" }, "Descrizione"), description),
       h("div", { class: "vr-row" },
@@ -139,6 +141,26 @@
         const amount = typeof item.price === "object" ? item.price?.amount : item.price;
         price.value = amount != null ? Number(amount) : "";
         status.remove();
+
+        // Il punteggio sta qui perche' e' il momento in cui puoi ancora sistemare.
+        const esito = VR.punteggio(item);
+        qualita.hidden = false;
+        qualita.append(
+          h("div", { class: "vr-quality__head" },
+            h("strong", {}, `Completezza ${esito.score}/100`),
+            h("span", { class: "vr-quality__bar" },
+              h("span", { class: "vr-quality__fill", style: `width:${esito.score}%` })
+            )
+          ),
+          h("div", { class: "vr-quality__voci" },
+            esito.voci.map((v) =>
+              h("span", { class: `vr-quality__voce${v.ok ? " is-ok" : ""}` }, `${v.ok ? "✓" : "⚠"} ${v.testo}`)
+            )
+          ),
+          esito.consigli.length
+            ? h("p", { class: "vr-note" }, esito.consigli[0])
+            : null
+        );
         confirmButton.disabled = false;
         title.focus();
       })

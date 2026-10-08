@@ -1,0 +1,237 @@
+:root {
+  --teal: #007782;
+  --teal-tint: #e6f1f2;
+  --green: #1a8754;
+  --amber: #b25e00;
+  --red: #d93b3b;
+  --bg: #f4f5f5;
+  --surface: #ffffff;
+  --sunken: #f7f7f7;
+  --text: #171717;
+  --muted: #757575;
+  --border: #e3e3e3;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --teal: #4db6bd;
+    --teal-tint: #15323a;
+    --green: #4caf7d;
+    --amber: #e0a050;
+    --red: #ef6b6b;
+    --bg: #141516;
+    --surface: #1c1d1f;
+    --sunken: #26282b;
+    --text: #e8e8e8;
+    --muted: #9a9a9a;
+    --border: #34363a;
+  }
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.page { max-width: 1000px; margin: 0 auto; padding: 28px 20px 60px; }
+
+/* ------------------------------------------------------------- testata */
+
+.top {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.brand { display: flex; align-items: center; gap: 14px; }
+.brand img { width: 40px; height: 40px; border-radius: 10px; }
+.brand h1 { font-size: 22px; margin: 0; }
+.sub { margin: 2px 0 0; color: var(--muted); }
+
+.value { text-align: right; }
+.value-label { display: block; font-size: 12px; color: var(--muted); }
+.value strong { font-size: 24px; font-variant-numeric: tabular-nums; }
+
+/* -------------------------------------------------------------- gruppi */
+
+.groups {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.group {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 13px 14px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.group:hover { border-color: var(--teal); }
+.group.is-active { border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-tint); }
+
+.group b { display: block; font-size: 24px; font-variant-numeric: tabular-nums; }
+.group span { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+
+/* -------------------------------------------------------------- pannelli */
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px 20px;
+  margin-bottom: 16px;
+}
+
+.panel h2 { font-size: 15px; margin: 0 0 4px; }
+.panel-head { display: flex; align-items: center; justify-content: space-between; }
+.hint { color: var(--muted); font-size: 12.5px; margin: 0 0 12px; }
+
+.chip {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 4px 11px;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+/* ------------------------------------------------------------ duplicati */
+
+.dup {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.dup:first-child { border-top: 0; }
+.dup a { color: var(--text); }
+.dup .pct { color: var(--amber); font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+
+/* -------------------------------------------------------- cosa funziona */
+
+.insight-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
+
+.fact {
+  background: var(--sunken);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.fact small { display: block; color: var(--muted); font-size: 12px; }
+.fact strong { font-size: 17px; text-transform: capitalize; }
+.fact em { font-style: normal; color: var(--muted); font-size: 12.5px; }
+
+.advice {
+  border-left: 3px solid var(--teal);
+  padding: 4px 0 4px 12px;
+  margin: 12px 0 0;
+  font-size: 13.5px;
+}
+
+.advice b { display: block; font-size: 13px; }
+
+.progress { font-size: 13px; color: var(--muted); }
+.progress b { color: var(--text); }
+
+/* ----------------------------------------------------------- articoli */
+
+.table-wrap { overflow-x: auto; margin-top: 10px; }
+
+.items { width: 100%; border-collapse: collapse; font-size: 13px; }
+
+.items th {
+  text-align: left;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.items td {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.items .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.items a { color: var(--text); text-decoration: none; }
+.items a:hover { color: var(--teal); text-decoration: underline; }
+
+.tag {
+  display: inline-block;
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  margin-left: 6px;
+  background: var(--sunken);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.tag.dup-tag { color: var(--amber); }
+.score.low { color: var(--amber); font-weight: 600; }
+
+/* ------------------------------------------------------------- storico */
+
+.snap {
+  display: grid;
+  grid-template-columns: 54px 1fr auto;
+  gap: 4px 14px;
+  align-items: center;
+  padding: 11px 0;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.snap:first-child { border-top: 0; }
+.snap .n { color: var(--muted); font-variant-numeric: tabular-nums; }
+.snap .what b { display: block; font-weight: 600; }
+.snap .what span { color: var(--muted); font-size: 12.5px; }
+
+.btn {
+  border: 1px solid var(--teal);
+  background: transparent;
+  color: var(--teal);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn:hover { background: var(--teal-tint); }
+.btn:disabled { border-color: var(--border); color: var(--muted); background: transparent; cursor: default; }
+
+.empty { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+
+@media (max-width: 760px) {
+  .groups { grid-template-columns: repeat(2, 1fr); }
+  .insight-grid { grid-template-columns: 1fr; }
+  .top { flex-direction: column; align-items: flex-start; }
+  .value { text-align: left; }
+}

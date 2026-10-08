@@ -89,6 +89,7 @@
       card.dataset.vrItem = itemId;
       const host = card.closest("a") || card;
       attach(host, itemId);
+      annota(itemId, anchor, card);
     }
   }
 
@@ -104,6 +105,70 @@
     const anchor = VR.h("div", { class: "vr-anchor" });
     document.body.append(anchor);
     attach(anchor, itemId, "vr-bar--floating");
+  }
+
+  /**
+   * Inventario degli articoli visti nel tuo armadio. E' la base di tutto quello
+   * che guarda l'armadio nel suo insieme: automazione, dashboard, duplicati,
+   * misura dei risultati. Si costruisce leggendo le card che hai davanti:
+   * nessuna chiamata in piu' a Vinted.
+   */
+  const VISITE = /(\d+)\s*(?:visualizzazion|vues?\b|visualizacion|aufrufe|views?\b|weergaven|wy\u015bwietle)/i;
+  const PREFERITI = /(\d+)\s*(?:preferit|favori|favorito|favorit|favourite|favorite|ulubion)/i;
+  const PREZZO =
+    /(\d{1,5}(?:[.,]\d{1,2})?)\s*(?:\u20ac|\u00a3|z\u0142|K\u010d|lei|Ft)|(?:\u20ac|\u00a3)\s*(\d{1,5}(?:[.,]\d{1,2})?)/;
+
+  /** Visite, preferiti e prezzo dal testo della card. Quello che non si legge resta nullo. */
+  function leggiCard(card) {
+    const testo = card?.innerText || card?.textContent || "";
+    const numero = (re) => {
+      const m = testo.match(re);
+      return m ? Number(m[1]) : null;
+    };
+    const p = testo.match(PREZZO);
+    const prezzo = p ? Number((p[1] || p[2]).replace(",", ".")) : null;
+    return { views: numero(VISITE), favs: numero(PREFERITI), price: prezzo };
+  }
+
+  const MAX_PUNTI_SERIE = 40;
+  const daAnnotare = new Map();
+  let scrittura = null;
+
+  function annota(itemId, anchor, card) {
+    const titolo = (anchor.getAttribute("title") || anchor.textContent || "").trim();
+    daAnnotare.set(itemId, { title: titolo.slice(0, 80), ...leggiCard(card) });
+
+    clearTimeout(scrittura);
+    scrittura = setTimeout(async () => {
+      const { inventory = {} } = await chrome.storage.local.get("inventory");
+      const ora = Date.now();
+
+      for (const [id, letto] of daAnnotare) {
+        const prima = inventory[id] || {};
+        const serie = [...(prima.series || [])];
+
+        // Un punto nella serie quando le visite cambiano, o almeno ogni 12 ore:
+        // e' quello che serve per misurare cosa succede dopo una ripubblicazione.
+        if (letto.views != null) {
+          const ultimo = serie[serie.length - 1];
+          if (!ultimo || ultimo[1] !== letto.views || ora - ultimo[0] > 12 * 3600000) {
+            serie.push([ora, letto.views]);
+          }
+        }
+
+        inventory[id] = {
+          title: letto.title || prima.title || "",
+          price: letto.price ?? prima.price ?? null,
+          views: letto.views ?? prima.views ?? null,
+          favs: letto.favs ?? prima.favs ?? null,
+          firstSeen: prima.firstSeen || ora,
+          lastSeen: ora,
+          series: serie.slice(-MAX_PUNTI_SERIE),
+        };
+      }
+      daAnnotare.clear();
+      await chrome.storage.local.set({ inventory });
+    }, 1500);
   }
 
   function refresh() {
@@ -186,7 +251,7 @@
   // Il popup non puo' leggere i cookie di Vinted: gli lasciamo qui l'id,
   // cosi' puo' offrire il collegamento al tuo armadio.
   const mioId = currentUserId();
-  if (mioId) chrome.storage.local.set({ userId: mioId });
+  chrome.storage.local.set({ vintedOrigin: location.origin, ...(mioId ? { userId: mioId } : {}) });
 
   VR.showOnboarding();
   refresh();

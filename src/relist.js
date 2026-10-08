@@ -269,6 +269,57 @@
     return { previsti, segnalati };
   };
 
+  /**
+   * Punteggio di completezza dell'annuncio, da 0 a 100.
+   * Misura cose verificabili sui dati, non il gusto: quante foto, quali campi
+   * ci sono, quanto e' lungo il testo. Un criterio che non si applica alla
+   * categoria (la taglia di un DVD) non pesa ne' a favore ne' contro.
+   */
+  VR.punteggio = (item) => {
+    const voci = [];
+    const consigli = [];
+    let preso = 0;
+    let possibile = 0;
+
+    const conta = (peso, ottenuto, testo, consiglio) => {
+      possibile += peso;
+      preso += ottenuto;
+      voci.push({ ok: ottenuto >= peso, parziale: ottenuto > 0 && ottenuto < peso, testo });
+      if (ottenuto < peso && consiglio) consigli.push(consiglio);
+    };
+
+    const foto = (item.photos || []).length;
+    conta(20, foto >= 5 ? 20 : foto >= 3 ? 10 : foto ? 4 : 0, `${foto} foto`,
+      "Con 5 foto o piu' l'annuncio risponde a domande che altrimenti ti farebbero in chat.");
+
+    conta(10, item.brand_id || item.brand_dto ? 10 : 0, "Marca", "Impostare la marca.");
+
+    if ("size_id" in item) {
+      conta(10, item.size_id ? 10 : 0, "Taglia", "Impostare la taglia.");
+    }
+
+    conta(10, item.color1_id ? 10 : 0, "Colore", "Impostare un colore: Vinted lo chiede alla pubblicazione.");
+
+    // Nelle categorie non di abbigliamento la condizione sta in item_attributes.
+    const condizione = item.status_id != null || (item.item_attributes || []).length > 0;
+    conta(10, condizione ? 10 : 0, "Condizione", "Indicare le condizioni dell'oggetto.");
+
+    const descrizione = (item.description || "").trim().length;
+    conta(15, descrizione >= 150 ? 15 : descrizione >= 50 ? 8 : 0,
+      descrizione >= 150 ? "Descrizione completa" : "Descrizione corta",
+      "Una descrizione piu' lunga — condizioni, difetti, misure — risponde prima che te lo chiedano.");
+
+    const titolo = (item.title || "").trim();
+    const parole = titolo.split(/\s+/).filter(Boolean).length;
+    conta(15, titolo.length >= 25 && parole >= 4 ? 15 : titolo.length >= 12 ? 8 : 0,
+      titolo.length >= 25 && parole >= 4 ? "Titolo descrittivo" : "Titolo poco descrittivo",
+      "Aggiungere al titolo modello o caratteristica principale lo rende piu' trovabile.");
+
+    conta(10, item.package_size_id ? 10 : 0, "Dimensione pacco", "Impostare la dimensione del pacco.");
+
+    return { score: Math.round((preso / possibile) * 100), voci, consigli };
+  };
+
   /** {amount: "10.0", currency_code: "EUR"} → "10.0" */
   function scalarAmount(value) {
     if (value == null) return null;
@@ -349,6 +400,72 @@
     await chrome.storage.local.set({ [key]: { at: Date.now(), draft } });
     return key;
   }
+
+  const MAX_SNAPSHOT = 60;
+  const ORE = 3600000;
+
+  /** Visite osservate piu' vicine alle 48 ore dopo la pubblicazione (tra 24 e 72). */
+  function visite48(serie, inizio) {
+    let migliore = null;
+    for (const [quando, visite] of serie || []) {
+      const dopo = quando - inizio;
+      if (dopo < 24 * ORE || dopo > 72 * ORE) continue;
+      const distanza = Math.abs(dopo - 48 * ORE);
+      if (!migliore || distanza < migliore.distanza) migliore = { visite, distanza };
+    }
+    return migliore ? migliore.visite : null;
+  }
+
+  /**
+   * Fotografia di ogni ripubblicazione: com'era prima, com'e' dopo.
+   * Serve a ripristinare i dati vecchi e a misurare cosa ha reso ogni relist.
+   *
+   * L'inventario segue l'articolo sul nuovo id. Prima di cancellare il vecchio,
+   * chiudiamo la misura della ripubblicazione precedente: dopo, la sua serie
+   * di visite non esisterebbe piu'.
+   */
+  async function registraSnapshot(oldId, source, draft, created) {
+    if (!created?.id) return;
+
+    const { vrSnapshots = [], inventory = {} } =
+      await chrome.storage.local.get(["vrSnapshots", "inventory"]);
+
+    const vecchio = inventory[oldId];
+    const precedente = vrSnapshots.findLast((x) => String(x.new.id) === String(oldId));
+    if (precedente && precedente.visite48 == null && vecchio) {
+      precedente.visite48 = visite48(vecchio.series, precedente.at);
+    }
+
+    const ora = Date.now();
+    vrSnapshots.push({
+      n: (vrSnapshots[vrSnapshots.length - 1]?.n || 0) + 1,
+      at: ora,
+      viewsBefore: vecchio?.views ?? null,
+      old: {
+        id: String(oldId),
+        title: source.title,
+        description: source.description,
+        price: Number(scalarAmount(source.price)),
+      },
+      new: { id: String(created.id), title: draft.title, price: draft.price },
+    });
+
+    if (vecchio) delete inventory[oldId];
+    inventory[created.id] = {
+      title: draft.title,
+      price: draft.price,
+      views: 0,
+      favs: 0,
+      firstSeen: vecchio?.firstSeen || ora,
+      lastSeen: ora,
+      relistedAt: ora,
+      series: [[ora, 0]],
+    };
+
+    await chrome.storage.local.set({ vrSnapshots: vrSnapshots.slice(-MAX_SNAPSHOT), inventory });
+  }
+
+  VR.visite48 = visite48;
 
   /**
    * Ripubblica un articolo.
@@ -436,6 +553,7 @@
     }
 
     await chrome.storage.local.remove(`vrBackup:${itemId}`);
+    await registraSnapshot(itemId, source, draft, created);
 
     // Registro delle ripubblicazioni: passa di qui sia il bottone singolo sia la coda.
     chrome.runtime.sendMessage({ type: "vr:relistLogged", itemId: String(itemId) }).catch(() => {});

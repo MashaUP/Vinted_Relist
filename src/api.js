@@ -231,6 +231,16 @@
     VR.saveSettings({ itemStats: storico });
   }
 
+  /** Il punteggio di ogni articolo letto, perche' la dashboard possa mostrarlo. */
+  async function annotaQualita(item) {
+    if (item.id == null || !VR.punteggio) return;
+    const { score } = VR.punteggio(item);
+    const { qualityScores = {} } = await chrome.storage.local.get("qualityScores");
+    if (qualityScores[item.id]?.score === score) return;
+    qualityScores[item.id] = { score, at: Date.now() };
+    await chrome.storage.local.set({ qualityScores });
+  }
+
   const api = {
     /** Dati dell'articolo nel formato che si aspetta il form di pubblicazione. */
     async getUploadDraft(itemId) {
@@ -238,6 +248,7 @@
       if (!payload?.item) throw new Error("Non riesco a leggere i dati dell'articolo.");
       imparaColori(payload.item);
       osservaCampi(payload.item);
+      annotaQualita(payload.item);
       return payload.item;
     },
 

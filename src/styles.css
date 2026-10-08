@@ -450,3 +450,46 @@
   .vr-queue__controls { margin-left: 0; }
   .vr-queue__title { white-space: normal; }
 }
+
+/* --------------------------------------------------------------- qualita' */
+
+.vr-quality {
+  background: #f7f7f7;
+  border-radius: 10px;
+  padding: 11px 13px;
+  margin-bottom: 16px;
+}
+
+.vr-quality__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 13.5px;
+}
+
+.vr-quality__bar {
+  flex: 1;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--vr-border);
+  overflow: hidden;
+}
+
+.vr-quality__fill {
+  display: block;
+  height: 100%;
+  background: var(--vr-teal);
+}
+
+.vr-quality__voci {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 12.5px;
+  color: #b25e00;
+}
+
+.vr-quality__voce.is-ok { color: var(--vr-muted); }
+.vr-quality + .vr-field { margin-top: 0; }
+.vr-quality .vr-note { margin: 8px 0 0; }

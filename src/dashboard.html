@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8" />
+    <title>Vinted Relist — Armadio</title>
+    <link rel="stylesheet" href="dashboard.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="top">
+        <div class="brand">
+          <img src="../icons/icon48.png" alt="" />
+          <div>
+            <h1>Il tuo armadio</h1>
+            <p class="sub" id="summary">—</p>
+          </div>
+        </div>
+        <div class="value">
+          <span class="value-label">Valore in vendita</span>
+          <strong id="value">—</strong>
+        </div>
+      </header>
+
+      <section class="groups" id="groups"></section>
+
+      <section class="panel" id="duplicatesPanel" hidden>
+        <h2>Possibili duplicati</h2>
+        <p class="hint">Titolo quasi uguale e stesso prezzo. Spesso è un relist rimasto a metà.</p>
+        <div id="duplicates"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Cosa funziona</h2>
+        <div id="insight"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Articoli</h2>
+          <button class="chip" id="clearFilter" hidden>Mostra tutti</button>
+        </div>
+        <div class="table-wrap">
+          <table class="items">
+            <thead>
+              <tr>
+                <th>Articolo</th>
+                <th class="num">Prezzo</th>
+                <th class="num">Visite</th>
+                <th class="num">Pref.</th>
+                <th>Ultimo relist</th>
+                <th class="num">Qualità</th>
+              </tr>
+            </thead>
+            <tbody id="items"></tbody>
+          </table>
+        </div>
+        <p class="hint" id="itemsHint"></p>
+      </section>
+
+      <section class="panel">
+        <h2>Storico ripubblicazioni</h2>
+        <p class="hint">
+          Il ripristino non riporta in vita l'annuncio originale — è stato cancellato con le sue
+          visite — ma ripubblica quello attuale con titolo, descrizione e prezzo di prima.
+        </p>
+        <div id="history"></div>
+      </section>
+    </main>
+
+    <script src="analisi.js"></script>
+    <script src="dashboard.js"></script>
+  </body>
+</html>

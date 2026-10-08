@@ -248,6 +248,30 @@
     const controlli = pannello.querySelector(".vr-queue__controls");
     controlli.textContent = "";
 
+    if (inCorso && coda.state === "recovering") {
+      const fatti = coda.items.filter((i) => i.status === "done").length;
+      const saltati = coda.items.filter((i) => i.status === "skipped").length;
+      const rimasti = coda.items.length - coda.index;
+
+      titolo.textContent = "Coda interrotta";
+      sotto.textContent =
+        `${fatti} completati` +
+        (saltati ? `, ${saltati} saltati` : "") +
+        `, ${rimasti} rimanenti`;
+
+      controlli.append(
+        h("button", {
+          class: "vr-btn vr-btn--ghost vr-btn--sm",
+          onclick: () => chrome.runtime.sendMessage({ type: "vr:queueStop" }),
+        }, "Annulla"),
+        h("button", {
+          class: "vr-btn vr-btn--primary vr-btn--sm",
+          onclick: () => chrome.runtime.sendMessage({ type: "vr:queueRecover" }),
+        }, "Riprendi")
+      );
+      return;
+    }
+
     if (inCorso && coda.state === "paused") {
       const fatti = coda.items.filter((i) => i.status !== "pending").length;
       titolo.textContent = `Coda in pausa: ${fatti} di ${coda.items.length}`;
@@ -475,6 +499,27 @@
     })();
 
     return false;
+  });
+
+  /**
+   * Ripristino dalla dashboard: ripubblica l'annuncio attuale con i dati di
+   * prima. Non e' un annullamento letterale — l'annuncio originale e' stato
+   * cancellato con le sue visite — ma rimette titolo, descrizione e prezzo.
+   */
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type !== "vr:restore") return false;
+
+    if (lavoroInCorso) {
+      sendResponse({ ok: false, error: "c'e' gia' una ripubblicazione in corso, riprova tra poco" });
+      return false;
+    }
+
+    lavoroInCorso = true;
+    VR.relist(message.newId, message.overrides || {}, (passo) => VR.log("ripristino:", passo))
+      .then((creato) => sendResponse({ ok: true, id: creato?.id }))
+      .catch((errore) => sendResponse({ ok: false, error: errore.message }))
+      .finally(() => (lavoroInCorso = false));
+    return true;
   });
 
   /** Il popup chiede una verifica: la facciamo sul primo articolo visibile. */

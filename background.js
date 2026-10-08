@@ -9,6 +9,16 @@
 
 const TOKEN_KEY = "vrTokens";
 
+/**
+ * Vinted ha un dominio per paese e il codice usa gia' location.origin lato
+ * pagina; qui servono invece pattern espliciti, perche' il carattere jolly
+ * sul dominio di primo livello non e' ammesso.
+ * Questo elenco deve restare allineato a host_permissions nel manifest.
+ */
+const DOMINI = ["it","fr","es","de","co.uk","com","be","nl","at","pt","pl","cz","sk","lt","lu","ro","hu"];
+const SITI = DOMINI.map((d) => `https://www.vinted.${d}/*`);
+const apiDi = (coda) => DOMINI.map((d) => `https://www.vinted.${d}/api/${coda}`);
+
 // ---------------------------------------------------------------- token sniff
 
 chrome.webRequest.onSendHeaders.addListener(
@@ -35,7 +45,7 @@ chrome.webRequest.onSendHeaders.addListener(
       });
     });
   },
-  { urls: ["https://www.vinted.it/api/*"] },
+  { urls: apiDi("*") },
   ["requestHeaders", "extraHeaders"]
 );
 
@@ -80,7 +90,7 @@ chrome.webRequest.onBeforeRequest.addListener(
     chrome.storage.local.set({ photoFormat: format });
     console.log("[Relist] formato upload imparato:", format);
   },
-  { urls: ["https://www.vinted.it/api/v2/photos"], types: ["xmlhttprequest"] },
+  { urls: apiDi("v2/photos"), types: ["xmlhttprequest"] },
   ["requestBody"]
 );
 
@@ -110,7 +120,7 @@ chrome.webRequest.onBeforeRequest.addListener(
       // non era JSON: ignora
     }
   },
-  { urls: ["https://www.vinted.it/api/v2/item_upload/items*"] },
+  { urls: apiDi("v2/item_upload/items*") },
   ["requestBody"]
 );
 
@@ -145,7 +155,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }));
 
     const parteA = Number(message.startAt) || 0;
-    const programmata = parteA > Date.now() + 1000;
+    let programmata = parteA > Date.now() + 1000;
+
+    const inizio = programmata ? parteA : Date.now();
 
     scriviCoda({
       items,
@@ -178,6 +190,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message?.type === "vr:queueResume") {
     riprendiCoda().then(() => sendResponse({ ok: true }));
+    return true;
+  }
+
+  if (message?.type === "vr:queueRecover") {
+    riprendiDaRecupero().then(() => sendResponse({ ok: true }));
     return true;
   }
 
@@ -260,7 +277,54 @@ const JITTER = 0.3;              // ±30% sull'intervallo, per non avere un ritm
 const INATTIVO_SEC = 300;        // oltre, consideriamo che tu non sia al computer
 
 const impostazioni = () =>
-  chrome.storage.local.get({ humanRhythm: true, notifyOnFinish: true });
+  chrome.storage.local.get({
+    humanRhythm: true,
+    notifyOnFinish: true,
+    peakOnly: false,
+    peakWindows: "12:30-14:00, 19:30-22:30",
+    autoRule: false,
+    autoRuleDays: 7,
+    autoRuleMax: 5,
+    queueIntervalMin: 20,
+  });
+
+/** "12:30-14:00, 19:30-22:30" → [[750, 840], [1170, 1350]] in minuti dal giorno. */
+function leggiFasce(testo) {
+  const fasce = [];
+  for (const pezzo of String(testo).split(",")) {
+    const m = pezzo.trim().match(/^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/);
+    if (!m) continue;
+    const da = Number(m[1]) * 60 + Number(m[2]);
+    const a = Number(m[3]) * 60 + Number(m[4]);
+    if (a > da) fasce.push([da, a]);
+  }
+  return fasce;
+}
+
+/**
+ * Sposta un orario dentro la prossima fascia di traffico utile.
+ * Pubblicare alle quattro del mattino consuma la spinta nel vuoto.
+ */
+function dentroFascia(quando, fasce) {
+  if (!fasce.length) return quando;
+
+  for (let giorno = 0; giorno < 8; giorno++) {
+    const base = new Date(quando);
+    base.setDate(base.getDate() + giorno);
+    const minuti = giorno === 0 ? base.getHours() * 60 + base.getMinutes() : -1;
+
+    for (const [da, a] of fasce) {
+      if (giorno === 0 && minuti >= da && minuti < a) return quando;   // gia' dentro
+      if (minuti < da) {
+        const slot = new Date(base);
+        slot.setHours(Math.floor(da / 60), da % 60, 0, 0);
+        // qualche minuto di scarto: l'apertura esatta e' un orario sospetto
+        return slot.getTime() + Math.floor(Math.random() * 6 * 60_000);
+      }
+    }
+  }
+  return quando;
+}
 
 const leggiCoda = async () => (await chrome.storage.local.get(QUEUE_KEY))[QUEUE_KEY] || null;
 const scriviCoda = (coda) => chrome.storage.local.set({ [QUEUE_KEY]: coda });
@@ -271,7 +335,10 @@ async function schedulaProssimo(minuti, esatto = false) {
   // Venti minuti esatti per tre ore sono una firma: nessuna persona e' cosi'
   // regolare. Lo scarto casuale costa niente e toglie il motivo piu' ovvio.
   const scarto = humanRhythm && !esatto ? 1 + (Math.random() * 2 - 1) * JITTER : 1;
-  const quando = Date.now() + Math.max(30_000, minuti * 60_000 * scarto);
+  let quando = Date.now() + Math.max(30_000, minuti * 60_000 * scarto);
+
+  const { peakOnly, peakWindows } = await impostazioni();
+  if (peakOnly) quando = dentroFascia(quando, leggiFasce(peakWindows));
   const coda = await leggiCoda();
   if (coda) {
     coda.nextAt = quando;
@@ -374,8 +441,129 @@ async function saltaCorrente() {
   return passoCoda();
 }
 
+/**
+ * Gli alarm non sopravvivono al ricaricamento dell'estensione: la coda restava
+ * "running" senza piu' niente che la svegliasse, e l'unica via d'uscita era
+ * Interrompi. Al risveglio del service worker controlliamo se la sveglia c'e'
+ * ancora; se manca, la coda passa in RECOVERING e aspetta una tua decisione.
+ *
+ * Il margine serve a non scambiare per guasto il risveglio normale: quando e'
+ * l'alarm stesso a svegliarci, risulta gia' consumato.
+ */
+const MARGINE_RECUPERO_MS = 3 * 60_000;
+
+async function recuperaCoda() {
+  const coda = await leggiCoda();
+  if (!coda?.running) return;
+  if (coda.state === "paused" || coda.state === "recovering") return;
+
+  if (await chrome.alarms.get(ALARM_NEXT)) return;        // sveglia al suo posto
+
+  const ora = Date.now();
+  const rotta =
+    coda.state === "working"
+      ? ora - (coda.startedItemAt || 0) > (WATCHDOG_MIN + 2) * 60_000
+      : coda.nextAt > ora + 5_000 || ora - (coda.nextAt || 0) > MARGINE_RECUPERO_MS;
+
+  if (!rotta) return;
+
+  // L'articolo in lavorazione non e' mai arrivato in fondo: torna da fare.
+  const corrente = coda.items[coda.index];
+  if (coda.state === "working" && corrente) corrente.status = "pending";
+
+  coda.state = "recovering";
+  coda.nextAt = null;
+  coda.note = null;
+  await scriviCoda(coda);
+  chrome.alarms.clear(ALARM_WATCHDOG);
+}
+
+async function riprendiDaRecupero() {
+  const coda = await leggiCoda();
+  if (coda?.state !== "recovering") return;
+
+  coda.state = "waiting";
+  await scriviCoda(coda);
+  return passoCoda();
+}
+
+// ------------------------------------------------- ripubblicazione automatica
+
+const ALARM_SCANSIONE = "vr:autoScan";
+
+/**
+ * Accoda da sola gli articoli fermi da troppo tempo.
+ * L'inventario lo costruisce la pagina mentre navighi l'armadio: nessun
+ * endpoint indovinato, e un articolo che non hai mai aperto non esiste qui.
+ * "Anzianita'" vuol dire giorni dall'ultima ripubblicazione nostra, o dal
+ * primo avvistamento per quelli che non abbiamo mai toccato.
+ */
+async function scansione() {
+  const { autoRule, autoRuleDays, autoRuleMax, queueIntervalMin } = await impostazioni();
+  if (!autoRule) return;
+
+  const coda = await leggiCoda();
+  if (coda?.running) return;                       // una coda alla volta
+
+  const dati = await chrome.storage.local.get({ inventory: {}, vrHistory: [] });
+  const soglia = Date.now() - autoRuleDays * 86400000;
+
+  const ultimo = {};
+  for (const voce of dati.vrHistory) {
+    ultimo[voce.id] = Math.max(ultimo[voce.id] || 0, voce.at);
+  }
+
+  // Dopo una ripubblicazione l'articolo ha un id nuovo: la data giusta e'
+  // relistedAt sull'inventario, lo storico per id serve solo ai vecchi dati.
+  const eta = (id, art) => art.relistedAt || ultimo[id] || art.firstSeen || 0;
+
+  const candidati = Object.entries(dati.inventory)
+    .filter(([id, art]) => eta(id, art) < soglia)
+    .sort((a, b) => eta(a[0], a[1]) - eta(b[0], b[1]))
+    .slice(0, Math.max(1, autoRuleMax))
+    .map(([id, art]) => ({ id, title: art.title || `Articolo ${id}`, status: "pending", error: null }));
+
+  if (!candidati.length) return;
+
+  await scriviCoda({
+    items: candidati,
+    index: 0,
+    intervalMin: queueIntervalMin,
+    overrides: null,
+    running: true,
+    state: "waiting",
+    startedAt: Date.now(),
+    nextAt: Date.now(),
+    backoff: 0,
+    note: "Coda automatica",
+    auto: true,
+  });
+  console.log("[Relist] coda automatica:", candidati.length, "articoli");
+  return passoCoda();
+}
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === ALARM_SCANSIONE) scansione();
+});
+
+async function programmaScansione() {
+  const { autoRule } = await impostazioni();
+  if (autoRule) chrome.alarms.create(ALARM_SCANSIONE, { periodInMinutes: 60, delayInMinutes: 5 });
+  else chrome.alarms.clear(ALARM_SCANSIONE);
+}
+
+chrome.storage.onChanged.addListener((modifiche, area) => {
+  if (area === "local" && modifiche.autoRule) programmaScansione();
+});
+
+programmaScansione();
+
+chrome.runtime.onStartup.addListener(recuperaCoda);
+chrome.runtime.onInstalled.addListener(recuperaCoda);
+recuperaCoda();
+
 async function schedaVinted() {
-  const tabs = await chrome.tabs.query({ url: "https://www.vinted.it/*" });
+  const tabs = await chrome.tabs.query({ url: SITI });
   return tabs.find((t) => t.status === "complete") || tabs[0] || null;
 }
 

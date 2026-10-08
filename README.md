@@ -161,9 +161,15 @@ in una fascia e metà in un'altra, poi confronta le visite dopo 24 ore.
 
 ---
 
+## Domini
+
+Funziona su `vinted.it`, `.fr`, `.es`, `.de`, `.co.uk`, `.com` e altri domini regionali. Il
+codice usa l'origine della pagina, quindi non c'è niente da configurare: il popup ricorda
+l'ultimo dominio visitato per i collegamenti.
+
 ## Installazione
 
-Nella radice del repo c'e' `Vinted_Relist-1.6.0.zip`: e' l'estensione gia' pronta, se preferisci
+Nella radice del repo c'e' `Vinted_Relist-1.8.0.zip`: e' l'estensione gia' pronta, se preferisci
 scaricare solo quello invece dell'intero repo.
 
 1. Scompatta lo zip (o scarica il repo con `Code → Download ZIP` / `git clone`) **in una
@@ -222,6 +228,80 @@ mostrano *appreso* o *predefinito*: il pallino spento non è un errore, signific
 usando la mappatura scritta nel codice. I campi imparati si **sommano** a quelli predefiniti,
 non li sostituiscono: una cattura fatta su un articolo da collezione non deve far sparire
 `size_id` da una maglietta.
+
+## Automazione
+
+**Fasce di picco.** Con l'opzione attiva la coda pubblica solo dentro gli orari che imposti
+(predefiniti `12:30-14:00, 19:30-22:30`). Fuori fascia aspetta l'apertura successiva, con qualche
+minuto di scarto casuale: partire all'istante esatto dell'apertura è un orario sospetto quanto
+un intervallo a metronomo.
+
+**Ripubblica da sola gli articoli fermi.** Ogni ora l'estensione controlla quali articoli non
+ripubblichi da più di N giorni e ne accoda fino a un massimo che scegli tu. Non parte se una
+coda è già in corso, e segue tutte le regole normali: ritmo irregolare, fasce, pause anti-bot.
+
+L'elenco degli articoli non viene da un endpoint indovinato: si costruisce da solo mentre
+navighi il tuo armadio. Un articolo che non hai mai aperto non esiste per l'automazione — il
+popup ti dice quanti ne conosce. L'anzianità si conta dall'ultima ripubblicazione fatta
+dall'estensione, o dal primo avvistamento per quelli che non ha mai toccato.
+
+## Dashboard dell'armadio
+
+Si apre dal popup. Mostra solo dati che l'estensione ha già raccolto, quindi si riempie man mano
+che navighi il tuo armadio: prezzo, visite e preferiti vengono letti dalle card che hai davanti,
+senza chiamate in più a Vinted.
+
+**Gruppi**, disgiunti e cliccabili per filtrare la tabella:
+
+| Gruppo | Criterio |
+|---|---|
+| Recenti | ripubblicati negli ultimi 7 giorni |
+| Stagnanti | fermi da 21 giorni o più |
+| Da ottimizzare | completezza sotto 70 |
+| Mai ripubblicati | mai toccati dall'estensione |
+| In regola | tutto il resto |
+
+L'anzianità di un articolo mai toccato si conta dal primo avvistamento: la data vera di
+pubblicazione non la conosciamo, e non la inventiamo.
+
+**Possibili duplicati**: titoli quasi uguali (somiglianza sulle parole, maiuscole e punteggiatura
+ignorate) **e** stesso prezzo. Due DVD uguali a prezzi diversi sono quasi sempre due copie vere.
+
+**Completezza**: un punteggio da 0 a 100 su cose verificabili — numero di foto, marca, colore,
+condizione, taglia dove serve, lunghezza di titolo e descrizione, dimensione del pacco. Compare
+anche nel dialog Modifica, che è il momento in cui puoi ancora sistemare.
+
+### Cosa funziona
+
+Ogni ripubblicazione viene misurata con le **visite del nuovo annuncio a circa 48 ore**. Un
+annuncio ripubblicato parte da zero, quindi quel numero è il risultato di quel relist e di
+nient'altro: relist diversi si possono confrontare.
+
+La misura si registra quando riapri il tuo armadio tra 1 e 3 giorni dopo una ripubblicazione.
+Con almeno 3 misure per gruppo la dashboard indica giorno e fascia oraria che hanno reso di più;
+per un singolo articolo, con almeno 3 relist misurati, aggiunge la fascia di prezzo delle visite
+migliori e se ha reso di più tenendo il prezzo fermo o cambiandolo. Sotto quelle soglie dice
+quante misure mancano: con due punti qualunque differenza è rumore.
+
+### Storico e ripristino
+
+Ogni ripubblicazione salva com'era l'annuncio prima: titolo, descrizione, prezzo. **Ripristina**
+ripubblica l'annuncio attuale con quei dati. Non riporta in vita l'originale — è stato cancellato
+con le sue visite — ma rimette i contenuti di prima. Un relist che è stato ripubblicato a sua
+volta compare come superato: il suo annuncio non esiste più.
+
+## Se la coda si interrompe
+
+Gli alarm non sopravvivono al ricaricamento dell'estensione. Prima la coda restava bloccata in
+stato "in corso" senza niente che la svegliasse, e l'unica via d'uscita era Interrompi.
+
+Ora, al risveglio, il service worker controlla se la sveglia esiste ancora. Se manca, la coda
+passa in **recovering** e aspetta: nel pannello e nel popup trovi quanti articoli sono stati
+completati e quanti restano, con **Riprendi** e **Annulla**. L'articolo che era in lavorazione
+torna da fare, perché non è mai arrivato in fondo.
+
+Il controllo ha un margine di tre minuti, altrimenti scambierebbe per guasto il risveglio
+normale: quando è l'alarm stesso a svegliare il worker, risulta già consumato.
 
 ## L'ordine conta
 
@@ -311,7 +391,9 @@ src/queue.js         selezione multipla e pannello della coda
 src/ui.js            onboarding, bottoni, dialog di modifica
 src/content.js       rilevamento articoli e injection
 src/page-bridge.js   espone VR nella console della pagina
-src/popup.*          impostazioni e recupero bozze
+src/popup.*          impostazioni, coda, attività
+src/analisi.js       gruppi, duplicati, misure: funzioni pure, testabili senza browser
+src/dashboard.*      la pagina dell'armadio
 ```
 
 ## Nota

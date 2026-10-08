@@ -163,6 +163,8 @@ body {
 
 /* ------------------------------------------------------------------ campi */
 
+.fields { display: flex; gap: 10px; margin-top: 9px; }
+
 .field { display: block; }
 .field.wide { margin-top: 9px; }
 
@@ -174,6 +176,7 @@ body {
 }
 
 select,
+input[type="text"],
 input[type="number"] {
   width: 100%;
   padding: 7px 9px;
@@ -186,6 +189,7 @@ input[type="number"] {
 }
 
 select:focus,
+input[type="text"]:focus,
 input[type="number"]:focus {
   outline: none;
   border-color: var(--teal);
@@ -291,4 +295,4 @@ input[type="number"]:focus {
 .btn.danger { border-color: var(--border); color: var(--muted); }
 .btn.danger:hover { border-color: var(--red); color: var(--red); background: transparent; }
 
-.foot { margin-top: -3px; }
+.foot { margin-top: -3px; display: flex; flex-direction: column; gap: 7px; }
