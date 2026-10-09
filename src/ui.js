@@ -87,100 +87,6 @@
     const close = openOverlay(card);
   };
 
-  // ---------------------------------------------------------------- dialog modifica
-
-  function openEditDialog(itemId, onConfirm) {
-    const title = h("input", { class: "vr-input", type: "text", maxlength: "100" });
-    const description = h("textarea", { class: "vr-input vr-input--area", rows: "5" });
-    const price = h("input", { class: "vr-input", type: "number", min: "0.5", step: "0.5" });
-    const colore = VR.selectColore();
-    const deleteOld = h("input", { type: "checkbox", class: "vr-check", checked: VR.settings.deleteOld });
-
-    const status = h("p", { class: "vr-note vr-note--loading" }, "Carico i dati dell'articolo…");
-    const qualita = h("div", { class: "vr-quality", hidden: true });
-    const confirmButton = h("button", { class: "vr-btn vr-btn--primary", disabled: true }, "Pubblica");
-
-    const card = h(
-      "div",
-      { class: "vr-card vr-card--wide", role: "dialog", "aria-modal": "true" },
-      h("h2", { class: "vr-card__title" }, "Modifica e ripubblica"),
-      status,
-      qualita,
-      h("label", { class: "vr-field" }, h("span", { class: "vr-field__label" }, "Titolo"), title),
-      h("label", { class: "vr-field" }, h("span", { class: "vr-field__label" }, "Descrizione"), description),
-      h("div", { class: "vr-row" },
-        h("label", { class: "vr-field" }, h("span", { class: "vr-field__label" }, "Prezzo (EUR)"), price),
-        h("label", { class: "vr-field" }, h("span", { class: "vr-field__label" }, "Colore se manca"), colore)
-      ),
-      h(
-        "label",
-        { class: "vr-checkline" },
-        deleteOld,
-        h("span", {}, "Elimina il vecchio annuncio dopo la pubblicazione")
-      ),
-      h(
-        "p",
-        { class: "vr-note" },
-        "Categoria, marca, taglia, condizione, colori e spedizione restano identici all'originale."
-      ),
-      h(
-        "div",
-        { class: "vr-actions" },
-        h("button", { class: "vr-btn vr-btn--ghost", onclick: () => close() }, "Annulla"),
-        confirmButton
-      )
-    );
-
-    const close = openOverlay(card);
-
-    VR.api
-      .getUploadDraft(itemId)
-      .then((item) => {
-        title.value = item.title || "";
-        description.value = item.description || "";
-        const amount = typeof item.price === "object" ? item.price?.amount : item.price;
-        price.value = amount != null ? Number(amount) : "";
-        status.remove();
-
-        // Il punteggio sta qui perche' e' il momento in cui puoi ancora sistemare.
-        const esito = VR.punteggio(item);
-        qualita.hidden = false;
-        qualita.append(
-          h("div", { class: "vr-quality__head" },
-            h("strong", {}, `Completezza ${esito.score}/100`),
-            h("span", { class: "vr-quality__bar" },
-              h("span", { class: "vr-quality__fill", style: `width:${esito.score}%` })
-            )
-          ),
-          h("div", { class: "vr-quality__voci" },
-            esito.voci.map((v) =>
-              h("span", { class: `vr-quality__voce${v.ok ? " is-ok" : ""}` }, `${v.ok ? "✓" : "⚠"} ${v.testo}`)
-            )
-          ),
-          esito.consigli.length
-            ? h("p", { class: "vr-note" }, esito.consigli[0])
-            : null
-        );
-        confirmButton.disabled = false;
-        title.focus();
-      })
-      .catch((error) => {
-        status.className = "vr-note vr-note--error";
-        status.textContent = `Non riesco a leggere l'articolo: ${error.message}`;
-      });
-
-    confirmButton.addEventListener("click", () => {
-      close();
-      onConfirm({
-        title: title.value,
-        description: description.value,
-        price: price.value,
-        colorIds: colore.value ? [Number(colore.value)] : undefined,
-        deleteOld: deleteOld.checked,
-      });
-    });
-  }
-
   // ---------------------------------------------------------------- barra bottoni
 
   /**
@@ -257,7 +163,7 @@
       });
 
     relistButton.addEventListener("click", () => run({}));
-    editButton.addEventListener("click", () => openEditDialog(itemId, (overrides) => run(overrides)));
+    editButton.addEventListener("click", () => VR.openEditor(itemId, (overrides) => run(overrides)));
 
     return bar;
   };

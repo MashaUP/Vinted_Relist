@@ -21,16 +21,51 @@ const apiDi = (coda) => DOMINI.map((d) => `https://www.vinted.${d}/api/${coda}`)
 
 // ---------------------------------------------------------------- token sniff
 
+/** v_uid dal cookie; in mancanza, il "sub" del token di accesso (stesso valore). */
+function idDaCookie(cookie) {
+  if (!cookie) return null;
+  const diretto = cookie.match(/(?:^|;\s*)v_uid=(\d+)/);
+  if (diretto) return diretto[1];
+
+  const token = cookie.match(/(?:^|;\s*)access_token_web=[^.;]+\.([^.;]+)\./);
+  if (!token) return null;
+  try {
+    const base64 = token[1].replace(/-/g, "+").replace(/_/g, "/");
+    const sub = JSON.parse(atob(base64 + "===".slice((base64.length + 3) % 4)))?.sub;
+    return /^\d+$/.test(String(sub)) ? String(sub) : null;
+  } catch {
+    return null;
+  }
+}
+
+let ultimoUtente = null;
+
+/** Scrive solo quando cambia: questo listener scatta su ogni chiamata API. */
+function ricordaUtente(userId, url) {
+  const origine = new URL(url).origin;
+  const chiave = `${userId}@${origine}`;
+  if (chiave === ultimoUtente) return;
+  ultimoUtente = chiave;
+  chrome.storage.local.set({ userId, vintedOrigin: origine });
+}
+
 chrome.webRequest.onSendHeaders.addListener(
   (details) => {
     let csrf = null;
     let anonId = null;
+    let cookie = null;
 
     for (const header of details.requestHeaders || []) {
       const name = header.name.toLowerCase();
       if (name === "x-csrf-token" && header.value) csrf = header.value;
       if (name === "x-anon-id" && header.value) anonId = header.value;
+      if (name === "cookie" && header.value) cookie = header.value;
     }
+
+    // Il tuo id utente sta nel cookie v_uid, che e' HttpOnly: la pagina non lo
+    // vede, il service worker si'. Senza, "Apri il tuo armadio" non sa dove andare.
+    const userId = idDaCookie(cookie);
+    if (userId) ricordaUtente(userId, details.url);
 
     if (!csrf && !anonId) return;
 

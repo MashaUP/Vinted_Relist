@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Vinted Relist",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "description": "Ripubblica un articolo Vinted con un clic: clona l'annuncio (foto e dati) e rimuove quello vecchio.",
   "permissions": [
     "storage",
@@ -58,6 +58,8 @@
         "src/utils.js",
         "src/api.js",
         "src/relist.js",
+        "src/editor-logica.js",
+        "src/editor.js",
         "src/queue.js",
         "src/ui.js",
         "src/content.js"

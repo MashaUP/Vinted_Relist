@@ -92,6 +92,9 @@
     if (o.priceDelta) parti.push(`${o.priceDelta > 0 ? "+" : ""}${o.priceDelta.toFixed(2)} € sul prezzo`);
     if (o.price) parti.push(`prezzo a ${o.price} €`);
     if (o.descriptionAppend) parti.push("riga aggiunta alla descrizione");
+    if (o.replace?.find) {
+      parti.push(o.replace.with ? `«${o.replace.find}» → «${o.replace.with}»` : `tolto «${o.replace.find}»`);
+    }
     if (o.colorIds?.length) {
       parti.push(`colore ${(VR.settings.colorMap || {})[o.colorIds[0]] || o.colorIds[0]} se manca`);
     }
@@ -140,6 +143,10 @@
     const descrizione = h2("textarea", { class: "vr-input vr-input--area", rows: "3" });
     const quando = h2("input", { class: "vr-input", type: "datetime-local" });
     const colore = VR.selectColore(o.colorIds?.[0]);
+    const cerca = h2("input", { class: "vr-input", type: "text", placeholder: "es. #starwars" });
+    const conCosa = h2("input", { class: "vr-input", type: "text", placeholder: "vuoto = togli" });
+    cerca.value = o.replace?.find || "";
+    conCosa.value = o.replace?.with || "";
 
     if (o.pricePercent) { modo.value = "percent"; valore.value = String(o.pricePercent); }
     else if (o.priceDelta) { modo.value = "delta"; valore.value = String(o.priceDelta); }
@@ -171,6 +178,12 @@
       ),
       h2("div", { class: "vr-row" },
         h2("label", { class: "vr-field" },
+          h2("span", { class: "vr-field__label" }, "Cerca nel titolo e nella descrizione"), cerca),
+        h2("label", { class: "vr-field" },
+          h2("span", { class: "vr-field__label" }, "Sostituisci con"), conCosa)
+      ),
+      h2("div", { class: "vr-row" },
+        h2("label", { class: "vr-field" },
           h2("span", { class: "vr-field__label" }, "Colore se manca"),
           colore
         ),
@@ -180,9 +193,10 @@
         )
       ),
       h2("p", { class: "vr-note" },
-        "Percentuale e variazione in euro si calcolano sul prezzo di ogni articolo al momento " +
-        "della ripubblicazione. Il colore viene messo solo dove manca: gli articoli che ne hanno " +
-        "gia' uno restano com'erano."
+        "Qui ci sono solo i campi che ha senso cambiare uguali su piu' articoli. Foto, titolo " +
+        "intero e taglia sono del singolo annuncio: si cambiano con Modifica. " +
+        "Percentuale e variazione in euro si calcolano sul prezzo di ogni articolo; la ricerca " +
+        "e' letterale e ignora le maiuscole; il colore va solo dove manca."
       ),
       h2("div", { class: "vr-actions" },
         h2("button", { class: "vr-btn vr-btn--ghost", onclick: () => chiudi() }, "Annulla"),
@@ -196,6 +210,7 @@
             if (modo.value === "fixed" && n > 0) nuovo.price = n;
             if (descrizione.value.trim()) nuovo.descriptionAppend = descrizione.value.trim();
             if (colore.value) nuovo.colorIds = [Number(colore.value)];
+            if (cerca.value) nuovo.replace = { find: cerca.value, with: conCosa.value };
 
             bozza.overrides = Object.keys(nuovo).length ? nuovo : null;
             bozza.startAt = quando.value ? new Date(quando.value).getTime() : null;

@@ -1,30 +1,112 @@
 # Vinted Relist
 
-Estensione Chrome/Brave per uso personale. Aggiunge due bottoni sotto ogni articolo del tuo
-armadio su `vinted.it`:
+Estensione Chrome e Brave per ripubblicare i tuoi annunci Vinted in un clic, da soli o in coda.
+Modifica foto e testi prima di pubblicare, misura cosa funziona e tiene lo storico di ogni relist.
 
-- **Ripubblica** — clona l'annuncio identico (foto, titolo, descrizione, categoria, marca,
-  taglia, condizione, colori, prezzo, spedizione) e cancella quello vecchio.
-- **Modifica** — apre una finestra per cambiare titolo, descrizione e prezzo prima di pubblicare.
+## Cosa fa
 
-Con la casella accanto ai bottoni ne selezioni piu' d'uno e li metti in coda, ripubblicati a
-intervalli che scegli tu.
+- **Ripubblicazione in un clic:** clona l'annuncio identico (foto, titolo, descrizione, categoria,
+  marca, taglia, condizione, colori, prezzo, spedizione) e cancella quello vecchio
+  - nessun click simulato: usa le stesse API interne del sito, con la tua sessione
+  - foto riscaricate alla risoluzione più alta e riconvertite in JPEG
+  - a fine lavoro la casella dell'articolo diventa una spunta verde
+- **Editor dell'annuncio**, dal bottone Modifica:
+  - **foto:** anteprima, riordino trascinando (la prima è la copertina), rotazione a 90°,
+    ritaglio libero o con i formati Quadrato e 4:5, rimozione — e le foto tolte si rimettono
+  - **testi e prezzo:** titolo con contatore dei 100 caratteri, descrizione, prezzo, colore
+    quando manca
+  - **controlli in tempo reale:** errori che bloccano la pubblicazione (titolo vuoto o troppo
+    lungo, prezzo zero, nessuna foto, colore mancante) e avvisi che no (titolo corto o tutto
+    maiuscolo, descrizione corta, contatti esterni in descrizione), più il punteggio di completezza
+  - **anteprima prima di pubblicare:** la card come apparirà, l'elenco esatto di cosa cambia
+    rispetto all'annuncio online (prima → dopo) e cosa resta uguale
+  - **bozza locale distinta da ciò che viene inviato:** le modifiche si salvano da sole nel
+    browser e un'etichetta dice sempre "Bozza locale · non ancora inviata"; a Vinted arriva
+    qualcosa solo premendo Pubblica, e solo quello che l'anteprima elenca. Riaprendo l'editor
+    la bozza viene ripresa; "Annulla modifiche" torna all'originale
+- **Coda:**
+  - selezione con le caselle sulle card, Shift+clic per un intervallo, Tutti e Nessuno
+  - intervallo in minuti, avvio subito o a data e ora
+  - pausa (finisce l'articolo in corso e riprende dal tempo residuo), salta, interrompi
+  - avanzamento sotto ogni card, nel pannello in basso e nel popup
+  - notifica di sistema a coda finita
+- **Modifiche in blocco**, valide per tutti gli articoli in coda:
+  - prezzo in percentuale, in euro (−0,50 €, +1,00 €) o fisso, mai sotto 0,50 €
+  - cerca e sostituisci su titolo e descrizione, letterale e senza distinguere maiuscole
+  - riga da aggiungere in fondo alla descrizione
+  - colore da mettere solo dove manca
+- **Automazione:**
+  - **fasce di picco:** la coda pubblica solo negli orari che scegli (predefiniti
+    12:30–14:00 e 19:30–22:30) e fuori fascia aspetta l'apertura
+  - **ripubblica da sola gli articoli fermi** da N giorni, con un tetto per volta
+  - **ritmo irregolare:** intervalli variabili del ±30% e passi solo quando sei al computer
+- **Protezioni:**
+  - **sentinella anti-bot:** davanti a un 429 o un 403 la coda non consuma l'articolo, si mette
+    in pausa 5, poi 15, poi 45 minuti, poi si ferma
+  - **controllo prima di avviare:** una prova a vuoto su un articolo, senza pubblicare niente
+  - **recupero della coda:** se ricarichi l'estensione a metà, al riavvio ti mostra completati e
+    rimanenti con Riprendi e Annulla
+  - **ordine delle operazioni:** pubblica-poi-elimina (predefinito) o elimina-poi-pubblica, con
+    copia dei dati salvata prima di cancellare
+- **Campi vuoti:** colore e unisex riempiti con quello che usi negli altri articoli della stessa
+  categoria (almeno due che concordano, maggioranza del 60%); la dimensione del pacco solo
+  segnalata
+- **Dashboard dell'armadio**, dal popup:
+  - gruppi Recenti, Stagnanti, Da ottimizzare, Mai ripubblicati, In regola, cliccabili
+  - valore totale in vendita, tabella con prezzo, visite, preferiti, ultimo relist e completezza
+  - possibili duplicati: titoli quasi uguali e stesso prezzo
+  - **cosa funziona:** visite a 48 ore di ogni relist, giorno e fascia migliori, e per singolo
+    articolo la fascia di prezzo delle visite migliori
+- **Storico e ripristino:** ogni relist salva com'era l'annuncio prima; Ripristina lo ripubblica
+  con titolo, descrizione e prezzo di prima
+- **Popup:** coda in cima con conto alla rovescia, ripubblicazioni di oggi, 7 e 30 giorni, stato
+  dei formati, collegamento al tuo armadio, tema chiaro e scuro
+- **Impara da solo** quello che Vinted cambia senza preavviso: i campi dell'upload foto, quelli
+  del payload annuncio, il dizionario dei colori, il tuo id utente
+- **17 domini:** `.it`, `.fr`, `.es`, `.de`, `.co.uk`, `.com` e gli altri regionali
+- **Diagnostica da console** per capire cosa non torna quando Vinted cambia qualcosa
 
-Al primo avvio compare una schermata di benvenuto con i tre passaggi, una volta sola.
-Puoi rivederla dal popup dell'estensione.
+## Cosa non fa, e perché
 
----
+- **Non riporta in vita l'annuncio originale.** Ripubblicare significa crearne uno nuovo: visite,
+  preferiti e anzianità ripartono da zero. Il ripristino rimette i contenuti di prima, non quelli.
+- **Non altera le foto per renderle irriconoscibili** ai controlli di Vinted (micro-ritagli o
+  rotazioni impercettibili per cambiarne l'impronta). Rotazione e ritaglio dell'editor sono
+  modifiche che vedi e scegli tu.
+- **Non tocca ISBN, misure e produttore**, e non sceglie la dimensione del pacco: sono dati del
+  singolo oggetto, copiarli da un altro significa pubblicare il falso o pagare la spedizione sbagliata.
+- **Non conosce gli articoli che non hai mai visto.** L'inventario si costruisce mentre navighi il
+  tuo armadio, senza chiamate in più: automazione e dashboard lavorano su quelli.
+- **Non sa la data vera di pubblicazione** degli articoli mai toccati: l'anzianità si conta dal
+  primo avvistamento.
+- **Non conta le visite in tempo reale:** le legge dalle card quando apri l'armadio, quindi le
+  misure a 48 ore arrivano se ci torni tra uno e tre giorni dopo un relist.
+- **Non lavora a browser chiuso.** Serve Brave aperto e almeno una scheda su Vinted, anche in
+  secondo piano.
+- **Non usa API pubbliche**, perché Vinted non ne ha: dipende da quelle interne del sito, che
+  possono cambiare. Per questo impara i formati da solo e ha la diagnostica.
+- **Non manda i tuoi dati da nessuna parte:** bozze, storico e statistiche restano nel browser.
+
+## Installazione
+
+Nella radice del repo c'è `Vinted_Relist-1.9.0.zip`: è l'estensione già pronta.
+
+1. Scompatta lo zip **in una posizione stabile**, non nella cartella temporanea che Windows crea
+   aprendo uno zip con doppio clic.
+2. Apri `brave://extensions` (o `chrome://extensions`).
+3. Attiva **Modalità sviluppatore** in alto a destra.
+4. **Carica estensione non pacchettizzata** e seleziona la cartella `Vinted_Relist`.
+5. Apri il tuo armadio su Vinted e ricarica la pagina.
+
+Dopo ogni aggiornamento premi **Ricarica** sulla scheda dell'estensione e ricarica Vinted.
 
 ## Quando ripubblicare
 
-Lo strumento ti fa ripubblicare in un clic, ma *quando* lo fai conta quanto il come. Vinted
-ordina il feed e le ricerche per data di aggiornamento: ripubblicare rimette l'articolo in
-cima, e l'algoritmo misura l'interesse iniziale nelle prime ore. Se quella spinta parte alle
-tre di notte, si consuma nel vuoto.
+Vinted ordina feed e ricerche per data di aggiornamento: ripubblicare rimette l'articolo in cima,
+e l'algoritmo misura l'interesse nelle prime ore. Se quella spinta parte alle tre di notte, si
+consuma nel vuoto.
 
-### Fasce per giorno
-
-Indice di rendimento su oltre 12.000 annunci (gennaio–aprile 2026). 100 = media settimanale.
+Indice di rendimento su oltre 12.000 annunci (gennaio–aprile 2026), 100 = media settimanale:
 
 | Giorno | 7–9 | 12–14 | 19–22 | Totale |
 |---|---|---|---|---|
@@ -36,104 +118,18 @@ Indice di rendimento su oltre 12.000 annunci (gennaio–aprile 2026). 100 = medi
 | Sabato | 112 | **115** | 110 | 112 |
 | Domenica | 108 | 118 | **125** | 123 |
 
-**Domenica sera, 20:00–22:00** è il momento migliore della settimana: traffico del 25% sopra
-la media, perché i compratori preparano la settimana e chiudono gli acquisti prima del lunedì.
+- **Domenica sera, 20:00–22:00** è il momento migliore: traffico del 25% sopra la media.
+- **Venerdì** è il giorno peggiore.
+- **La mattina presto** ha il 28% di annunci in meno della sera e converte al 2,1% contro l'1,7%:
+  per questo lunedì e martedì rendono meglio alle 7–9.
+- **Da evitare:** 1:00–6:00, venerdì dopo le 21, sabato prima delle 10, le ore di una partita importante.
 
-**Venerdì** è il giorno peggiore. **Mercoledì** spicca a metà settimana, soprattutto per
-l'abbigliamento bambini.
+Quanto spesso:
 
-La mattina presto ha un vantaggio che il totale non mostra: il 28% di annunci pubblicati in
-meno rispetto alla sera, con conversione al 2,1% contro l'1,7% medio. Per questo lunedì e
-martedì, giorni mediocri, rendono meglio alle 7–9 che alle 21.
+- **Tra articoli diversi, 15–20 minuti**, che è l'intervallo predefinito della coda.
+- **Lo stesso articolo, ogni 4–7 giorni, mai ogni giorno.** Su 2,4 milioni di articoli:
 
-**Da evitare:** l'1:00–6:00 (sotto il 3% del traffico), il venerdì dopo le 21, il sabato prima
-delle 10, e le due ore di una partita importante (fino a −40% di traffico).
-
-### Coda automatica
-
-Ogni articolo ha una casella accanto ai bottoni. Selezionandone alcuni compare un pannello in
-basso: scegli ogni quanti minuti ripubblicare e premi **Avvia**. Il primo parte subito, gli
-altri a intervalli regolari.
-
-La coda vive nel service worker con `chrome.alarms`, non nella pagina: puoi navigare su Vinted,
-ricaricare, aprire altre schede. Deve però restare **aperta almeno una scheda su `vinted.it`**,
-perche' e' li' che la ripubblicazione viene eseguita. Se la chiudi, la coda aspetta fino a
-un'ora controllando ogni minuto, poi si interrompe.
-
-Il bottone **Opzioni** apre modifiche che valgono per tutti i selezionati e l'orario di avvio:
-lasciandolo vuoto parte subito, altrimenti aspetta il momento che scegli.
-
-Il prezzo si può toccare in tre modi: **in percentuale** (−10%), **in euro** (−0,50 € o +1,00 €)
-o **fisso** per tutti. Percentuale e variazione in euro si calcolano sul prezzo di ogni articolo
-al momento della ripubblicazione, non quando lo selezioni, e non scendono mai sotto 0,50 €.
-Puoi anche aggiungere una riga in fondo alla descrizione.
-
-### Campi vuoti
-
-Molti annunci vecchi hanno campi che oggi Vinted pretende, e la ripubblicazione fallisce.
-Con **Riempi i campi vuoti** attivo, l'estensione li completa — ma non tutti, e il criterio è
-quanto costa sbagliare:
-
-| Campo | Cosa succede |
-|---|---|
-| `color_ids`, `is_unisex` | **Riempiti.** Senza colore Vinted rifiuta la pubblicazione; un valore sbagliato costa al massimo una ricerca persa. |
-| `package_size_id` | **Solo segnalato.** Sbagliare la dimensione del pacco si paga in spedizione: la scelta resta tua. |
-| `isbn`, misure, `manufacturer` | **Mai toccati.** Sono dati del singolo oggetto: copiarli da un altro articolo significa pubblicare il falso. |
-
-I valori non sono inventati né dedotti dal titolo: vengono da quello che hai messo tu sugli altri
-articoli **della stessa categoria**. Servono almeno due articoli che concordano, e il valore deve
-essere usato in almeno il 60% dei casi — altrimenti l'estensione non sceglie. Un campo già
-compilato non viene mai sovrascritto, e una tua scelta esplicita nelle Opzioni ha sempre la
-precedenza.
-
-Prima di avviare una coda, il controllo ti dice cosa riempirà e cosa resta vuoto.
-
-**Colore se manca.** Vinted rifiuta la pubblicazione di un articolo senza colore, e molti annunci
-vecchi non ne hanno: è l'errore `color: Compila il campo "colore"`. Qui scegli il colore da
-assegnare, applicato **solo** dove manca — gli articoli che ne hanno già uno non vengono toccati.
-L'elenco non è una lista inventata: si riempie da solo con i colori incontrati negli articoli che
-l'estensione legge, perché la lettura espone sia l'id sia il nome.
-
-Per selezionare in fretta: **Shift+clic** estende dall'ultima casella toccata a quella cliccata.
-
-Prima di partire la coda fa una **prova a vuoto** su un articolo — legge, costruisce il payload,
-scarica e converte una foto, senza pubblicare né cancellare niente. Se Vinted ha cambiato
-qualcosa te lo dice subito, invece di farti scoprire l'errore venti volte di fila. Puoi comunque
-forzare l'avvio.
-
-Mentre la coda gira, ogni card mostra gli stessi riscontri del bottone singolo: l'avanzamento
-sotto i bottoni e, a ripubblicazione avvenuta, la casella che diventa una **spunta verde** con
-accanto "Ripubblicato". Cosi' si vede a colpo d'occhio quali articoli sono gia' passati.
-
-Un articolo che fallisce non blocca gli altri: viene segnato e si passa al successivo. Se una
-scheda non risponde entro sei minuti, un watchdog lo chiude come fallito e prosegue.
-
-Un **blocco di Vinted** (429, o un 403 che resta dopo aver rinnovato il token) è trattato
-diversamente da un errore di contenuto: non è colpa dell'articolo, quindi non viene consumato.
-La coda si mette in pausa 5 minuti, poi 15, poi 45; se continua, si ferma. Insistere dopo un
-429 è il modo migliore per peggiorare la situazione.
-
-Con il **ritmo irregolare** attivo (predefinito) l'intervallo varia del ±30% a ogni passo e i
-passi avvengono solo quando sei davvero al computer: venti minuti esatti per tre ore di fila
-sono una firma che nessuna persona lascerebbe. L'avvio programmato è l'unica eccezione — se
-chiedi le 20:00, parte alle 20:00.
-
-A coda finita arriva una **notifica di sistema** con il riepilogo: la coda gira per ore e nel
-frattempo starai guardando altro. Avanzamento
-ed errori li vedi nel pannello e nel popup, anche con Vinted in secondo piano.
-
-### Ogni quanto
-
-Due intervalli diversi, da non confondere.
-
-**Tra articoli distinti, 15–20 minuti.** Uno o due articoli alla volta ti tengono in cima più
-spesso ed evitano l'effetto spam. Svuotare l'armadio in un blocco unico occupa il feed per
-cinque minuti e poi sparisce.
-
-**Tra due ripubblicazioni dello stesso articolo, 4–7 giorni. Mai ogni giorno.** Uno studio su
-2,4 milioni di articoli trova una curva a U:
-
-| Frequenza | Venduti in 14 giorni | Visualizzazioni medie |
+| Frequenza | Venduti in 14 giorni | Visite medie |
 |---|---|---|
 | 1× al giorno | 4% | 12 |
 | Ogni 2 giorni | 9% | 28 |
@@ -142,50 +138,13 @@ cinque minuti e poi sparisce.
 | Ogni 14 giorni | 11% | 43 |
 | Mai | 6% | 21 |
 
-Ripubblicare tutti i giorni rende meno che non ripubblicare affatto. Una seconda fonte
-consiglia ogni 3–4 giorni sostenendo che la visibilità cala dell'80% dopo tre giorni: le due
-stime si contraddicono, ma concordano sul fatto che la frequenza quotidiana è controproducente.
-
-### Quanto fidarsi di questi numeri
-
-Entrambe le fonti ([Relisted](https://relisted.io/en/blog/best-time-post-vinted),
+Le fonti ([Relisted](https://relisted.io/en/blog/best-time-post-vinted),
 [Vinkit](https://vinkit.co/it/blog/con-quale-frequenza-ripubblicare-annunci-vinted-studio-24m-articoli))
-vendono strumenti di ripubblicazione automatica, e i dati vengono dai loro stessi utenti:
-nessuno è verificabile dall'esterno, e hanno interesse a far sembrare il timing decisivo.
-Vinted non pubblica le proprie statistiche di traffico. La direzione generale è comunque
-credibile, perché descrive soltanto quando la gente sta sul telefono.
-
-Il conteggio delle visualizzazioni per articolo è nei dati che l'estensione già legge: se vuoi
-una risposta misurata sul tuo catalogo invece che sulla media di altri, ripubblica metà armadio
-in una fascia e metà in un'altra, poi confronta le visite dopo 24 ore.
-
----
-
-## Domini
-
-Funziona su `vinted.it`, `.fr`, `.es`, `.de`, `.co.uk`, `.com` e altri domini regionali. Il
-codice usa l'origine della pagina, quindi non c'è niente da configurare: il popup ricorda
-l'ultimo dominio visitato per i collegamenti.
-
-## Installazione
-
-Nella radice del repo c'e' `Vinted_Relist-1.8.0.zip`: e' l'estensione gia' pronta, se preferisci
-scaricare solo quello invece dell'intero repo.
-
-1. Scompatta lo zip (o scarica il repo con `Code → Download ZIP` / `git clone`) **in una
-   posizione stabile**, non nella cartella temporanea che Windows crea aprendo uno zip.
-2. Apri `brave://extensions` (o `chrome://extensions`).
-3. Attiva **Modalità sviluppatore** in alto a destra.
-4. **Carica estensione non pacchettizzata** e seleziona la cartella.
-5. Apri il tuo armadio su Vinted e ricarica la pagina.
-
-Dopo ogni modifica ai file, premi **Ricarica** sulla scheda dell'estensione e ricarica Vinted.
-Servono entrambe le cose: il content script vecchio resta in memoria.
+vendono entrambe strumenti di ripubblicazione e i dati vengono dai loro utenti: non sono
+verificabili, e su frequenza si contraddicono. La direzione generale è credibile; la risposta per
+il tuo armadio te la dà la dashboard, dopo qualche settimana di relist misurati.
 
 ## Come funziona
-
-L'estensione non simula i click sul sito: usa le stesse API interne di Vinted
-(`/api/v2/...`) con i cookie della tua sessione.
 
 | Passo | Chiamata |
 |---|---|
@@ -195,153 +154,60 @@ L'estensione non simula i click sul sito: usa le stesse API interne di Vinted
 | Crea il nuovo annuncio | `POST /api/v2/item_upload/items` |
 | Elimina il vecchio | `POST /api/v2/items/{id}/delete` |
 
-Le foto vengono ridisegnate su canvas e riesportate in JPEG a 1600px sul lato lungo: il CDN
-di Vinted risponde in WebP, che l'upload rifiuta.
+Le foto vengono ridisegnate su canvas, con rotazione e ritaglio dell'editor applicati nello stesso
+passaggio, e riesportate in JPEG a 1600 px sul lato lungo: il CDN risponde in WebP, che l'upload rifiuta.
 
 ### Dalla lettura alla scrittura
 
-I due formati non coincidono, e questa è la parte che conta. Le differenze, ricavate
-confrontando una richiesta reale di Vinted con quello che restituisce la lettura, stanno
-tutte in `DERIVATIONS` (`src/relist.js`):
+I due formati non coincidono. Le differenze stanno tutte in `DERIVATIONS` (`src/relist.js`):
 
 | Lettura | Scrittura |
 |---|---|
 | `brand_dto: {id, title}` | `brand: "Star Wars"` + `brand_id: 62370` |
 | `color1_id: 3`, `color2_id: 1` | `color_ids: [3, 1]` |
-| `price: {amount: "10.0", currency_code}` | `price: 10` (numero, non stringa) |
+| `price: {amount: "10.0", currency_code}` | `price: 10` (numero) |
 | `shipment_prices: null` + `domestic_shipment_price` | `shipment_prices: {domestic, international}` |
 
-L'involucro della richiesta è `{item, push_up, parcel, upload_session_id}`: la sessione di
-upload sta **fuori** da `item`. La lettura restituisce anche `photos`, `promoted`,
-`can_push_up`, `is_draft`, `item_alert`, `ontology_*`, che non vanno inviati.
+L'involucro è `{item, push_up, parcel, upload_session_id}`, con la sessione **fuori** da `item`.
 
-### Formati che si imparano da soli
+### Cosa impara da solo
 
-Vinted cambia questi dettagli senza preavviso, quindi il service worker osserva le richieste
-che fa il sito stesso e ne registra la forma:
+Il service worker osserva le richieste che fa Vinted stessa:
 
-- carica una foto a mano da `vinted.it/items/new` → registra i campi del multipart;
-- modifica un annuncio a mano e salva → registra i campi del payload dell'annuncio.
+- caricando una foto a mano da `/items/new` impara i campi dell'upload;
+- modificando un annuncio a mano impara i campi del payload, che si **sommano** ai predefiniti;
+- dall'header delle chiamate legge il tuo id utente: il cookie `v_uid` è HttpOnly e la pagina non
+  lo vede, ed è quello che serve al collegamento "Apri il tuo armadio".
 
-Entrambe le cose sono silenziose. Nel popup, le righe "Formato foto" e "Formato annuncio"
-mostrano *appreso* o *predefinito*: il pallino spento non è un errore, significa che sta
-usando la mappatura scritta nel codice. I campi imparati si **sommano** a quelli predefiniti,
-non li sostituiscono: una cattura fatta su un articolo da collezione non deve far sparire
-`size_id` da una maglietta.
+Il popup mostra *appreso* o *predefinito*: il pallino spento non è un errore.
 
-## Automazione
+### Campi vuoti
 
-**Fasce di picco.** Con l'opzione attiva la coda pubblica solo dentro gli orari che imposti
-(predefiniti `12:30-14:00, 19:30-22:30`). Fuori fascia aspetta l'apertura successiva, con qualche
-minuto di scarto casuale: partire all'istante esatto dell'apertura è un orario sospetto quanto
-un intervallo a metronomo.
-
-**Ripubblica da sola gli articoli fermi.** Ogni ora l'estensione controlla quali articoli non
-ripubblichi da più di N giorni e ne accoda fino a un massimo che scegli tu. Non parte se una
-coda è già in corso, e segue tutte le regole normali: ritmo irregolare, fasce, pause anti-bot.
-
-L'elenco degli articoli non viene da un endpoint indovinato: si costruisce da solo mentre
-navighi il tuo armadio. Un articolo che non hai mai aperto non esiste per l'automazione — il
-popup ti dice quanti ne conosce. L'anzianità si conta dall'ultima ripubblicazione fatta
-dall'estensione, o dal primo avvistamento per quelli che non ha mai toccato.
-
-## Dashboard dell'armadio
-
-Si apre dal popup. Mostra solo dati che l'estensione ha già raccolto, quindi si riempie man mano
-che navighi il tuo armadio: prezzo, visite e preferiti vengono letti dalle card che hai davanti,
-senza chiamate in più a Vinted.
-
-**Gruppi**, disgiunti e cliccabili per filtrare la tabella:
-
-| Gruppo | Criterio |
+| Campo | Cosa succede |
 |---|---|
-| Recenti | ripubblicati negli ultimi 7 giorni |
-| Stagnanti | fermi da 21 giorni o più |
-| Da ottimizzare | completezza sotto 70 |
-| Mai ripubblicati | mai toccati dall'estensione |
-| In regola | tutto il resto |
+| `color_ids`, `is_unisex` | **Riempiti** se vuoti. Senza colore Vinted rifiuta la pubblicazione. |
+| `package_size_id` | **Solo segnalato**: sbagliarlo si paga in spedizione. |
+| `isbn`, misure, `manufacturer` | **Mai toccati**: sono dati del singolo oggetto. |
 
-L'anzianità di un articolo mai toccato si conta dal primo avvistamento: la data vera di
-pubblicazione non la conosciamo, e non la inventiamo.
-
-**Possibili duplicati**: titoli quasi uguali (somiglianza sulle parole, maiuscole e punteggiatura
-ignorate) **e** stesso prezzo. Due DVD uguali a prezzi diversi sono quasi sempre due copie vere.
-
-**Completezza**: un punteggio da 0 a 100 su cose verificabili — numero di foto, marca, colore,
-condizione, taglia dove serve, lunghezza di titolo e descrizione, dimensione del pacco. Compare
-anche nel dialog Modifica, che è il momento in cui puoi ancora sistemare.
-
-### Cosa funziona
-
-Ogni ripubblicazione viene misurata con le **visite del nuovo annuncio a circa 48 ore**. Un
-annuncio ripubblicato parte da zero, quindi quel numero è il risultato di quel relist e di
-nient'altro: relist diversi si possono confrontare.
-
-La misura si registra quando riapri il tuo armadio tra 1 e 3 giorni dopo una ripubblicazione.
-Con almeno 3 misure per gruppo la dashboard indica giorno e fascia oraria che hanno reso di più;
-per un singolo articolo, con almeno 3 relist misurati, aggiunge la fascia di prezzo delle visite
-migliori e se ha reso di più tenendo il prezzo fermo o cambiandolo. Sotto quelle soglie dice
-quante misure mancano: con due punti qualunque differenza è rumore.
-
-### Storico e ripristino
-
-Ogni ripubblicazione salva com'era l'annuncio prima: titolo, descrizione, prezzo. **Ripristina**
-ripubblica l'annuncio attuale con quei dati. Non riporta in vita l'originale — è stato cancellato
-con le sue visite — ma rimette i contenuti di prima. Un relist che è stato ripubblicato a sua
-volta compare come superato: il suo annuncio non esiste più.
-
-## Se la coda si interrompe
-
-Gli alarm non sopravvivono al ricaricamento dell'estensione. Prima la coda restava bloccata in
-stato "in corso" senza niente che la svegliasse, e l'unica via d'uscita era Interrompi.
-
-Ora, al risveglio, il service worker controlla se la sveglia esiste ancora. Se manca, la coda
-passa in **recovering** e aspetta: nel pannello e nel popup trovi quanti articoli sono stati
-completati e quanti restano, con **Riprendi** e **Annulla**. L'articolo che era in lavorazione
-torna da fare, perché non è mai arrivato in fondo.
-
-Il controllo ha un margine di tre minuti, altrimenti scambierebbe per guasto il risveglio
-normale: quando è l'alarm stesso a svegliare il worker, risulta già consumato.
+Un campo già compilato non viene sovrascritto, e una tua scelta esplicita vince sempre.
 
 ## L'ordine conta
 
-Nelle impostazioni ci sono due modalità:
-
-- **Pubblica, poi elimina** (predefinita). Se la creazione fallisce, il vecchio annuncio è
-  ancora lì. Il rischio opposto è un doppione da rimuovere a mano: il guaio meno grave.
+- **Pubblica, poi elimina** (predefinito). Se la creazione fallisce il vecchio annuncio è ancora
+  lì; il rischio opposto è un doppione da togliere a mano.
 - **Elimina, poi pubblica**. Relist pulito, ma se Vinted rifiuta la creazione l'annuncio è già
-  sparito. Prima di cancellare l'estensione salva sempre una copia dei dati: la recuperi dal
-  popup, dove la sezione bozze compare solo se c'è qualcosa da recuperare.
+  sparito. Prima di cancellare l'estensione salva sempre una copia dei dati, recuperabile dal popup.
 
-## Il popup
+## Se la coda si interrompe
 
-Si apre sull'icona dell'estensione e segue il tema del browser, chiaro o scuro.
-
-**Coda** in cima quando è attiva: avanzamento, articolo in lavorazione, conto alla rovescia che
-scorre davvero, e i comandi **Pausa**, **Salta** e **Interrompi**. La pausa non spezza l'articolo
-in corso: lo lascia finire e si ferma dopo, riprendendo poi dal tempo residuo. Gli articoli
-falliti sono cliccabili e aprono l'annuncio. Senza coda attiva, qui trovi il collegamento al tuo
-armadio.
-
-**Ripubblicazione** — elimina il vecchio annuncio (se lo disattivi ottieni un duplicato),
-ricarica la pagina dopo, ordine delle operazioni.
-
-**Coda** — ritmo irregolare, controllo prima di avviare, notifica a fine coda.
-
-**Attività** — quante ripubblicazioni hai fatto oggi, negli ultimi 7 e negli ultimi 30 giorni, e
-quanti articoli hai ripubblicato più di una volta nell'ultima settimana. È il numero che ti
-protegge dall'errore più costoso: ripubblicare ogni giorno rende meno che non farlo affatto.
-
-**Formati** — stato dei due formati appresi, e il bottone **Verifica formato** che esegue la
-prova a vuoto sul primo articolo del tuo armadio senza aprire la console.
-
-**Avanzate**, richiudibile — mostra i bottoni ovunque, e la pausa tra le chiamate (2500–3000 ms
-se ne fai molte di fila). È altra cosa dall'intervallo della coda, che si imposta nel pannello
-in basso alla pagina.
+Gli alarm del browser non sopravvivono al ricaricamento dell'estensione. Al risveglio il service
+worker controlla se la sveglia della coda esiste ancora; se manca, la coda passa in **interrotta**
+e aspetta te. L'articolo che era in lavorazione torna da fare. Il controllo ha tre minuti di
+margine per non scambiare per guasto un risveglio normale.
 
 ## Diagnostica
 
-Le funzioni sono disponibili nella console normale della pagina (F12), senza cambiare contesto:
+Dalla console normale della pagina (F12):
 
 ```js
 await VR.settings()        // impostazioni e formati imparati
@@ -352,48 +218,45 @@ await VR.debugDraft(ID)    // cosa verrebbe inviato, senza pubblicare niente
 await VR.canary(ID)        // prova a vuoto: legge e prepara tutto senza pubblicare
 ```
 
-`VR.compare` è lo strumento da usare quando Vinted cambia qualcosa: se stampa liste vuote il
-payload è allineato, altrimenti dice esattamente quale campo non torna.
-
 ## Se qualcosa non va
 
-**I bottoni non compaiono.** Vinted cambia spesso le classi CSS. In console cerca
-`[Relist] attivo su`: se c'è, il problema è il selettore della card — aggiungi il tuo in
-`CARD_SELECTORS` (`src/content.js`). Se il riconoscimento del profilo sbaglia, attiva
-"Mostra i bottoni ovunque".
+**I bottoni non compaiono.** In console cerca `[Relist] attivo su`: se c'è, aggiungi il selettore
+della card in `CARD_SELECTORS` (`src/content.js`). Se il riconoscimento del profilo sbaglia, attiva
+"Mostra i bottoni ovunque" nelle Avanzate.
 
-**Icona rotta e popup con `ERR_FILE_NOT_FOUND`.** Il browser non trova più la cartella da cui
-hai caricato l'estensione: nome e versione restano in cache, il resto no. Succede caricando
-dalla cartella temporanea di uno zip aperto con doppio clic. Estrai in una posizione stabile,
-rimuovi l'estensione e ricaricala da lì. In **Dettagli** controlli il percorso di origine.
+**"Apri il tuo armadio" porta alla home.** Il popup non conosce ancora il tuo id: apri una pagina
+qualsiasi di Vinted da loggato e il link si sistema da solo. Finché non succede, il link dice
+"Apri Vinted".
 
-**"Errore durante il caricamento della foto".** È Vinted a rifiutare il file. Carica una foto
-a mano da `/items/new` per far imparare il formato, poi riprova.
+**Icona rotta e popup con `ERR_FILE_NOT_FOUND`.** Il browser non trova più la cartella da cui hai
+caricato l'estensione. Estrai in una posizione stabile, rimuovi l'estensione e ricaricala da lì.
 
-**"Ci dispiace, si sono verificati degli errori".** Il payload dell'annuncio non va. Il
-messaggio sotto i bottoni elenca i campi rifiutati; `VR.compare(ID)` dice quali mancano.
-Modifica un annuncio a mano e salva per far imparare il formato aggiornato.
+**"Errore durante il caricamento della foto".** Carica una foto a mano da `/items/new` per far
+imparare il formato, poi riprova.
 
-**Errore 403 o schermata anti-bot.** Vinted usa DataDome. Ricarica la pagina, disattiva
-l'ad-blocker su vinted.it, aspetta qualche minuto.
+**"Ci dispiace, si sono verificati degli errori".** Il messaggio sotto i bottoni elenca i campi
+rifiutati; `VR.compare(ID)` dice quali mancano.
 
-**Errore 429.** Troppe richieste: alza la pausa e riprendi più tardi.
+**Errore 403 o 429.** È l'anti-bot: la coda rallenta da sola. Da fuori coda, aspetta qualche minuto.
 
 ## Struttura
 
 ```
-manifest.json        permessi e registrazione degli script
-background.js        cattura token e formati, download foto senza CORS
-src/utils.js         impostazioni, toast, coda seriale
-src/api.js           tutte le chiamate a Vinted
-src/relist.js        clonazione, conversione dei campi, diagnostica
-src/queue.js         selezione multipla e pannello della coda
-src/ui.js            onboarding, bottoni, dialog di modifica
-src/content.js       rilevamento articoli e injection
-src/page-bridge.js   espone VR nella console della pagina
-src/popup.*          impostazioni, coda, attività
-src/analisi.js       gruppi, duplicati, misure: funzioni pure, testabili senza browser
-src/dashboard.*      la pagina dell'armadio
+manifest.json          permessi e registrazione degli script
+background.js          token, id utente, formati, coda, automazione, recupero
+src/utils.js           impostazioni, toast, coda seriale
+src/api.js             tutte le chiamate a Vinted
+src/relist.js          clonazione, foto (rotazione e ritaglio), campi, snapshot, diagnostica
+src/editor-logica.js   controlli e differenze dell'editor: funzioni pure, testabili
+src/editor.js          l'editor dell'annuncio
+src/queue.js           selezione, coda, modifiche in blocco
+src/ui.js              onboarding e bottoni sulle card
+src/styles.css         stile di bottoni, pannello, editor dentro Vinted
+src/content.js         rilevamento articoli e inventario
+src/page-bridge.js     espone VR nella console della pagina
+src/popup.*            impostazioni, coda, attività
+src/analisi.js         gruppi, duplicati, misure: funzioni pure, testabili
+src/dashboard.*        la pagina dell'armadio
 ```
 
 ## Nota

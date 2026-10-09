@@ -31,26 +31,73 @@
   const MAX_BYTES = 4.5 * 1024 * 1024;
 
   /**
-   * Vinted rifiuta i file che non riconosce come JPEG valido (il CDN restituisce WebP)
-   * e quelli troppo pesanti. Ridisegnare su canvas risolve entrambe le cose.
+   * Geometria di una foto modificata: rotazione a passi di 90°, poi ritaglio
+   * espresso in frazioni dell'immagine *gia' ruotata*, poi riduzione al lato
+   * massimo. Funzione pura: e' qui che si sbaglia, quindi si testa da sola.
    */
-  async function toJpeg(blob) {
-    try {
-      const bitmap = await createImageBitmap(blob);
-      const scale = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height));
-      const width = Math.round(bitmap.width * scale);
-      const height = Math.round(bitmap.height * scale);
+  function geometria(larghezza, altezza, { rotate = 0, crop = null, maxSide = MAX_SIDE } = {}) {
+    const r = ((Math.round(rotate / 90) * 90) % 360 + 360) % 360;
+    const girata = r === 90 || r === 270;
+    const W = girata ? altezza : larghezza;      // dimensioni dopo la rotazione
+    const H = girata ? larghezza : altezza;
 
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      canvas.getContext("2d").drawImage(bitmap, 0, 0, width, height);
-      bitmap.close?.();
+    const c = crop || { x: 0, y: 0, w: 1, h: 1 };
+    const x = Math.min(Math.max(c.x, 0), 1);
+    const y = Math.min(Math.max(c.y, 0), 1);
+    const w = Math.min(Math.max(c.w, 0.05), 1 - x);
+    const h = Math.min(Math.max(c.h, 0.05), 1 - y);
+
+    const tagliataW = W * w;
+    const tagliataH = H * h;
+    const scala = Math.min(1, maxSide / Math.max(tagliataW, tagliataH));
+
+    return {
+      r,
+      W,
+      H,
+      ox: x * W,
+      oy: y * H,
+      scala,
+      larghezza: Math.max(1, Math.round(tagliataW * scala)),
+      altezza: Math.max(1, Math.round(tagliataH * scala)),
+    };
+  }
+
+  /** Disegna la foto con rotazione e ritaglio su un canvas nuovo. */
+  async function renderFoto(sorgente, opzioni = {}) {
+    const bitmap = sorgente instanceof Blob ? await createImageBitmap(sorgente) : sorgente;
+    const g = geometria(bitmap.width, bitmap.height, opzioni);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = g.larghezza;
+    canvas.height = g.altezza;
+    const ctx = canvas.getContext("2d");
+    ctx.imageSmoothingQuality = "high";
+
+    // spazio ruotato W×H, spostato sull'angolo del ritaglio, poi scalato
+    ctx.scale(g.scala, g.scala);
+    ctx.translate(-g.ox, -g.oy);
+    ctx.translate(g.W / 2, g.H / 2);
+    ctx.rotate((g.r * Math.PI) / 180);
+    ctx.drawImage(bitmap, -bitmap.width / 2, -bitmap.height / 2);
+
+    if (sorgente instanceof Blob) bitmap.close?.();
+    return canvas;
+  }
+
+  /**
+   * Vinted rifiuta i file che non riconosce come JPEG valido (il CDN restituisce WebP)
+   * e quelli troppo pesanti. Ridisegnare su canvas risolve entrambe le cose, e nello
+   * stesso passaggio applica rotazione e ritaglio scelti nell'editor.
+   */
+  async function toJpeg(blob, opzioni = {}) {
+    try {
+      const canvas = await renderFoto(blob, opzioni);
 
       for (const quality of [0.88, 0.75, 0.6]) {
         const jpeg = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
         if (jpeg && jpeg.size > 1024 && jpeg.size < MAX_BYTES) {
-          VR.log(`foto ${width}×${height}, ${Math.round(jpeg.size / 1024)} KB (q${quality})`);
+          VR.log(`foto ${canvas.width}×${canvas.height}, ${Math.round(jpeg.size / 1024)} KB (q${quality})`);
           return jpeg;
         }
       }
@@ -59,6 +106,10 @@
     }
     return blob;
   }
+
+  VR.geometria = geometria;
+  VR.renderFoto = renderFoto;
+  VR.photoUrls = photoUrls;
 
   /** Riprova con pause crescenti: i fallimenti singoli qui sono quasi sempre passeggeri. */
   async function withRetry(label, run, attempts = 3) {
@@ -369,6 +420,11 @@
     if (overrides.colorIds?.length && Array.isArray(draft.color_ids) && !draft.color_ids.length) {
       draft.color_ids = overrides.colorIds.map(Number).filter((id) => !Number.isNaN(id));
     }
+    if (overrides.replace?.find && VR.editorLogica) {
+      const { find, with: con } = overrides.replace;
+      draft.title = VR.editorLogica.sostituisci(draft.title, find, con).replace(/\s{2,}/g, " ").trim();
+      draft.description = VR.editorLogica.sostituisci(draft.description, find, con);
+    }
     if (overrides.descriptionAppend) {
       draft.description = `${draft.description || ""}\n${overrides.descriptionAppend}`.trim();
     }
@@ -488,8 +544,12 @@
       if (!source) throw error;
     }
 
-    const urls = photoUrls(source);
-    if (!urls.length) throw new Error("Nessuna foto trovata sull'articolo.");
+    // L'editor puo' riordinare, togliere, ruotare e ritagliare: arriva come elenco.
+    // Senza editor, tutte le foto nell'ordine originale e senza modifiche.
+    const scelte = Array.isArray(overrides.photos) && overrides.photos.length
+      ? overrides.photos
+      : photoUrls(source).map((url) => ({ url }));
+    if (!scelte.length) throw new Error("Nessuna foto trovata sull'articolo.");
 
     await backup(itemId, source);
 
@@ -498,19 +558,20 @@
     // Lo stesso temp_uuid deve legare le foto all'annuncio che creeremo dopo.
     const tempUuid = VR.uuid();
     const photoIds = [];
-    for (let i = 0; i < urls.length; i++) {
+    for (let i = 0; i < scelte.length; i++) {
       const number = i + 1;
-      onProgress(`Foto ${number}/${urls.length}…`);
+      const foto = scelte[i];
+      onProgress(`Foto ${number}/${scelte.length}…`);
 
       try {
         const id = await withRetry(`foto ${number}`, async () => {
-          const original = await VR.api.downloadPhoto(urls[i]);
-          const jpeg = await toJpeg(original);
+          const original = foto.blob || (await VR.api.downloadPhoto(foto.url));
+          const jpeg = await toJpeg(original, { rotate: foto.rotate || 0, crop: foto.crop || null });
           return VR.api.uploadPhoto(jpeg, `foto-${number}.jpg`, tempUuid);
         });
         photoIds.push(id);
       } catch (error) {
-        throw new Error(`Foto ${number} di ${urls.length}: ${error.message}`);
+        throw new Error(`Foto ${number} di ${scelte.length}: ${error.message}`);
       }
 
       await VR.sleep(Math.max(500, settings.delayMs / 2));
@@ -553,6 +614,7 @@
     }
 
     await chrome.storage.local.remove(`vrBackup:${itemId}`);
+    await VR.scartaBozza?.(itemId);
     await registraSnapshot(itemId, source, draft, created);
 
     // Registro delle ripubblicazioni: passa di qui sia il bottone singolo sia la coda.
@@ -584,6 +646,9 @@
     if (!urls.length) problemi.push("nessuna foto trovata");
 
     const draft = buildDraft(source, [1], overrides);
+    if (String(draft.title || "").length > 100) {
+      problemi.push(`titolo di ${draft.title.length} caratteri dopo le modifiche: Vinted ne accetta 100`);
+    }
     for (const campo of ["title", "catalog_id", "price"]) {
       if (draft[campo] == null || draft[campo] === "") problemi.push(`campo ${campo} vuoto`);
     }

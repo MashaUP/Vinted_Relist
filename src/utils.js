@@ -13,6 +13,7 @@
     humanRhythm: true,        // intervalli irregolari e passi solo quando sei al computer
     notifyOnFinish: true,     // notifica di sistema a coda conclusa
     canary: true,             // prova a vuoto su un articolo prima di avviare la coda
+    userId: null,             // il tuo id Vinted, letto dal service worker
     autoFill: true,           // riempie i campi vuoti con quello che usi nella stessa categoria
     colorMap: {},             // id → nome dei colori incontrati negli articoli letti
     itemStats: {},            // id articolo → categoria e campi, per dedurre cosa manca

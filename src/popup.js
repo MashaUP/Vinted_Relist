@@ -238,9 +238,15 @@ chrome.storage.local.get(["photoFormat", "itemFormat", "userId", "vintedOrigin"]
         ? "Entrambi rilevati dalle richieste di Vinted."
         : "Si aggiornano da soli quando pubblichi o modifichi un annuncio su Vinted.";
 
-    el("wardrobeLink").href = userId
-      ? `${origine}/member/${userId}`
-      : origine;
+    // Senza id non fingiamo: il link porta a Vinted e dice perche'.
+    const link = el("wardrobeLink");
+    if (userId) {
+      link.href = `${origine}/member/${userId}`;
+    } else {
+      link.href = origine;
+      link.textContent = "Apri Vinted";
+      link.title = "Il tuo profilo non è ancora stato rilevato: basta aprire Vinted da loggato.";
+    }
   }
 );
 
@@ -296,6 +302,12 @@ chrome.storage.local.get(null).then((tutto) => {
 
 chrome.storage.onChanged.addListener((modifiche, area) => {
   if (area !== "local") return;
+  if (modifiche.userId?.newValue) {
+    const link = el("wardrobeLink");
+    link.href = `${origine}/member/${modifiche.userId.newValue}`;
+    link.textContent = "Apri il tuo armadio";
+    link.removeAttribute("title");
+  }
   if (modifiche.vrQueue) {
     coda = modifiche.vrQueue.newValue || null;
     disegnaCoda();

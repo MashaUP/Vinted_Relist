@@ -13,6 +13,9 @@
   // ---------------------------------------------------------------- contesto
 
   function currentUserId() {
+    // Il cookie v_uid e' HttpOnly: lo legge il service worker e lo lascia qui.
+    if (VR.settings.userId) return String(VR.settings.userId);
+
     const cookie = VR.cookie("v_uid");
     if (cookie && /^\d+$/.test(cookie)) return cookie;
 
