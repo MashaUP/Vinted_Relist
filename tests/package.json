@@ -1,0 +1,7 @@
+{
+  "name": "vinted-relist-tests",
+  "private": true,
+  "description": "Test di regressione di Vinted Relist: node run.js",
+  "scripts": { "test": "node run.js" },
+  "devDependencies": { "jsdom": "24.1.3" }
+}

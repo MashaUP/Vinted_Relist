@@ -103,6 +103,10 @@
   font-weight: 600;
 }
 
+.vr-bar__status--warn {
+  color: #8a4a00;
+}
+
 .vr-bar__status--error {
   color: var(--vr-error);
 }
@@ -235,7 +239,17 @@
   margin-bottom: 5px;
 }
 
+/* Il testo d'esempio deve restare chiaramente "vuoto": il fill-color qui sotto lo renderebbe nero. */
+.vr-input::placeholder {
+  color: var(--vr-muted) !important;
+  -webkit-text-fill-color: var(--vr-muted) !important;
+  opacity: 1 !important;
+}
+
 .vr-input {
+  color: var(--vr-text) !important;
+  -webkit-text-fill-color: var(--vr-text) !important;
+  opacity: 1 !important;
   width: 100%;
   box-sizing: border-box;
   font: inherit;
@@ -298,39 +312,58 @@
 
 /* ------------------------------------------------------------------- toast */
 
+/* Sopra il pannello della coda, non sopra i suoi bottoni */
 .vr-toasts {
   position: fixed;
   right: 20px;
-  bottom: 20px;
+  bottom: 96px;
   z-index: 2147483002;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-width: 340px;
+  max-width: 360px;
 }
 
 .vr-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
   background: var(--vr-text);
   color: #fff;
   font-size: 13.5px;
   line-height: 1.35;
   border-radius: 12px;
-  padding: 12px 15px;
-  cursor: pointer;
+  padding: 11px 10px 11px 15px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
 }
 
-.vr-toast--ok {
-  background: var(--vr-teal);
+.vr-toast__text { flex: 1; overflow-wrap: anywhere; }
+
+.vr-toast__close {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.15);
+  color: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
 }
 
-.vr-toast--error {
-  background: var(--vr-error);
-}
+.vr-toast__close:hover { background: rgba(255, 255, 255, 0.28); }
+.vr-toast__close:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
+
+.vr-toast--ok { background: var(--vr-ok); }
+.vr-toast--end { background: var(--vr-teal); }
+.vr-toast--warn { background: #8a4a00; }
+.vr-toast--error { background: var(--vr-error); }
+.vr-toast--uncertain { background: #5b3fa0; }
 
 .vr-toast--out {
   opacity: 0;
-  transition: opacity 0.2s ease;
+  transition: opacity 0.18s ease;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -417,29 +450,8 @@
   flex: 0 0 auto;
 }
 
-.vr-queue__interval {
-  width: 56px;
-  padding: 6px 8px;
-  border: 1px solid var(--vr-border);
-  border-radius: 8px;
-  font: inherit;
-  font-size: 13px;
-  text-align: center;
-  color: var(--vr-text);
-  background: #fff;
-}
 
-.vr-queue__interval:focus {
-  outline: none;
-  border-color: var(--vr-teal);
-  box-shadow: 0 0 0 3px var(--vr-teal-tint);
-}
 
-.vr-queue__unit {
-  font-size: 12.5px;
-  color: var(--vr-muted);
-  margin-left: -4px;
-}
 
 @media (max-width: 620px) {
   .vr-queue {
@@ -790,3 +802,231 @@
   .vr-diff__row { grid-template-columns: 1fr; }
   .vr-diff__arrow { display: none; }
 }
+
+
+/* ------------------------------------------------------- download foto */
+
+.vr-dl {
+  border: 1px solid var(--vr-border);
+  border-radius: 10px;
+  padding: 10px 13px;
+  margin: 0 0 16px;
+}
+
+.vr-dl summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.vr-dl[open] summary { margin-bottom: 8px; }
+
+.vr-dl__bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.vr-dl__actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+
+.vr-dl__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.vr-dl__item {
+  position: relative;
+  aspect-ratio: 4 / 5;
+  border-radius: 9px;
+  overflow: hidden;
+  background: #f0f0f0;
+  border: 2px solid transparent;
+  cursor: pointer;
+}
+
+.vr-dl__item.is-selected { border-color: var(--vr-teal); }
+.vr-dl__img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.vr-dl__img.is-broken { visibility: hidden; }
+
+.vr-dl__item .vr-check {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 18px;
+  height: 18px;
+}
+
+.vr-dl__num {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  min-width: 20px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: rgba(23, 23, 23, 0.7);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.vr-dl__low {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #fff4e5;
+  color: #8a4a00;
+}
+
+.vr-dl__one {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--vr-text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.vr-dl__one:hover { color: var(--vr-teal); }
+.vr-dl__one:focus-visible,
+.vr-dl__item:focus-within { outline: 2px solid var(--vr-teal); outline-offset: 1px; }
+
+.vr-note--ok { color: var(--vr-ok); }
+
+.vr-link-btn {
+  border: 0;
+  background: none;
+  padding: 4px 0 0;
+  color: var(--vr-teal);
+  font: inherit;
+  font-size: 12.5px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.vr-link-btn:disabled { color: var(--vr-muted); cursor: default; }
+
+
+/* --------------------------------------------------- opzioni della coda */
+
+.vr-options { max-height: calc(100vh - 48px); overflow-y: auto; }
+
+.vr-section {
+  border: 1px solid var(--vr-border);
+  border-radius: 12px;
+  padding: 12px 14px 4px;
+  margin: 0 0 12px;
+}
+
+.vr-section__title {
+  padding: 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--vr-teal);
+}
+
+.vr-field__help {
+  display: block;
+  font-size: 12px;
+  color: var(--vr-muted);
+  margin: 5px 0 8px;
+}
+
+.vr-field__error {
+  font-size: 12px;
+  color: var(--vr-error);
+  margin: 5px 0 0;
+}
+
+.vr-input.is-invalid,
+.is-invalid .vr-input { border-color: var(--vr-error) !important; }
+
+.vr-input-unit { position: relative; display: block; }
+.vr-input-unit .vr-input { padding-right: 34px; }
+
+.vr-unit {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--vr-muted);
+  font-size: 13px;
+  pointer-events: none;
+}
+
+.vr-preview-price {
+  font-size: 13px;
+  color: var(--vr-teal-dark);
+  margin: -4px 0 10px;
+  min-height: 1em;
+}
+
+.vr-actions--split { justify-content: space-between; flex-wrap: wrap; }
+.vr-actions__group { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.vr-btn--quiet {
+  background: transparent;
+  color: var(--vr-muted);
+  border-color: transparent;
+}
+
+.vr-btn--quiet:hover:not(:disabled) { color: var(--vr-text); background: #f3f3f3; }
+
+.vr-summary {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 13.5px;
+  margin: 0 0 14px;
+}
+
+.vr-summary b { font-size: 18px; margin-right: 3px; }
+.vr-summary .is-ok b { color: var(--vr-ok); }
+.vr-summary .is-warn b { color: #b25e00; }
+.vr-summary .is-error b { color: var(--vr-error); }
+
+.vr-check-list {
+  margin: 4px 0 12px;
+  padding-left: 18px;
+  font-size: 13px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.vr-check-list li { margin: 3px 0; overflow-wrap: anywhere; }
+
+/* il pannello dice in che stato e', non solo con il colore */
+.vr-queue[data-stato="recovering"],
+.vr-queue[data-stato="paused"] { border-color: #f3d19e; }
+
+/* Chiusura nelle finestre: stessa azione di Annulla ed Esc */
+.vr-close {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  margin-left: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--vr-muted);
+  font: 400 22px/1 system-ui, sans-serif;
+  cursor: pointer;
+}
+.vr-close:hover { background: rgba(0, 0, 0, 0.06); color: var(--vr-text); }
+.vr-close:focus-visible { outline: 2px solid var(--vr-teal, #007782); outline-offset: 2px; }
+.vr-options .vr-editor__head .vr-editor__badge { margin-left: auto; }

@@ -5,21 +5,38 @@
 
   // ---------------------------------------------------------------- overlay
 
+  let overlayAperto = null;
+
+  /**
+   * Una finestra alla volta: aprirne un'altra chiude quella di prima, cosi' un
+   * doppio clic non lascia due dialog uno sopra l'altro. Alla chiusura il
+   * focus torna dove era.
+   */
   function openOverlay(card, { onClose } = {}) {
+    overlayAperto?.();
     const overlay = h("div", { class: "vr-overlay" }, card);
+    const prima = document.activeElement;
+    let chiuso = false;
 
     const close = () => {
+      if (chiuso) return;
+      chiuso = true;
       overlay.remove();
-      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keydown", onKey, true);
+      if (overlayAperto === close) overlayAperto = null;
       onClose?.();
+      if (prima?.isConnected) prima.focus?.();
     };
-    const onKey = (event) => event.key === "Escape" && close();
+    const onKey = (event) => {
+      if (event.key === "Escape") { event.stopPropagation(); close(); }
+    };
 
     overlay.addEventListener("click", (event) => {
       if (event.target === overlay) close();
     });
-    document.addEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, true);
     document.body.append(overlay);
+    overlayAperto = close;
 
     return close;
   }
@@ -144,23 +161,39 @@
     // La coda pilota la card da fuori: stessi riscontri del bottone singolo.
     VR.bars.set(String(itemId), { stato, occupato: setBusy, segnaFatto });
 
-    const run = (overrides) =>
-      VR.queue(async () => {
+    const run = (overrides) => {
+      if (fatto) return Promise.resolve();
+      setBusy(true);
+      stato(VR.inRipubblicazione(itemId) ? "" : "In attesa del turno…");
+
+      return VR.esclusivo(itemId, async () => {
         VR.log("ripubblico", itemId, overrides);
-        setBusy(true);
         stato("");
-        try {
-          const created = await VR.relist(itemId, overrides, (step) => stato(step));
-          segnaFatto();
-          VR.toast("Articolo ripubblicato.", "ok");
-          if (VR.settings.autoReload) setTimeout(() => location.reload(), 1500);
-          return created;
-        } catch (error) {
+        const created = await VR.relist(itemId, overrides, (step) => stato(step));
+        segnaFatto();
+        VR.toast("Articolo ripubblicato.", "ok", { chiave: `relist:${itemId}` });
+        if (VR.settings.autoReload) setTimeout(() => location.reload(), 1500);
+        return created;
+      }).catch((error) => {
+        if (error.duplicato) {
           stato(error.message, "error");
-          VR.toast(error.message, "error", 9000);
-          setBusy(false);
+          return;
         }
+        const esito = VR.esitoDaErrore(error);
+        stato(error.message, esito === "error" ? "error" : "warn");
+        VR.toast(error.message, esito === "error" ? "error" : "uncertain", { chiave: `relist:${itemId}` });
+        VR.registraEvento({
+          kind: esito === "error" ? "error" : "uncertain",
+          title: esito === "partial" ? "Pubblicato, vecchio annuncio ancora online"
+            : esito === "uncertain" ? "Esito incerto" : "Ripubblicazione non riuscita",
+          text: error.message,
+          itemId: String(itemId),
+        });
+        // Un esito parziale ha gia' pubblicato: la card non deve invitare a riprovare.
+        if (esito === "partial") segnaFatto();
+        else setBusy(false);
       });
+    };
 
     relistButton.addEventListener("click", () => run({}));
     editButton.addEventListener("click", () => VR.openEditor(itemId, (overrides) => run(overrides)));

@@ -82,7 +82,7 @@
     return error;
   }
 
-  async function request(method, path, { body, formData, referrer, retryOn403 = true } = {}) {
+  async function request(method, path, { body, formData, referrer, retryOn403 = true, timeoutMs = 60000 } = {}) {
     const headers = await baseHeaders();
     const init = { method, credentials: "include", headers };
 
@@ -97,7 +97,26 @@
       init.body = JSON.stringify(body);
     }
 
-    const response = await fetch(path.startsWith("http") ? path : BASE + path, init);
+    // Senza risposta non sappiamo se Vinted ha eseguito la richiesta: l'errore lo
+    // dice (rete = true), cosi' chi chiama puo' distinguere "rifiutato" da "incerto".
+    const controllo = new AbortController();
+    const scadenza = setTimeout(() => controllo.abort(), timeoutMs);
+    init.signal = controllo.signal;
+
+    let response;
+    try {
+      response = await fetch(path.startsWith("http") ? path : BASE + path, init);
+    } catch (errore) {
+      const e = new Error(
+        errore?.name === "AbortError"
+          ? `Vinted non ha risposto entro ${Math.round(timeoutMs / 1000)} secondi.`
+          : "Connessione a Vinted non riuscita."
+      );
+      e.rete = true;
+      throw e;
+    } finally {
+      clearTimeout(scadenza);
+    }
 
     if (response.status === 403) {
       if (retryOn403) {
@@ -140,7 +159,10 @@
         `HTTP ${response.status}`;
 
       VR.warn(`${method} ${path} → ${response.status}`, payload);
-      throw new Error(detail);
+      const errore = new Error(detail);
+      errore.status = response.status;
+      errore.campi = fieldErrors;
+      throw errore;
     }
     return payload;
   }
@@ -340,14 +362,21 @@
           referrer: `${ORIGIN}/items/new`,
         });
       } catch (error) {
-        VR.warn("payload rifiutato:", JSON.stringify(body, null, 2));
+        // Rete caduta, timeout o errore del server: la richiesta potrebbe essere
+        // arrivata e l'annuncio potrebbe esistere. Non e' un fallimento: e' incerto.
+        if (error.rete || error.status >= 500) error.incerto = true;
+        else VR.warn("payload rifiutato:", JSON.stringify(body, null, 2));
         throw error;
       } finally {
         await chrome.runtime.sendMessage({ type: "vr:uploading", value: false });
       }
 
       const item = payload?.item;
-      if (!item?.id) throw new Error(payload?.message || "Creazione annuncio fallita.");
+      if (!item?.id) {
+        const errore = new Error("Vinted ha risposto senza l'id del nuovo annuncio.");
+        errore.incerto = true;
+        throw errore;
+      }
       return item;
     },
 

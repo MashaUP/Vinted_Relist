@@ -130,7 +130,11 @@
     };
     const p = testo.match(PREZZO);
     const prezzo = p ? Number((p[1] || p[2]).replace(",", ".")) : null;
-    return { views: numero(VISITE), favs: numero(PREFERITI), price: prezzo };
+    // La miniatura che hai gia' davanti: serve a dashboard e popup, nessun download in piu'.
+    const img = card?.querySelector?.("img");
+    const src = img?.currentSrc || img?.src || "";
+    const thumb = /^https:\/\/[a-z0-9.-]*vinted\.(net|com)\//i.test(src) ? src : null;
+    return { views: numero(VISITE), favs: numero(PREFERITI), price: prezzo, thumb };
   }
 
   const MAX_PUNTI_SERIE = 40;
@@ -164,6 +168,7 @@
           price: letto.price ?? prima.price ?? null,
           views: letto.views ?? prima.views ?? null,
           favs: letto.favs ?? prima.favs ?? null,
+          thumb: letto.thumb || prima.thumb || null,
           firstSeen: prima.firstSeen || ora,
           lastSeen: ora,
           series: serie.slice(-MAX_PUNTI_SERIE),
@@ -193,14 +198,22 @@
     }
   };
 
+  /**
+   * Solo letture. Il ponte riceve messaggi dalla pagina, e sulla pagina girano
+   * anche script di terzi (pubblicita', statistiche): niente che pubblichi o
+   * cancelli deve essere raggiungibile da qui. E resta spento finche' non lo
+   * accendi tu dalle impostazioni avanzate.
+   */
   const BRIDGE = {
     debugDraft: (itemId) => VR.debugDraft(itemId),
     canary: (itemId) => VR.canary(itemId),
-    settings: async () => ({ ...VR.settings }),
+    settings: async () => {
+      const { itemStats, colorMap, ...resto } = VR.settings;
+      return { ...resto, colori: Object.keys(colorMap || {}).length, articoliOsservati: Object.keys(itemStats || {}).length };
+    },
     source: (itemId) => VR.source(itemId),
     captured: () => VR.captured(),
     compare: (itemId) => VR.compare(itemId),
-    relist: (itemId, overrides) => VR.relist(itemId, overrides || {}, (step) => VR.log(step)),
   };
 
   window.addEventListener("message", async (event) => {
@@ -214,6 +227,11 @@
         { source: "vr-content", id: data.id, method: data.method, ...payload },
         location.origin
       );
+
+    if (!VR.settings.consoleBridge) {
+      reply({ ok: false, error: "Diagnostica da console spenta: accendila nel popup, Impostazioni › Avanzate." });
+      return;
+    }
 
     try {
       const result = await BRIDGE[data.method](...(data.args || []));

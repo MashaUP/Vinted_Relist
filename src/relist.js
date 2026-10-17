@@ -22,6 +22,17 @@
     return photo.url || photo.image_url || null;
   }
 
+  /** Foto con l'indicazione se manca la versione a piena risoluzione. */
+  function photoInfo(item) {
+    const photos = item?.photos || item?.assigned_photos || [];
+    return photos
+      .map((photo) => ({
+        url: bestPhotoUrl(photo),
+        ridotta: !(photo.full_size_url || photo.high_resolution?.url),
+      }))
+      .filter((f) => f.url);
+  }
+
   function photoUrls(item) {
     const photos = item?.photos || item?.assigned_photos || [];
     return photos.map(bestPhotoUrl).filter(Boolean);
@@ -110,6 +121,91 @@
   VR.geometria = geometria;
   VR.renderFoto = renderFoto;
   VR.photoUrls = photoUrls;
+  VR.photoInfo = photoInfo;
+
+  // ------------------------------------------------------- download delle foto
+
+  const blobADataUrl = (blob) =>
+    new Promise((ok, ko) => {
+      const lettore = new FileReader();
+      lettore.onload = () => ok(lettore.result);
+      lettore.onerror = () => ko(lettore.error || new Error("lettura non riuscita"));
+      lettore.readAsDataURL(blob);
+    });
+
+  const DA_MIME = {
+    "image/jpeg": { ext: "jpg", mime: "image/jpeg" },
+    "image/png": { ext: "png", mime: "image/png" },
+    "image/webp": { ext: "webp", mime: "image/webp" },
+    "image/gif": { ext: "gif", mime: "image/gif" },
+    "image/avif": { ext: "avif", mime: "image/avif" },
+  };
+
+  /**
+   * Scarica le foto scelte, due alla volta. Un errore su una foto non ferma le
+   * altre: il risultato dice, foto per foto, com'e' andata.
+   * `cache` e' quella dell'editor: le foto gia' scaricate per le miniature non
+   * vengono richieste una seconda volta.
+   */
+  VR.scaricaFoto = async (itemId, voci, cache, avanzamento = () => {}) => {
+    const L = VR.editorLogica;
+    const usati = new Set();
+    const risultati = [];
+    let prossimo = 0;
+    let fatte = 0;
+
+    async function una(v) {
+      try {
+        const blob = cache ? await cache.carica(v.url) : await VR.api.downloadPhoto(v.url);
+        const testa = new Uint8Array(await blob.slice(0, 16).arrayBuffer());
+        const formato = L.formatoImmagine(testa) || DA_MIME[String(blob.type).split(";")[0]];
+        if (!formato) throw new Error("formato non riconosciuto");
+
+        const [nome] = L.nomiFoto(itemId, [{ posizione: v.posizione, ext: formato.ext }], usati);
+        const dataUrl = await blobADataUrl(new Blob([blob], { type: formato.mime }));
+        const r = await chrome.runtime.sendMessage({ type: "vr:download", url: dataUrl, nome });
+        if (!r?.ok) throw new Error(r?.error || "download non riuscito");
+        return { ok: true, posizione: v.posizione, nome: r.nome || nome };
+      } catch (errore) {
+        return { ok: false, posizione: v.posizione, errore: errore?.message || "errore sconosciuto" };
+      }
+    }
+
+    async function lavoratore() {
+      while (prossimo < voci.length) {
+        const v = voci[prossimo++];
+        risultati.push(await una(v));
+        avanzamento(++fatte);
+      }
+    }
+
+    await Promise.all([lavoratore(), lavoratore()]);
+    return risultati.sort((a, b) => a.posizione - b.posizione);
+  };
+
+  /**
+   * Il dizionario dei colori si riempie leggendo gli annunci. Se e' vuoto
+   * (estensione appena installata), ne legge alcuni del tuo armadio: solo
+   * letture, con una pausa tra l'una e l'altra.
+   */
+  VR.imparaColori = async (massimo = 8) => {
+    const { inventory = {} } = await chrome.storage.local.get("inventory");
+    const ids = Object.entries(inventory)
+      .sort((a, b) => (b[1].lastSeen || 0) - (a[1].lastSeen || 0))
+      .slice(0, massimo)
+      .map(([id]) => id);
+
+    for (const id of ids) {
+      try {
+        await VR.api.getUploadDraft(id);
+      } catch {
+        // articolo sparito o non leggibile: si passa al prossimo
+      }
+      if (Object.keys(VR.settings.colorMap || {}).length >= 8) break;
+      await VR.sleep(600);
+    }
+    return Object.keys(VR.settings.colorMap || {}).length;
+  };
 
   /** Riprova con pause crescenti: i fallimenti singoli qui sono quasi sempre passeggeri. */
   async function withRetry(label, run, attempts = 3) {
@@ -271,6 +367,12 @@
     }
   }
 
+  /** Altri articoli osservati della stessa categoria hanno un colore? */
+  VR.categoriaHaColori = (catalogId) =>
+    Object.values(VR.settings.itemStats || {}).some(
+      (scheda) => String(scheda.c) === String(catalogId) && scheda.v?.color_ids
+    );
+
   /** Il valore piu' usato nella stessa categoria, se c'e' un'abitudine chiara. */
   function valorePrevalente(catalogId, campo) {
     const conteggi = {};
@@ -400,20 +502,8 @@
 
     if (overrides.title != null) draft.title = String(overrides.title).trim();
     if (overrides.description != null) draft.description = String(overrides.description);
-    if (overrides.price != null && overrides.price !== "") {
-      draft.price = Number(overrides.price);
-    }
-    // Percentuale e variazione in euro si applicano al prezzo dell'articolo,
-    // quindi vanno calcolate qui e non quando lo metti in coda.
-    if (overrides.pricePercent) {
-      const base = Number(draft.price) || 0;
-      const nuovo = base * (1 + Number(overrides.pricePercent) / 100);
-      draft.price = Math.max(0.5, Math.round(nuovo * 100) / 100);
-    }
-    if (overrides.priceDelta) {
-      const base = Number(draft.price) || 0;
-      draft.price = Math.max(0.5, Math.round((base + Number(overrides.priceDelta)) * 100) / 100);
-    }
+    // Stesso calcolo dell'anteprima nelle opzioni della coda: una sola funzione.
+    draft.price = VR.editorLogica.applicaPrezzo(draft.price, overrides);
 
     // Vinted rifiuta la pubblicazione senza colore. Lo mettiamo solo dove manca:
     // gli articoli che ne hanno gia' uno non vanno toccati.
@@ -432,7 +522,7 @@
     if (allowed.has("ai_photo") && draft.ai_photo == null) draft.ai_photo = false;
 
     // Per ultimo, cosi' qualunque scelta esplicita qui sopra ha la precedenza.
-    if (VR.settings.autoFill !== false && !senzaRiempimento) {
+    if ((VR.settings.autoFill !== false || overrides.autoFill === true) && !senzaRiempimento) {
       for (const campo of DA_RIEMPIRE) {
         if (!allowed.has(campo) || !eVuoto(campo, draft[campo])) continue;
 
@@ -503,7 +593,7 @@
         description: source.description,
         price: Number(scalarAmount(source.price)),
       },
-      new: { id: String(created.id), title: draft.title, price: draft.price },
+      new: { id: String(created.id), title: draft.title, description: draft.description, price: draft.price },
     });
 
     if (vecchio) delete inventory[oldId];
@@ -592,14 +682,21 @@
       created = await VR.api.createItem(draft, uploadSessionId);
     } catch (error) {
       if (deleteOld && deleteFirst) {
-        // Caso peggiore: vecchio annuncio gia' eliminato e nuovo non creato.
-        throw new Error(
-          `${error.message} — il vecchio annuncio e' stato eliminato. I dati sono salvati: recuperali dal popup dell'estensione.`
-        );
+        // Il vecchio annuncio e' gia' stato eliminato: che il nuovo esista o no,
+        // i dati sono nella copia di sicurezza. I segnali dell'errore restano.
+        error.message +=
+          " — il vecchio annuncio era gia' stato eliminato. I dati sono salvati: li recuperi dal popup.";
+      }
+      if (error.incerto) {
+        error.message =
+          `Esito incerto: ${error.message} L'annuncio potrebbe essere stato pubblicato: ` +
+          "controlla l'armadio prima di riprovare.";
       }
       throw error;
     }
 
+    // Da qui il nuovo annuncio esiste: qualunque cosa vada storta dopo, va registrato.
+    let eliminazioneFallita = null;
     if (deleteOld && !deleteFirst) {
       await VR.sleep(settings.delayMs);
       onProgress("Elimino il vecchio annuncio…");
@@ -607,9 +704,7 @@
         await VR.api.deleteItem(itemId);
       } catch (error) {
         VR.warn("Nuovo annuncio creato ma vecchio non eliminato", error);
-        throw new Error(
-          "Nuovo annuncio pubblicato, ma il vecchio non e' stato eliminato: rimuovilo a mano."
-        );
+        eliminazioneFallita = error;
       }
     }
 
@@ -619,6 +714,16 @@
 
     // Registro delle ripubblicazioni: passa di qui sia il bottone singolo sia la coda.
     chrome.runtime.sendMessage({ type: "vr:relistLogged", itemId: String(itemId) }).catch(() => {});
+
+    if (eliminazioneFallita) {
+      // Pubblicato ma con il vecchio ancora online: riprovare creerebbe un terzo annuncio.
+      const errore = new Error(
+        "Nuovo annuncio pubblicato, ma il vecchio non è stato eliminato: rimuovilo a mano dall'armadio."
+      );
+      errore.parziale = true;
+      errore.nuovoId = String(created.id);
+      throw errore;
+    }
 
     onProgress("Fatto");
     return created;
@@ -631,7 +736,7 @@
    * converte la prima foto. Non carica, non crea, non cancella niente.
    * Serve a non far partire una coda di tre ore se Vinted ha cambiato qualcosa.
    */
-  VR.canary = async (itemId, overrides = {}) => {
+  VR.canary = async (itemId, overrides = {}, { foto: provaFoto = true } = {}) => {
     const problemi = [];
     const avvisi = [];
 
@@ -639,22 +744,22 @@
     try {
       source = await VR.api.getUploadDraft(itemId);
     } catch (error) {
-      return { ok: false, problemi: [`lettura articolo: ${error.message}`] };
+      // 401/403/429: non e' l'articolo, e' la sessione o un blocco. Inutile insistere.
+      const sessione = error.blocked || error.status === 401 || error.status === 403;
+      const testo = error.status === 404 ? "articolo non trovato (forse già ripubblicato o venduto)" : `lettura articolo: ${error.message}`;
+      return { ok: false, problemi: [testo], avvisi: [], sessione };
     }
 
     const urls = photoUrls(source);
-    if (!urls.length) problemi.push("nessuna foto trovata");
-
     const draft = buildDraft(source, [1], overrides);
-    if (String(draft.title || "").length > 100) {
-      problemi.push(`titolo di ${draft.title.length} caratteri dopo le modifiche: Vinted ne accetta 100`);
-    }
-    for (const campo of ["title", "catalog_id", "price"]) {
-      if (draft[campo] == null || draft[campo] === "") problemi.push(`campo ${campo} vuoto`);
-    }
-    if (Array.isArray(draft.color_ids) && !draft.color_ids.length) {
-      problemi.push("nessun colore: Vinted lo chiede alla pubblicazione, assegnane uno dalle Opzioni");
-    }
+
+    // Stessa regola dell'editor: obbligatori bloccano, facoltativi avvisano.
+    const esito = VR.editorLogica.verificaPayload(draft, {
+      foto: urls.length,
+      categoriaConColori: VR.categoriaHaColori(source.catalog_id),
+    });
+    problemi.push(...esito.bloccanti);
+    avvisi.push(...esito.avvisi);
 
     // Non sono problemi, ma e' giusto vederli prima di avviare una coda lunga.
     const anteprima = VR.riempimentiPrevisti(source, overrides);
@@ -668,10 +773,12 @@
     const attesi = VR.settings.itemFormat?.fields;
     if (attesi?.length) {
       const mancanti = attesi.filter((campo) => !(campo in draft));
-      if (mancanti.length) problemi.push(`campi mancanti: ${mancanti.join(", ")}`);
+      // Campi che Vinted mandava nella richiesta osservata e che questo articolo
+      // non ha: spesso sono semplicemente assenti per la categoria. Avviso, non blocco.
+      if (mancanti.length) avvisi.push(`campi assenti rispetto al formato appreso: ${mancanti.join(", ")}`);
     }
 
-    if (urls.length) {
+    if (urls.length && provaFoto) {
       try {
         const originale = await VR.api.downloadPhoto(urls[0]);
         const jpeg = await toJpeg(originale);

@@ -1,13 +1,1 @@
-# pacchetti generati, tranne la release allegata al repo
-*.zip
-!Vinted_Relist-*.zip
-*.crx
-*.pem
-
-# sistema
-.DS_Store
-Thumbs.db
-
-# editor
-.vscode/
-.idea/
+node_modules/

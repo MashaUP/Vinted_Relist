@@ -21,6 +21,22 @@
         </div>
       </header>
 
+      <!-- Riepilogo della coda: ci arrivi dal clic sulla notifica o da «Dettagli» -->
+      <section class="panel queue-panel" id="coda" hidden tabindex="-1">
+        <div class="panel-head">
+          <h2 id="queueTitle">Ultima coda</h2>
+          <label class="inline">
+            <span class="sr">Coda da mostrare</span>
+            <select id="queuePick"></select>
+          </label>
+        </div>
+        <p class="hint" id="queueNote"></p>
+        <div class="queue-counters" id="queueCounters"></div>
+        <div class="chips" id="queueFilters" role="group" aria-label="Filtra per stato"></div>
+        <ul class="queue-list" id="queueList"></ul>
+        <div class="actions" id="queueActions"></div>
+      </section>
+
       <section class="groups" id="groups"></section>
 
       <section class="panel" id="duplicatesPanel" hidden>
@@ -39,10 +55,30 @@
           <h2>Articoli</h2>
           <button class="chip" id="clearFilter" hidden>Mostra tutti</button>
         </div>
+        <div class="toolbar">
+          <label class="search">
+            <span class="sr">Cerca per titolo</span>
+            <input type="search" id="search" placeholder="Cerca per titolo…" autocomplete="off" />
+          </label>
+          <label class="inline">
+            <span>Ordina per</span>
+            <select id="sort">
+              <option value="relist">Ultimo relist (più vecchi prima)</option>
+              <option value="relist-desc">Ultimo relist (più recenti prima)</option>
+              <option value="price-desc">Prezzo (alto → basso)</option>
+              <option value="price">Prezzo (basso → alto)</option>
+              <option value="views-desc">Visite</option>
+              <option value="favs-desc">Preferiti</option>
+              <option value="quality">Qualità (più bassa prima)</option>
+              <option value="title">Titolo</option>
+            </select>
+          </label>
+        </div>
         <div class="table-wrap">
           <table class="items">
             <thead>
               <tr>
+                <th class="thumb-col"><span class="sr">Foto</span></th>
                 <th>Articolo</th>
                 <th class="num">Prezzo</th>
                 <th class="num">Visite</th>
@@ -65,6 +101,12 @@
         </p>
         <div id="history"></div>
       </section>
+
+      <footer class="foot">
+        <span>Vinted Relist <b id="version"></b></span>
+        <button class="link" id="checkUpdate" type="button">Cerca aggiornamento</button>
+        <a href="https://ko-fi.com/mashaup" target="_blank" rel="noopener noreferrer">Supporta lo sviluppo su Ko-fi</a>
+      </footer>
     </main>
 
     <script src="analisi.js"></script>

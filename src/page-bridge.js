@@ -52,13 +52,11 @@
     captured: () => call("captured", []),
     /** Confronto fra il nostro payload e quello vero. */
     compare: (itemId) => call("compare", [itemId]),
-    /** Ripubblica davvero, come il bottone. */
-    relist: (itemId, overrides) => call("relist", [itemId, overrides || {}]),
   };
 
   console.log(
     "%c[Relist]",
     "color:#007782;font-weight:600",
-    "console pronta — VR.canary(id), VR.compare(id), VR.debugDraft(id), VR.settings()"
+    "diagnostica: VR.canary(id), VR.compare(id), VR.debugDraft(id), VR.settings() — va accesa nelle impostazioni avanzate"
   );
 })();

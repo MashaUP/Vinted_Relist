@@ -24,6 +24,10 @@
     autoRuleMax: 5,
     photoFormat: null,        // formato multipart imparato dagli upload di Vinted
     itemFormat: null,         // campi del payload annuncio imparati da una modifica
+    toastsEnabled: true,      // i toast di errore e di esito incerto compaiono comunque
+    toastDuration: "normal",  // "normal" | "long" (durate raddoppiate)
+    consoleBridge: false,     // espone VR nella console della pagina, solo lettura
+    updateRepo: "",           // repository GitHub per gli aggiornamenti; vuoto = MashaUP/Vinted_Relist
   };
 
   VR.settings = { ...VR.DEFAULTS };
@@ -82,39 +86,127 @@
 
   // ---------------------------------------------------------------- toast
 
+  /**
+   * Durate per tipo. Errori ed esiti incerti restano finche' non li chiudi:
+   * sono le cose che non devono sparire prima che tu le abbia lette.
+   */
+  VR.DURATE_TOAST = { ok: 3000, info: 4000, warn: 7000, end: 6000, error: 0, uncertain: 0 };
+  const CRITICI = new Set(["error", "uncertain", "warn"]);
+
   let toastHost = null;
+  const attivi = new Map();          // chiave → toast, per non mostrare doppioni
 
-  VR.toast = (message, kind = "info", ms = 4000) => {
-    if (!toastHost) {
-      toastHost = VR.h("div", { class: "vr-toasts" });
-      document.body.append(toastHost);
+  function host() {
+    if (toastHost?.isConnected) return toastHost;
+    toastHost = VR.h("div", { class: "vr-toasts", "aria-live": "polite" });
+    document.body.append(toastHost);
+    return toastHost;
+  }
+
+  /**
+   * VR.toast(testo, tipo, { chiave, durata })
+   * Stessa chiave = stesso toast aggiornato, con il timer ripartito da capo.
+   */
+  VR.toast = (message, kind = "info", opzioni = {}) => {
+    const opts = typeof opzioni === "object" && opzioni ? opzioni : {};
+    if (VR.settings.toastsEnabled === false && !CRITICI.has(kind)) {
+      return { remove() {}, update() {} };
     }
-    const toast = VR.h("div", { class: `vr-toast vr-toast--${kind}` }, message);
-    toastHost.append(toast);
 
-    const remove = () => {
-      toast.classList.add("vr-toast--out");
-      setTimeout(() => toast.remove(), 200);
+    const lunghi = VR.settings.toastDuration === "long" ? 2 : 1;
+    const durata = (opts.durata ?? VR.DURATE_TOAST[kind] ?? 4000) * lunghi;
+    const chiave = opts.chiave || `${kind}:${message}`;
+
+    let t = attivi.get(chiave);
+    if (!t) {
+      const testo = VR.h("span", { class: "vr-toast__text" });
+      const chiudi = VR.h("button", { class: "vr-toast__close", type: "button", "aria-label": "Chiudi" }, "×");
+      const nodo = VR.h("div", { class: "vr-toast" }, testo, chiudi);
+      t = { nodo, testo, timer: null, resta: 0, partito: 0 };
+
+      t.remove = () => {
+        clearTimeout(t.timer);
+        attivi.delete(chiave);
+        nodo.classList.add("vr-toast--out");
+        setTimeout(() => nodo.remove(), 180);
+      };
+      // Pausa al passaggio del mouse: il tempo residuo riparte quando esci.
+      const avvia = (ms) => {
+        clearTimeout(t.timer);
+        if (!ms) return;
+        t.resta = ms;
+        t.partito = Date.now();
+        t.timer = setTimeout(t.remove, ms);
+      };
+      t.avvia = avvia;
+      nodo.addEventListener("mouseenter", () => {
+        if (!t.timer) return;
+        clearTimeout(t.timer);
+        t.timer = null;
+        t.resta = Math.max(800, t.resta - (Date.now() - t.partito));
+      });
+      nodo.addEventListener("mouseleave", () => {
+        if (!t.timer && t.resta && t.durata) avvia(t.resta);
+      });
+      chiudi.addEventListener("click", t.remove);
+
+      attivi.set(chiave, t);
+      host().append(nodo);
+    }
+
+    t.nodo.className = `vr-toast vr-toast--${kind}`;
+    t.nodo.setAttribute("role", CRITICI.has(kind) ? "alert" : "status");
+    t.testo.textContent = message;
+    t.durata = durata;
+    t.avvia(durata);                 // un aggiornamento riparte da capo: niente timer vecchi
+
+    return {
+      remove: t.remove,
+      update: (testo) => { t.testo.textContent = testo; },
     };
-    if (ms) setTimeout(remove, ms);
-    toast.addEventListener("click", remove);
-    return { remove, update: (text) => (toast.textContent = text) };
   };
 
-  /** Coda seriale: un relist per volta, con pausa configurabile. */
-  VR.queue = (() => {
-    let chain = Promise.resolve();
-    return (task) => {
-      chain = chain
-        .then(async () => {
-          const result = await task();
-          await VR.sleep(VR.settings.delayMs);
-          return result;
-        })
-        .catch((error) => {
-          VR.warn(error);
-        });
-      return chain;
-    };
-  })();
+  /** Toglie i toast dallo schermo. Gli eventi restano nel centro notifiche. */
+  VR.toast.chiudiTutti = () => {
+    for (const t of [...attivi.values()]) t.remove();
+  };
+
+  /** Evento per il centro notifiche del popup: lo scrive il service worker. */
+  VR.registraEvento = (evento) =>
+    chrome.runtime.sendMessage({ type: "vr:event", evento }).catch(() => {});
+
+  // ------------------------------------------------------- esclusione reciproca
+
+  /**
+   * Una ripubblicazione alla volta in questa scheda, qualunque sia la strada:
+   * bottone, coda, ripristino. Prima bottone e coda avevano due blocchi
+   * separati che non si vedevano, e potevano lavorare insieme sullo stesso
+   * articolo: due pubblicazioni dello stesso oggetto.
+   */
+  let catena = Promise.resolve();
+  const inCorso = new Set();
+
+  VR.esclusivo = (itemId, lavoro) => {
+    const id = String(itemId);
+    if (inCorso.has(id)) {
+      const errore = new Error("Questo articolo è già in ripubblicazione.");
+      errore.duplicato = true;
+      return Promise.reject(errore);
+    }
+    inCorso.add(id);
+
+    const esecuzione = catena.then(lavoro);
+    catena = esecuzione.catch(() => {}).then(() => VR.sleep(VR.settings.delayMs));
+    return esecuzione.finally(() => inCorso.delete(id));
+  };
+
+  VR.inRipubblicazione = (itemId) => inCorso.has(String(itemId));
+
+  /**
+   * Esito di una ripubblicazione come lo leggono card, coda e popup:
+   * error (rifiutata), uncertain (forse pubblicata), partial (pubblicata,
+   * vecchio annuncio ancora online). Gli ultimi due non vanno ritentati alla cieca.
+   */
+  VR.esitoDaErrore = (errore) =>
+    errore?.incerto ? "uncertain" : errore?.parziale ? "partial" : "error";
 })();

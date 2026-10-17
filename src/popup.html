@@ -6,156 +6,230 @@
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
+    <!-- Icone usate in tutto il popup: definite una volta, richiamate con <use> -->
+    <svg width="0" height="0" class="sprite" aria-hidden="true">
+      <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></symbol>
+      <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 1 1 12 0v5l2 2H4zM10 20a2 2 0 0 0 4 0"/></symbol>
+      <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></symbol>
+      <symbol id="i-gear" viewBox="0 0 24 24"><path d="M21.8 10.0 L21.8 14.0 L19.2 14.4 L18.8 15.4 L20.3 17.5 L17.5 20.3 L15.4 18.8 L14.4 19.2 L14.0 21.8 L10.0 21.8 L9.6 19.2 L8.6 18.8 L6.5 20.3 L3.7 17.5 L5.2 15.4 L4.8 14.4 L2.2 14.0 L2.2 10.0 L4.8 9.6 L5.2 8.6 L3.7 6.5 L6.5 3.7 L8.6 5.2 L9.6 4.8 L10.0 2.2 L14.0 2.2 L14.4 4.8 L15.4 5.2 L17.5 3.7 L20.3 6.5 L18.8 8.6 L19.2 9.6Z"/><circle cx="12" cy="12" r="3"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+      <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+      <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+      <symbol id="i-relist" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14-5l-2 2M4 4v4h4M4 13a8 8 0 0 0 14 5l2-2M20 20v-4h-4"/></symbol>
+      <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></symbol>
+      <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8M14 4v6M8 14v6"/></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></symbol>
+      <symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.5 6.5a4 4 0 0 0 5 5L13 18a2.1 2.1 0 0 1-3-3l6.5-6.5a4 4 0 0 0-2-2zM9 15l-5 5"/></symbol>
+      <symbol id="i-cup" viewBox="0 0 24 24"><path d="M4 9h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5zM17 10h1.5a2.5 2.5 0 0 1 0 5H17M8 3v3M12 3v3"/></symbol>
+      <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V4M4 20h16M8 16v-4M12 16V8M16 16v-6"/></symbol>
+    </svg>
+
     <header class="head">
       <img src="../icons/icon48.png" alt="" class="head-icon" />
-      <h1>Vinted Relist</h1>
-      <span class="version" id="version"></span>
+      <div class="head-text">
+        <h1 id="headTitle">Vinted Relist</h1>
+        <span class="version" id="version"></span>
+      </div>
+      <button class="icon-btn" id="openSettings" type="button" aria-label="Impostazioni" title="Impostazioni">
+        <svg><use href="#i-gear"/></svg>
+      </button>
+      <button class="icon-btn" id="closePopup" type="button" aria-label="Chiudi" title="Chiudi">
+        <svg><use href="#i-x"/></svg>
+      </button>
     </header>
 
-    <!-- La coda sta in cima: se ne hai una attiva, e' il motivo per cui sei qui -->
-    <section class="block queue" id="queueBlock">
-      <div class="queue-head">
-        <span id="queueState" class="queue-state"></span>
-        <span id="queueCount" class="queue-count"></span>
-      </div>
-      <div class="bar" id="queueBar"><div class="bar-fill" id="queueFill"></div></div>
-      <div id="queueItem" class="queue-item"></div>
-      <div id="queueErrors" class="queue-errors"></div>
-      <div class="queue-actions" id="queueActions"></div>
-      <div id="queueEmpty" class="empty" hidden>
-        Nessuna coda attiva. <a id="wardrobeLink" href="#" target="_blank">Apri il tuo armadio</a>
-        per selezionare gli articoli.
-      </div>
-    </section>
+    <main class="views" id="views">
+      <!-- ============================================================ HOME -->
+      <section class="view" id="view-home" data-view="home">
+        <div class="card queue" id="queueCard" aria-live="polite"></div>
 
-    <section class="block">
-      <div class="block-title">Ripubblicazione</div>
-      <label class="check">
-        <input type="checkbox" id="deleteOld" />
-        <span>Elimina il vecchio annuncio</span>
-      </label>
-      <label class="check">
-        <input type="checkbox" id="autoReload" />
-        <span>Ricarica la pagina dopo la pubblicazione</span>
-      </label>
-      <label class="field wide">
-        <span class="field-label">Ordine delle operazioni</span>
-        <select id="order">
-          <option value="safe">Pubblica, poi elimina</option>
-          <option value="clean">Elimina, poi pubblica</option>
-        </select>
-      </label>
-    </section>
+        <button class="row-card" id="healthRow" type="button">
+          <span class="dot" id="healthDot"></span>
+          <span class="row-text">
+            <span class="row-label">Stato estensione</span>
+            <span class="row-value" id="healthText">—</span>
+          </span>
+          <svg class="chev"><use href="#i-chev"/></svg>
+        </button>
 
-    <section class="block">
-      <div class="block-title">Coda</div>
-      <label class="check">
-        <input type="checkbox" id="humanRhythm" />
-        <span>Ritmo irregolare</span>
-      </label>
-      <p class="desc">Intervalli variabili e pause quando non sei al computer.</p>
+        <div class="card">
+          <div class="card-title">Attività</div>
+          <div class="stats">
+            <div class="stat"><b id="statToday">—</b><span>oggi</span></div>
+            <div class="stat"><b id="statWeek">—</b><span>7 giorni</span></div>
+            <div class="stat"><b id="statMonth">—</b><span>30 giorni</span></div>
+          </div>
+          <p class="desc" id="statHint"></p>
+        </div>
 
-      <label class="check">
-        <input type="checkbox" id="canary" />
-        <span>Controllo prima di avviare</span>
-      </label>
-      <p class="desc">Prova a vuoto su un articolo: niente viene pubblicato.</p>
+        <button class="row-card" id="openDashboard" type="button">
+          <svg class="row-icon"><use href="#i-chart"/></svg>
+          <span class="row-text">
+            <span class="row-value">Dashboard dell'armadio</span>
+            <span class="row-label">Statistiche, coda conclusa e ripristini</span>
+          </span>
+          <svg class="chev"><use href="#i-chev"/></svg>
+        </button>
 
-      <label class="check">
-        <input type="checkbox" id="notifyOnFinish" />
-        <span>Notifica a coda finita</span>
-      </label>
+        <a class="kofi-line" href="https://ko-fi.com/mashaup" target="_blank" rel="noopener noreferrer">
+          <svg><use href="#i-cup"/></svg> Ti è utile? Offrimi un caffè su Ko-fi
+        </a>
+      </section>
 
-      <label class="check">
-        <input type="checkbox" id="autoFill" />
-        <span>Riempi i campi vuoti</span>
-      </label>
-      <p class="desc">
-        Colore e unisex, presi da quello che usi negli altri articoli della stessa
-        categoria. Misure, ISBN e produttore non vengono mai toccati.
-      </p>
-    </section>
+      <!-- ======================================================= NOTIFICHE -->
+      <section class="view" id="view-notifiche" data-view="notifiche" hidden>
+        <div class="view-head">
+          <div class="chips" role="group" aria-label="Filtro">
+            <button class="chip is-on" type="button" data-filtro="tutte">Tutte</button>
+            <button class="chip" type="button" data-filtro="problemi">Problemi</button>
+          </div>
+          <button class="link-btn" id="clearEvents" type="button">Svuota</button>
+        </div>
+        <ul class="events" id="events"></ul>
+        <p class="empty" id="eventsEmpty" hidden>Nessuna notifica. Esiti della coda, errori e aggiornamenti compaiono qui.</p>
+      </section>
 
-    <section class="block">
-      <div class="block-title">Automazione</div>
-      <label class="check">
-        <input type="checkbox" id="peakOnly" />
-        <span>Solo nelle fasce di picco</span>
-      </label>
-      <label class="field wide">
-        <span class="field-label">Fasce orarie</span>
-        <input type="text" id="peakWindows" placeholder="12:30-14:00, 19:30-22:30" />
-      </label>
-      <p class="desc">Fuori da queste ore la coda aspetta invece di pubblicare nel vuoto.</p>
+      <!-- ========================================================== SALUTE -->
+      <section class="view" id="view-salute" data-view="salute" hidden>
+        <div class="card">
+          <div class="card-title">Controlli</div>
+          <ul class="checks" id="checks"></ul>
+          <button id="verify" class="btn" type="button">Verifica formato su un articolo</button>
+          <p class="desc" id="verifyResult" hidden></p>
+        </div>
 
-      <label class="check">
-        <input type="checkbox" id="autoRule" />
-        <span>Ripubblica da sola gli articoli fermi</span>
-      </label>
-      <div class="fields">
-        <label class="field">
-          <span class="field-label">Dopo giorni</span>
-          <input type="number" id="autoRuleDays" min="1" max="60" />
-        </label>
-        <label class="field">
-          <span class="field-label">Max per volta</span>
-          <input type="number" id="autoRuleMax" min="1" max="30" />
-        </label>
-      </div>
-      <p class="desc" id="autoRuleHint"></p>
-    </section>
+        <div class="card" id="updateCard">
+          <div class="card-title">Versione e aggiornamenti</div>
+          <p class="update-line">Installata: <b id="installed"></b></p>
+          <button id="checkUpdate" class="btn btn-primary" type="button">Cerca aggiornamento</button>
+          <p class="desc" id="updateResult" aria-live="polite"></p>
+          <div id="updateAvailable" hidden>
+            <ul class="notes" id="updateNotes"></ul>
+            <button id="downloadZip" class="btn" type="button">Scarica lo zip</button>
+            <ol class="steps">
+              <li>Estrai lo zip <b>sopra la cartella attuale</b> dell'estensione, sostituendo i file.</li>
+              <li>Premi «Installa l'aggiornamento»: l'estensione si ricarica con i file nuovi.</li>
+            </ol>
+            <button id="reloadExt" class="btn btn-primary" type="button">Installa l'aggiornamento</button>
+            <p class="desc warn" id="reloadWarn" hidden></p>
+          </div>
+          <details class="changelog">
+            <summary>Novità delle ultime versioni</summary>
+            <div id="changelog"></div>
+          </details>
+        </div>
 
-    <section class="block">
-      <div class="block-title">Attività</div>
-      <div class="stats">
-        <div class="stat"><b id="statToday">—</b><span>oggi</span></div>
-        <div class="stat"><b id="statWeek">—</b><span>7 giorni</span></div>
-        <div class="stat"><b id="statMonth">—</b><span>30 giorni</span></div>
-      </div>
-      <p class="desc" id="statHint"></p>
-    </section>
+        <div class="card">
+          <div class="card-title">Diagnostica</div>
+          <p class="desc">Un riepilogo da incollare quando chiedi aiuto: versione, impostazioni, stato della coda ed errori recenti. Niente token, cookie, id o indirizzi: controllalo prima di copiarlo.</p>
+          <button id="makeDiag" class="btn" type="button">Prepara la diagnostica</button>
+          <div id="diagBox" hidden>
+            <textarea id="diagText" class="diag" readonly rows="9" aria-label="Testo della diagnostica"></textarea>
+            <button id="copyDiag" class="btn btn-primary" type="button">Copia diagnostica</button>
+          </div>
+        </div>
+      </section>
 
-    <section class="block">
-      <div class="block-title">Formati</div>
-      <div class="status-row">
-        <span class="dot" id="photoDot"></span>
-        <span class="status-name">Formato foto</span>
-        <span class="status-state" id="photoState">—</span>
-      </div>
-      <div class="status-row">
-        <span class="dot" id="itemDot"></span>
-        <span class="status-name">Formato annuncio</span>
-        <span class="status-state" id="itemState">—</span>
-      </div>
-      <p class="desc" id="statusHint"></p>
-      <button id="verify" class="btn">Verifica formato</button>
-      <p class="desc" id="verifyResult" hidden></p>
-    </section>
+      <!-- ===================================================== IMPOSTAZIONI -->
+      <section class="view" id="view-impostazioni" data-view="impostazioni" hidden>
+        <div class="view-head">
+          <button class="link-btn back" id="backFromSettings" type="button"><svg><use href="#i-back"/></svg> Indietro</button>
+          <span class="saved" id="savedFlag" aria-live="polite"></span>
+        </div>
 
-    <details class="block advanced">
-      <summary>Avanzate</summary>
-      <label class="check">
-        <input type="checkbox" id="showOnOtherProfiles" />
-        <span>Mostra i bottoni ovunque</span>
-      </label>
-      <label class="field wide">
-        <span class="field-label">Pausa tra le chiamate (ms)</span>
-        <input type="number" id="delayMs" min="300" step="100" />
-      </label>
-      <p class="desc">Tempo tra una chiamata e l'altra, non l'intervallo della coda.</p>
-    </details>
+        <details class="group" open>
+          <summary><svg class="row-icon"><use href="#i-relist"/></svg><span><b>Ripubblicazione</b><small>Come viene ripubblicato ogni annuncio</small></span></summary>
+          <label class="toggle"><span><b>Elimina il vecchio annuncio</b><small>Senza, restano online entrambi.</small></span><input type="checkbox" data-key="deleteOld" /></label>
+          <label class="toggle"><span><b>Ricarica dopo la pubblicazione</b><small>Aggiorna la pagina a fine operazione.</small></span><input type="checkbox" data-key="autoReload" /></label>
+          <label class="field"><span class="field-label">Ordine delle operazioni</span>
+            <select data-key="order">
+              <option value="safe">Pubblica, poi elimina</option>
+              <option value="clean">Elimina, poi pubblica</option>
+            </select>
+          </label>
+          <p class="info">Con «Pubblica, poi elimina» il vecchio annuncio si cancella solo dopo che Vinted ha accettato il nuovo: se qualcosa va storto non perdi niente.</p>
+        </details>
 
-    <section class="block" id="draftsBlock" hidden>
-      <div class="block-title">Bozze in sospeso</div>
-      <div id="drafts" class="drafts"></div>
-      <button id="copy" class="btn">Copia negli appunti</button>
-    </section>
+        <details class="group">
+          <summary><svg class="row-icon"><use href="#i-list"/></svg><span><b>Coda</b><small>Ritmo, controllo preventivo, campi vuoti</small></span></summary>
+          <label class="toggle"><span><b>Ritmo irregolare</b><small>Intervalli variabili del ±30% e pause quando non sei al computer.</small></span><input type="checkbox" data-key="humanRhythm" /></label>
+          <label class="toggle"><span><b>Controllo prima di avviare</b><small>Legge gli articoli senza pubblicare e ti dice cosa manca.</small></span><input type="checkbox" data-key="canary" /></label>
+          <label class="toggle"><span><b>Notifica a coda finita</b><small>Notifica di sistema con il riepilogo.</small></span><input type="checkbox" data-key="notifyOnFinish" /></label>
+          <label class="toggle"><span><b>Riempi i campi vuoti</b><small>Colore e unisex presi dai tuoi articoli della stessa categoria. Misure, ISBN e produttore non vengono mai toccati.</small></span><input type="checkbox" data-key="autoFill" /></label>
+          <label class="field"><span class="field-label">Intervallo predefinito (minuti)</span>
+            <input type="number" data-key="queueIntervalMin" min="1" max="240" step="1" inputmode="numeric" />
+          </label>
+        </details>
 
-    <footer class="foot">
-      <button id="dashboard" class="btn">Apri la dashboard dell'armadio</button>
-      <button id="tutorial" class="btn quiet">Rivedi il tutorial</button>
-    </footer>
+        <details class="group">
+          <summary><svg class="row-icon"><use href="#i-sliders"/></svg><span><b>Automazione</b><small>Fasce orarie e articoli fermi</small></span></summary>
+          <label class="toggle"><span><b>Solo nelle fasce di picco</b><small>Fuori fascia la coda aspetta invece di pubblicare nel vuoto.</small></span><input type="checkbox" data-key="peakOnly" /></label>
+          <label class="field"><span class="field-label">Fasce orarie</span>
+            <input type="text" data-key="peakWindows" placeholder="12:30-14:00, 19:30-22:30" />
+          </label>
+          <label class="toggle"><span><b>Ripubblica da sola gli articoli fermi</b><small>Ogni ora, se non c'è una coda in corso, mette in coda i più vecchi tra quelli che conosci.</small></span><input type="checkbox" data-key="autoRule" /></label>
+          <div class="fields">
+            <label class="field"><span class="field-label">Fermi da (giorni)</span><input type="number" data-key="autoRuleDays" min="1" max="60" step="1" inputmode="numeric" /></label>
+            <label class="field"><span class="field-label">Massimo per volta</span><input type="number" data-key="autoRuleMax" min="1" max="30" step="1" inputmode="numeric" /></label>
+          </div>
+          <p class="desc" id="autoRuleHint"></p>
+        </details>
 
+        <details class="group">
+          <summary><svg class="row-icon"><use href="#i-bell"/></svg><span><b>Notifiche</b><small>Avvisi sulla pagina di Vinted</small></span></summary>
+          <label class="toggle"><span><b>Avvisi sulla pagina</b><small>Errori ed esiti incerti compaiono comunque e restano finché non li chiudi.</small></span><input type="checkbox" data-key="toastsEnabled" /></label>
+          <label class="field"><span class="field-label">Durata degli avvisi</span>
+            <select data-key="toastDuration">
+              <option value="normal">Normale (3–7 secondi)</option>
+              <option value="long">Lunga (il doppio)</option>
+            </select>
+          </label>
+        </details>
+
+        <details class="group">
+          <summary><svg class="row-icon"><use href="#i-wrench"/></svg><span><b>Avanzate</b><small>Pause, console, aggiornamenti, backup</small></span></summary>
+          <label class="toggle"><span><b>Mostra i bottoni ovunque</b><small>Anche sui profili degli altri (la ripubblicazione funziona solo sui tuoi).</small></span><input type="checkbox" data-key="showOnOtherProfiles" /></label>
+          <label class="field"><span class="field-label">Pausa tra le chiamate (ms)</span>
+            <input type="number" data-key="delayMs" min="300" max="10000" step="100" inputmode="numeric" />
+          </label>
+          <label class="toggle"><span><b>Strumenti nella console</b><small>Espone funzioni di sola lettura (debugDraft, canary) nella console della pagina. Lascialo spento se non ti serve.</small></span><input type="checkbox" data-key="consoleBridge" /></label>
+          <label class="field"><span class="field-label">Repository per gli aggiornamenti</span>
+            <input type="text" data-key="updateRepo" placeholder="MashaUP/Vinted_Relist" spellcheck="false" autocomplete="off" />
+          </label>
+          <div class="sub-title">Backup delle impostazioni</div>
+          <p class="desc">Solo le scelte di questa pagina: niente dati dell'account o degli annunci.</p>
+          <div class="btn-row">
+            <button class="btn" id="exportSettings" type="button">Esporta</button>
+            <button class="btn" id="importSettings" type="button">Importa…</button>
+            <input type="file" id="importFile" accept="application/json,.json" hidden />
+          </div>
+          <p class="desc" id="backupResult" aria-live="polite"></p>
+          <div id="draftsBlock" hidden>
+            <div class="sub-title">Copie degli annunci non ripubblicati</div>
+            <p class="desc">Salvate quando un annuncio è stato eliminato ma il nuovo non è partito.</p>
+            <div id="drafts" class="drafts"></div>
+            <button id="copyDrafts" class="btn" type="button">Copia negli appunti</button>
+          </div>
+          <button id="tutorial" class="btn quiet" type="button">Rivedi il tutorial</button>
+        </details>
+
+        <a class="card kofi" href="https://ko-fi.com/mashaup" target="_blank" rel="noopener noreferrer">
+          <svg class="row-icon"><use href="#i-cup"/></svg>
+          <span><b>Supporta lo sviluppo</b><small>Vinted Relist è gratuito. Se ti fa risparmiare tempo, puoi offrirmi un caffè su Ko-fi.</small></span>
+          <svg class="chev"><use href="#i-chev"/></svg>
+        </a>
+      </section>
+    </main>
+
+    <nav class="tabs" role="tablist" aria-label="Sezioni">
+      <button class="tab is-on" type="button" role="tab" data-tab="home" aria-selected="true"><svg><use href="#i-home"/></svg>Home</button>
+      <button class="tab" type="button" role="tab" data-tab="notifiche" aria-selected="false"><svg><use href="#i-bell"/></svg>Notifiche<span class="tab-badge" id="unreadBadge" hidden></span></button>
+      <button class="tab" type="button" role="tab" data-tab="salute" aria-selected="false"><svg><use href="#i-heart"/></svg>Salute<span class="tab-dot" id="healthBadge" hidden></span></button>
+    </nav>
+
+    <script src="utils.js"></script>
+    <script src="versione.js"></script>
+    <script src="impostazioni.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

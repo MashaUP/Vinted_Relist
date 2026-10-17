@@ -84,6 +84,9 @@
     return { carica, miniatura, libera, blob };
   }
 
+  /** append() del DOM scrive "null" come testo: questo invece salta null e false. */
+  const appendi = (nodo, ...figli) => nodo.append(...figli.flat().filter((f) => f != null && f !== false));
+
   // ----------------------------------------------------------------- editor
 
   VR.openEditor = (itemId, onConfirm) => {
@@ -152,6 +155,19 @@
       const contaDescrizione = h("span", { class: "vr-counter" });
       const prezzo = h("input", { class: "vr-input", type: "number", min: "0.5", step: "0.5" });
       const colore = coloreMancante ? VR.selectColore(stato.colorIds?.[0]) : null;
+      const cercaColori = colore && colore.options.length <= 1
+        ? h("button", {
+            class: "vr-link-btn",
+            type: "button",
+            onclick: async (e) => {
+              e.target.disabled = true;
+              e.target.textContent = "Leggo i tuoi annunci…";
+              const trovati = await VR.imparaColori();
+              VR.toast(trovati ? `Trovati ${trovati} colori.` : "Nessun colore trovato nei tuoi annunci letti.", trovati ? "ok" : "info");
+              mostra("modifica");
+            },
+          }, "Cerca i colori nei tuoi annunci")
+        : null;
 
       titolo.value = stato.title;
       descrizione.value = stato.description;
@@ -164,7 +180,11 @@
         contaTitolo.classList.toggle("is-over", stato.title.trim().length > L.TITOLO_MAX);
         contaDescrizione.textContent = `${stato.description.trim().length} caratteri`;
 
-        const esito = L.controlla(stato, { coloreMancante, coloreRiempito });
+        const esito = L.controlla(stato, {
+          coloreMancante,
+          coloreRiempito,
+          categoriaConColori: VR.categoriaHaColori(source.catalog_id),
+        });
         const qualita = VR.punteggio({
           ...source,
           title: stato.title,
@@ -174,7 +194,7 @@
         });
 
         controlli.textContent = "";
-        controlli.append(
+        appendi(controlli,
           h("div", { class: "vr-checks__score" },
             h("strong", {}, `Completezza ${qualita.score}/100`),
             h("span", { class: "vr-quality__bar" },
@@ -220,10 +240,13 @@
         h("div", { class: "vr-row" },
           h("label", { class: "vr-field" }, h("span", { class: "vr-field__label" }, "Prezzo (EUR)"), prezzo),
           colore
-            ? h("label", { class: "vr-field" }, h("span", { class: "vr-field__label" }, "Colore (manca)"), colore)
+            ? h("label", { class: "vr-field" },
+                h("span", { class: "vr-field__label" }, "Colore ", h("span", { class: "vr-counter" }, "facoltativo")),
+                colore, cercaColori)
             : null
         ),
         controlli,
+        sezioneDownload(),
         h("div", { class: "vr-actions" },
           h("button", {
             class: "vr-btn vr-btn--ghost",
@@ -238,6 +261,121 @@
           h("button", { class: "vr-btn vr-btn--ghost", onclick: () => chiudi() }, "Chiudi"),
           avanti
         )
+      );
+    }
+
+    // --- download delle foto ---------------------------------------------------
+
+    /**
+     * Separata dalla striscia qui sopra: quella decide le foto da ripubblicare,
+     * questa sceglie cosa salvare sul computer. Lavora sulle foto dell'annuncio
+     * online, nell'ordine originale e senza rotazioni o ritagli, e non le
+     * ricodifica: arrivano i byte che serve il CDN di Vinted.
+     */
+    const selezioneDownload = new Set();
+
+    function sezioneDownload() {
+      const tutte = originale.photos;
+      const griglia = h("div", { class: "vr-dl__grid" });
+      const conta = h("span", { class: "vr-counter" });
+      const scarica = h("button", { class: "vr-btn vr-btn--primary vr-btn--sm", type: "button" });
+      const esito = h("p", { class: "vr-note", hidden: true, "aria-live": "polite" });
+
+      function aggiorna() {
+        conta.textContent = `${selezioneDownload.size} di ${tutte.length} selezionate`;
+        scarica.textContent = `Scarica selezionate (${selezioneDownload.size})`;
+        scarica.disabled = selezioneDownload.size === 0;
+        for (const casella of griglia.querySelectorAll("input[type=checkbox]")) {
+          casella.checked = selezioneDownload.has(casella.dataset.url);
+          casella.closest(".vr-dl__item").classList.toggle("is-selected", casella.checked);
+        }
+      }
+
+      async function esegui(voci) {
+        scarica.disabled = true;
+        esito.hidden = false;
+        esito.className = "vr-note";
+        esito.textContent = `Scarico ${voci.length} ${voci.length === 1 ? "foto" : "foto"}…`;
+        const risultato = await VR.scaricaFoto(itemId, voci, foto, (fatte) => {
+          esito.textContent = `Scarico… ${fatte} di ${voci.length}`;
+        });
+        const falliti = risultato.filter((r) => !r.ok);
+        if (!falliti.length) {
+          esito.className = "vr-note vr-note--ok";
+          esito.textContent = voci.length === 1
+            ? `Salvata come ${risultato[0].nome}.`
+            : `${voci.length} foto salvate nella cartella «Vinted Relist» dei download.`;
+        } else {
+          esito.className = "vr-note vr-note--error";
+          esito.textContent =
+            `${voci.length - falliti.length} salvate, ${falliti.length} non riuscite: ` +
+            falliti.map((f) => `foto ${f.posizione} (${f.errore})`).join(", ") + ".";
+        }
+        // un solo riepilogo, non un toast per foto
+        VR.toast(esito.textContent, falliti.length ? "warn" : "ok", { chiave: `download:${itemId}` });
+        aggiorna();
+      }
+
+      tutte.forEach((f, i) => {
+        const posizione = i + 1;
+        const img = h("img", { class: "vr-dl__img", alt: `Foto ${posizione}`, loading: "lazy" });
+        foto.miniatura({ url: f.url }, 160).then((u) => (img.src = u)).catch(() => img.classList.add("is-broken"));
+
+        const casella = h("input", {
+          type: "checkbox",
+          class: "vr-check",
+          dataset: { url: f.url },
+          "aria-label": `Seleziona la foto ${posizione}`,
+          onchange: (e) => {
+            if (e.target.checked) selezioneDownload.add(f.url);
+            else selezioneDownload.delete(f.url);
+            aggiorna();
+          },
+        });
+
+        griglia.append(h("label", { class: "vr-dl__item" },
+          img,
+          h("span", { class: "vr-dl__num" }, String(posizione)),
+          casella,
+          f.ridotta ? h("span", { class: "vr-dl__low", title: "Vinted non espone una versione più grande" }, "bassa ris.") : null,
+          h("button", {
+            class: "vr-dl__one",
+            type: "button",
+            title: `Scarica la foto ${posizione}`,
+            "aria-label": `Scarica la foto ${posizione}`,
+            onclick: (e) => { e.preventDefault(); e.stopPropagation(); esegui([{ url: f.url, posizione }]); },
+          }, "⬇")
+        ));
+      });
+
+      scarica.addEventListener("click", () => {
+        const voci = tutte
+          .map((f, i) => ({ url: f.url, posizione: i + 1 }))
+          .filter((v) => selezioneDownload.has(v.url));
+        if (voci.length) esegui(voci);
+      });
+
+      aggiorna();
+
+      return h("details", { class: "vr-dl" },
+        h("summary", {}, `Scarica le foto (${tutte.length})`),
+        tutte.length
+          ? h("div", {},
+              h("p", { class: "vr-note" },
+                "Le foto originali dell'annuncio, senza rotazioni o ritagli: scegliere qui non cambia " +
+                "quelle da ripubblicare."),
+              h("div", { class: "vr-dl__bar" },
+                conta,
+                h("span", { class: "vr-dl__actions" },
+                  h("button", { class: "vr-chip", type: "button", onclick: () => { tutte.forEach((f) => selezioneDownload.add(f.url)); aggiorna(); } }, "Seleziona tutte"),
+                  h("button", { class: "vr-chip", type: "button", onclick: () => { selezioneDownload.clear(); aggiorna(); } }, "Deseleziona tutte"),
+                  scarica
+                )
+              ),
+              griglia,
+              esito
+            )
+          : h("p", { class: "vr-note" }, "Questo annuncio non ha foto da scaricare.")
       );
     }
 
@@ -498,7 +636,7 @@
           description: source.description || "",
           price: prezzo != null ? Number(prezzo) : "",
           colorIds: colori,
-          photos: VR.photoUrls(source).map((url) => ({ url })),
+          photos: VR.photoInfo(source),
         };
         coloreMancante = colori.length === 0;
         coloreRiempito = VR.riempimentiPrevisti(source, {}).previsti.some((p) => p.campo === "color_ids");
@@ -527,7 +665,7 @@
           VR.toast(
             `Ho ripreso la bozza del ${new Date(bozza.at).toLocaleString("it-IT", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}. «Annulla modifiche» torna all'originale.`,
             "info",
-            7000
+            { durata: 7000 }
           );
         }
 

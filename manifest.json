@@ -1,14 +1,15 @@
 {
   "manifest_version": 3,
   "name": "Vinted Relist",
-  "version": "1.9.0",
-  "description": "Ripubblica un articolo Vinted con un clic: clona l'annuncio (foto e dati) e rimuove quello vecchio.",
+  "version": "2.0.0",
+  "description": "Ripubblica i tuoi annunci Vinted con un clic o in coda: editor, controllo prima di pubblicare, notifiche e dashboard dell'armadio.",
   "permissions": [
     "storage",
     "webRequest",
     "alarms",
     "notifications",
-    "idle"
+    "idle",
+    "downloads"
   ],
   "host_permissions": [
     "https://www.vinted.it/*",
@@ -57,8 +58,8 @@
       "js": [
         "src/utils.js",
         "src/api.js",
-        "src/relist.js",
         "src/editor-logica.js",
+        "src/relist.js",
         "src/editor.js",
         "src/queue.js",
         "src/ui.js",
@@ -103,12 +104,14 @@
     "default_title": "Vinted Relist",
     "default_icon": {
       "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
     }
   },
   "icons": {
     "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   }
