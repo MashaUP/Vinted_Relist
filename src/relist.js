@@ -266,8 +266,9 @@
     brand: (src) => src.brand ?? src.brand_dto?.title ?? null,
     brand_id: (src) => src.brand_id ?? src.brand_dto?.id ?? null,
 
-    // color1_id / color2_id → un solo array
-    color_ids: (src) => [src.color1_id, src.color2_id].filter((id) => id != null),
+    // color1_id / color2_id → un solo array. Assente o null → [] (nessun colore);
+    // un valore che non e' un id valido si scarta invece di finire nel payload.
+    color_ids: (src) => idColori(src),
 
     // {amount: "10.0", currency_code: "EUR"} → 10 (numero, non stringa)
     price: (src) => {
@@ -285,6 +286,14 @@
       ),
     }),
   };
+
+  /** Gli id colore validi dell'originale (interi positivi), nell'ordine color1, color2. */
+  function idColori(src) {
+    return [src.color1_id, src.color2_id]
+      .filter((id) => id != null && id !== "")
+      .map(Number)
+      .filter((id) => Number.isInteger(id) && id > 0);
+  }
 
   /** Ricalca la forma delle voci foto osservata nella richiesta vera. */
   function buildAssignedPhotos(photoIds) {
@@ -309,8 +318,11 @@
    * Riempimento automatico dei campi vuoti.
    *
    * Il criterio non e' "riempi tutto": e' quanto costa sbagliare.
-   *   - color_ids e is_unisex si riempiono. Senza colore Vinted rifiuta la
-   *     pubblicazione, e un valore sbagliato costa al massimo una ricerca persa.
+   *   - color_ids e is_unisex si riempiono SOLO se TUTTI gli altri tuoi articoli
+   *     con lo stesso catalog_id hanno il campo (almeno 2) e concordano sul
+   *     valore (maggioranza del 60%). Se la
+   *     lettura non contiene il campo (libri, manga…) non ci sono prove e il
+   *     campo resta com'e': assente non vuol dire obbligatorio.
    *   - package_size_id si segnala e basta: sbagliare la dimensione del pacco
    *     si paga in spedizione, quindi la scelta resta tua.
    *   - isbn, misure, manufacturer non si toccano mai: sono dati del singolo
@@ -336,9 +348,11 @@
   /** Il valore di un campo ridotto a stringa, per contarlo. */
   VR.chiaveCampo = (campo, item) => {
     if (campo === "color_ids") {
-      const ids = [item.color1_id, item.color2_id].filter((id) => id != null);
+      const ids = idColori(item);
       return ids.length ? ids.join(",") : null;
     }
+    // false e' un valore vero e proprio ("non unisex"), non un campo vuoto
+    if (typeof item[campo] === "boolean") return String(item[campo]);
     const valore = item[campo];
     return valore == null || valore === "" ? null : String(valore);
   };
@@ -367,26 +381,70 @@
     }
   }
 
-  /** Altri articoli osservati della stessa categoria hanno un colore? */
-  VR.categoriaHaColori = (catalogId) =>
-    Object.values(VR.settings.itemStats || {}).some(
-      (scheda) => String(scheda.c) === String(catalogId) && scheda.v?.color_ids
-    );
+  /**
+   * Quanti dei tuoi ALTRI articoli letti hanno lo stesso catalog_id, e quanti
+   * di questi hanno un colore. Mai categorie diverse: un libro non dice niente
+   * su una giacca.
+   */
+  VR.categoriaInfo = (catalogId, escludiId = null) => {
+    let osservati = 0;
+    let conColore = 0;
+    for (const [id, scheda] of Object.entries(VR.settings.itemStats || {})) {
+      if (String(scheda.c) !== String(catalogId)) continue;
+      if (escludiId != null && String(id) === String(escludiId)) continue;
+      osservati++;
+      if (scheda.v?.color_ids) conColore++;
+    }
+    return { osservati, conColore };
+  };
 
-  /** Il valore piu' usato nella stessa categoria, se c'e' un'abitudine chiara. */
-  function valorePrevalente(catalogId, campo) {
+  /**
+   * Il formato che Vinted usa per QUESTA categoria, imparato da una tua modifica
+   * fatta a mano: { campi, neutri }. Dalla 2.0.1 il service worker lo salva per
+   * categoria (itemFormats); per i dati precedenti si usa il formato unico solo
+   * se il suo campione e' della stessa categoria. Altrimenti null: confrontare
+   * un libro con il payload di una giacca produce soltanto falsi allarmi.
+   */
+  VR.formatoPerCategoria = (catalogId) => {
+    const L = VR.editorLogica;
+    const perCategoria = VR.settings.itemFormats?.[String(catalogId)];
+    if (perCategoria?.campi?.length) return perCategoria;
+
+    const unico = VR.settings.itemFormat;
+    if (unico?.fields?.length && unico.sample && String(unico.sample.catalog_id) === String(catalogId)) {
+      return { campi: unico.fields, neutri: unico.fields.filter((c) => L.valoreNeutro(unico.sample[c])) };
+    }
+    return null;
+  };
+
+  /** Il riempimento automatico e' attivo per questa operazione? Una regola sola per anteprima e invio. */
+  const riempimentoAttivo = (overrides = {}) => VR.settings.autoFill !== false || overrides.autoFill === true;
+
+  /**
+   * Il valore piu' usato nella stessa categoria, se c'e' un'abitudine chiara.
+   * Due condizioni, entrambe necessarie:
+   *   1. il campo c'e' su TUTTI gli altri tuoi articoli letti della categoria
+   *      (almeno 2): se anche uno solo e' online senza, il campo e' facoltativo
+   *      e riempirlo vorrebbe dire inventare un dato;
+   *   2. un valore e' nettamente il piu' usato (QUORUM).
+   * L'articolo stesso non conta: altrimenti si darebbe ragione da solo.
+   */
+  function valorePrevalente(catalogId, campo, escludiId = null) {
     const conteggi = {};
     let totale = 0;
+    let osservati = 0;
 
-    for (const scheda of Object.values(VR.settings.itemStats || {})) {
+    for (const [id, scheda] of Object.entries(VR.settings.itemStats || {})) {
       if (String(scheda.c) !== String(catalogId)) continue;
+      if (escludiId != null && String(id) === String(escludiId)) continue;
+      osservati++;
       const chiave = scheda.v?.[campo];
       if (chiave == null) continue;
       conteggi[chiave] = (conteggi[chiave] || 0) + 1;
       totale++;
     }
 
-    if (totale < MIN_OSSERVAZIONI) return null;
+    if (totale < MIN_OSSERVAZIONI || totale < osservati) return null;
     const [chiave, quanti] = Object.entries(conteggi).sort((a, b) => b[1] - a[1])[0];
     if (quanti / totale < QUORUM) return null;
 
@@ -401,10 +459,13 @@
     const draft = bozzaGrezza(source, overrides);
     const previsti = [];
     const segnalati = [];
+    const attivo = riempimentoAttivo(overrides);
 
     for (const campo of DA_RIEMPIRE) {
-      if (!eVuoto(campo, draft[campo])) continue;
-      const scelto = valorePrevalente(source.catalog_id, campo);
+      // Stesse condizioni di buildDraft: l'anteprima non promette riempimenti
+      // che la pubblicazione non farebbe (riempimento spento, campo non ammesso).
+      if (!attivo || !(campo in draft) || !eVuoto(campo, draft[campo])) continue;
+      const scelto = valorePrevalente(source.catalog_id, campo, source.id);
       if (!scelto) continue;
       previsti.push({
         campo,
@@ -451,7 +512,14 @@
       conta(10, item.size_id ? 10 : 0, "Taglia", "Impostare la taglia.");
     }
 
-    conta(10, item.color1_id ? 10 : 0, "Colore", "Impostare un colore: Vinted lo chiede alla pubblicazione.");
+    // Il colore pesa solo se l'articolo ce l'ha o se la categoria lo usa sempre:
+    // a un libro senza colore non manca niente.
+    const categoria = VR.categoriaInfo ? VR.categoriaInfo(item.catalog_id, item.id) : null;
+    const coloreAtteso = VR.editorLogica?.statoColore([], { categoria }).livello === "avviso";
+    if (idColori(item).length || coloreAtteso) {
+      conta(10, idColori(item).length ? 10 : 0, "Colore",
+        "Tutti gli altri tuoi articoli di questa categoria hanno un colore: aggiungilo.");
+    }
 
     // Nelle categorie non di abbigliamento la condizione sta in item_attributes.
     const condizione = item.status_id != null || (item.item_attributes || []).length > 0;
@@ -505,8 +573,8 @@
     // Stesso calcolo dell'anteprima nelle opzioni della coda: una sola funzione.
     draft.price = VR.editorLogica.applicaPrezzo(draft.price, overrides);
 
-    // Vinted rifiuta la pubblicazione senza colore. Lo mettiamo solo dove manca:
-    // gli articoli che ne hanno gia' uno non vanno toccati.
+    // Colore scelto nelle opzioni della coda: solo dove manca, gli articoli che
+    // ne hanno gia' uno non vanno toccati.
     if (overrides.colorIds?.length && Array.isArray(draft.color_ids) && !draft.color_ids.length) {
       draft.color_ids = overrides.colorIds.map(Number).filter((id) => !Number.isNaN(id));
     }
@@ -522,11 +590,11 @@
     if (allowed.has("ai_photo") && draft.ai_photo == null) draft.ai_photo = false;
 
     // Per ultimo, cosi' qualunque scelta esplicita qui sopra ha la precedenza.
-    if ((VR.settings.autoFill !== false || overrides.autoFill === true) && !senzaRiempimento) {
+    if (riempimentoAttivo(overrides) && !senzaRiempimento) {
       for (const campo of DA_RIEMPIRE) {
         if (!allowed.has(campo) || !eVuoto(campo, draft[campo])) continue;
 
-        const scelto = valorePrevalente(source.catalog_id, campo);
+        const scelto = valorePrevalente(source.catalog_id, campo, source.id);
         if (!scelto) continue;
 
         draft[campo] = scelto.valore;
@@ -736,9 +804,73 @@
    * converte la prima foto. Non carica, non crea, non cancella niente.
    * Serve a non far partire una coda di tre ore se Vinted ha cambiato qualcosa.
    */
+  /**
+   * Diagnosi dei campi che dipendono dalla categoria: per ognuno il valore
+   * nell'originale, dopo la conversione, nel payload finale, da dove viene e
+   * perche' e' (o non e') un problema. Una sola regola per editor, controllo
+   * preventivo e console. Solo questi campi: niente titoli, testi o segreti.
+   */
+  const CAMPI_DIAGNOSTICA = ["color_ids", "is_unisex", "package_size_id"];
+  const ASSENTE = "(assente)";
+  const mostra = (v) => (v === undefined ? ASSENTE : JSON.stringify(v));
+
+  VR.diagnosiCampi = (source, overrides = {}) => {
+    const L = VR.editorLogica;
+    const grezza = bozzaGrezza(source, overrides);
+    const finale = buildDraft(source, [1], overrides);
+    const formato = VR.formatoPerCategoria(source.catalog_id);
+    const categoria = VR.categoriaInfo(source.catalog_id, source.id);
+
+    // i campi del formato della stessa categoria che a noi mancano
+    const extra = (formato?.campi || []).filter((c) => !(c in finale) && !CAMPI_DIAGNOSTICA.includes(c));
+
+    return [...CAMPI_DIAGNOSTICA, ...extra].map((campo) => {
+      const originale = campo === "color_ids"
+        ? `color1_id=${mostra(source.color1_id)} color2_id=${mostra(source.color2_id)}`
+        : mostra(campo in source ? source[campo] : undefined);
+      const trasformato = campo in grezza ? grezza[campo] : undefined;
+      const inviato = campo in finale ? finale[campo] : undefined;
+      const riempito = JSON.stringify(trasformato) !== JSON.stringify(inviato);
+      const daOpzioni = campo === "color_ids" && overrides.colorIds?.length && !idColori(source).length &&
+        (trasformato || []).length > 0;
+
+      const fonte = inviato === undefined ? "assente"
+        : riempito ? "riempimento"
+        : daOpzioni ? "opzioni della coda"
+        : campo in DERIVATIONS ? "derivazione"
+        : "originale";
+
+      let esito;
+      if (campo === "color_ids") {
+        esito = L.statoColore(inviato, { categoria, riempito });
+        if (esito.livello === "ok" && daOpzioni) esito = { livello: "ok", testo: "colore dalle opzioni della coda" };
+      } else if (inviato === undefined) {
+        esito = L.campoMancante(campo, formato);
+      } else if (campo === "package_size_id" && inviato == null) {
+        esito = { livello: "avviso", testo: "dimensione del pacco non impostata: la scelta resta a te" };
+      } else if (riempito) {
+        esito = { livello: "ok", testo: `${campo} preso dai tuoi articoli simili` };
+      } else {
+        esito = { livello: "ok", testo: inviato === null ? `${campo}: vuoto, come nell'originale` : `${campo}: conservato` };
+      }
+
+      return {
+        campo,
+        categoria: source.catalog_id ?? null,
+        originale,
+        trasformato: mostra(trasformato),
+        inviato: mostra(inviato),
+        fonte,
+        livello: esito.livello,
+        motivo: esito.testo,
+      };
+    });
+  };
+
   VR.canary = async (itemId, overrides = {}, { foto: provaFoto = true } = {}) => {
     const problemi = [];
     const avvisi = [];
+    const note = [];
 
     let source;
     try {
@@ -753,29 +885,24 @@
     const urls = photoUrls(source);
     const draft = buildDraft(source, [1], overrides);
 
-    // Stessa regola dell'editor: obbligatori bloccano, facoltativi avvisano.
-    const esito = VR.editorLogica.verificaPayload(draft, {
-      foto: urls.length,
-      categoriaConColori: VR.categoriaHaColori(source.catalog_id),
-    });
+    // Obbligatori: bloccano. Il resto passa dalla diagnosi dei campi, che
+    // distingue avvisi (differenze reali) da note (assenze legittime).
+    const esito = VR.editorLogica.verificaPayload(draft, { foto: urls.length });
     problemi.push(...esito.bloccanti);
     avvisi.push(...esito.avvisi);
 
-    // Non sono problemi, ma e' giusto vederli prima di avviare una coda lunga.
-    const anteprima = VR.riempimentiPrevisti(source, overrides);
-    for (const voce of anteprima.previsti) {
+    // Riempimenti: non sono problemi, ma cambiano cio' che viene inviato.
+    for (const voce of VR.riempimentiPrevisti(source, overrides).previsti) {
       avvisi.push(`${voce.etichetta} vuoto, metto \u00ab${voce.testo}\u00bb`);
     }
-    for (const nome of anteprima.segnalati) {
-      avvisi.push(`${nome} non impostata: la lascio a te`);
-    }
 
-    const attesi = VR.settings.itemFormat?.fields;
-    if (attesi?.length) {
-      const mancanti = attesi.filter((campo) => !(campo in draft));
-      // Campi che Vinted mandava nella richiesta osservata e che questo articolo
-      // non ha: spesso sono semplicemente assenti per la categoria. Avviso, non blocco.
-      if (mancanti.length) avvisi.push(`campi assenti rispetto al formato appreso: ${mancanti.join(", ")}`);
+    const campi = VR.diagnosiCampi(source, overrides);
+    for (const d of campi) {
+      if (d.livello === "avviso") avvisi.push(d.motivo);
+      else if (d.livello === "nota") note.push(d.motivo);
+    }
+    if (!VR.formatoPerCategoria(source.catalog_id) && VR.settings.itemFormat?.fields?.length) {
+      note.push("il formato appreso viene da un'altra categoria: per confrontare questa, modifica e salva a mano un articolo della stessa categoria");
     }
 
     if (urls.length && provaFoto) {
@@ -788,7 +915,15 @@
       }
     }
 
-    return { ok: problemi.length === 0, problemi, avvisi };
+    return { ok: problemi.length === 0, problemi, avvisi, note, campi };
+  };
+
+  /** Diagnosi dei campi dalla console: VR.diagnosi(123456) */
+  VR.diagnosi = async (itemId) => {
+    const source = await VR.api.getUploadDraft(itemId);
+    const righe = VR.diagnosiCampi(source, {});
+    console.table(righe);
+    return righe;
   };
 
   /** Che tipo ha un valore, distinguendo null e array. */
@@ -830,6 +965,11 @@
     const source = await VR.api.getUploadDraft(itemId);
     const draft = buildDraft(source, [111, 222], {});
     const real = itemFormat.sample;
+    const stessaCategoria = String(real.catalog_id) === String(source.catalog_id);
+    if (!stessaCategoria) {
+      console.warn(`Il payload catturato è della categoria ${real.catalog_id}, l'articolo della ${source.catalog_id}: ` +
+        "i campi che dipendono dalla categoria (unisex, taglia, colore…) qui non sono confrontabili.");
+    }
 
     const mancanti = Object.keys(real).filter((key) => !(key in draft));
     const inPiu = Object.keys(draft).filter((key) => !(key in real));
@@ -837,13 +977,16 @@
       .filter((key) => key in draft && typeOf(real[key]) !== typeOf(draft[key]))
       .map((key) => ({ campo: key, vinted: typeOf(real[key]), noi: typeOf(draft[key]) }));
 
+    const formato = stessaCategoria ? VR.formatoPerCategoria(source.catalog_id) : null;
+    const classificati = mancanti.map((campo) => ({ campo, ...VR.editorLogica.campoMancante(campo, formato) }));
     console.log("campi che Vinted manda e noi no:", mancanti);
+    console.table(classificati);
     console.log("campi che mandiamo di troppo:", inPiu);
     console.table(tipiDiversi);
     console.log("nostro payload:", draft);
     console.log("payload di Vinted:", real);
 
-    return { mancanti, inPiu, tipiDiversi, draft, real };
+    return { stessaCategoria, mancanti, classificati, inPiu, tipiDiversi, draft, real };
   };
 
   /**

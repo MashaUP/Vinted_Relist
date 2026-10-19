@@ -677,6 +677,7 @@
 .vr-check-row.is-error { color: var(--vr-error); }
 .vr-check-row.is-warn { color: #b25e00; }
 .vr-check-row.is-ok { color: var(--vr-ok); }
+.vr-check-row.is-note { color: var(--vr-muted); }
 
 /* --- ritaglio --- */
 

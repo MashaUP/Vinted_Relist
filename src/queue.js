@@ -329,7 +329,7 @@
       if (daVerificare.has(it.id)) {
         avvisi.unshift("era «da verificare» nella coda precedente: controlla che non sia già stato ripubblicato");
       }
-      esiti.push({ ...it, ok: r.ok, problemi: r.problemi || [], avvisi, sessione: r.sessione });
+      esiti.push({ ...it, ok: r.ok, problemi: r.problemi || [], avvisi, note: r.note || [], sessione: r.sessione });
       if (r.sessione) break;            // senza sessione e' inutile leggere gli altri
       if (i < items.length - 1) await VR.sleep(400);
     }
@@ -341,6 +341,7 @@
     const pronti = esiti.filter((e) => e.ok && !e.avvisi.length);
     const conAvvisi = esiti.filter((e) => e.ok && e.avvisi.length);
     const bloccati = esiti.filter((e) => !e.ok);
+    const conNote = esiti.filter((e) => (e.note || []).length);
     const sessione = esiti.find((e) => e.sessione);
 
     return new Promise((risolvi) => {
@@ -363,6 +364,8 @@
           esiti.length < totale ? h2("span", {}, h2("b", {}, totale - esiti.length), " non controllati") : null),
         bloccati.length ? h2("div", {}, h2("p", { class: "vr-section__title" }, "Bloccati: Vinted li rifiuterebbe"), elenco(bloccati, (e) => e.problemi)) : null,
         conAvvisi.length ? h2("details", {}, h2("summary", {}, `Avvisi (${conAvvisi.length})`), elenco(conAvvisi, (e) => e.avvisi)) : null,
+        // Assenze legittime (es. un libro senza colore): visibili, ma non contano come avvisi.
+        conNote.length ? h2("details", {}, h2("summary", {}, `Note, non sono problemi (${conNote.length})`), elenco(conNote, (e) => e.note)) : null,
         h2("p", { class: "vr-field__help" }, "Il controllo non garantisce il risultato: la decisione finale è di Vinted, al momento della pubblicazione."),
         h2("div", { class: "vr-actions" },
           h2("button", { class: "vr-btn vr-btn--ghost", type: "button", onclick: () => { risolvi(null); chiudi(); } }, "Annulla"),

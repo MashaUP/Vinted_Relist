@@ -1,14 +1,12 @@
 {
-  "version": "2.0.0",
-  "date": "2026-10-17",
-  "zip": "Vinted_Relist-2.0.0.zip",
+  "version": "2.0.1",
+  "date": "2026-10-19",
+  "zip": "Vinted_Relist-2.0.1.zip",
   "notes": [
-    "Popup nuovo a schede: Home, Notifiche, Salute e Impostazioni",
-    "Cerca aggiornamento e novità nel popup",
-    "Scarica le foto dall'editor, nel formato originale",
-    "Stato «da verificare»: gli esiti incerti non vengono mai ripubblicati alla cieca",
-    "Opzioni della coda a sezioni, con controllo prima di avviare",
-    "Dashboard con riepilogo della coda, ricerca, ordinamento e confronto prima/dopo",
-    "Colore non più bloccante; corretti «null» e testo grigio nell'editor"
+    "Libri e manga: niente più avvisi su is_unisex e colore quando la categoria non li usa",
+    "Formato appreso separato per categoria: il confronto non mescola libri e abbigliamento",
+    "Il colore si riempie solo se tutti gli altri articoli della categoria ce l'hanno",
+    "Note separate dagli avvisi nel controllo prima di avviare",
+    "Nuovo VR.diagnosi(ID) nella console: valore, fonte e motivo di ogni campo"
   ]
 }

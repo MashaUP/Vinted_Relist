@@ -150,6 +150,7 @@ chrome.webRequest.onBeforeRequest.addListener(
       chrome.storage.local.set({
         itemFormat: { fields, envelope: Object.keys(body), sample: body.item, at: Date.now() },
       });
+      ricordaFormatoCategoria(body.item, fields);
       console.log("[Relist] formato annuncio imparato:", fields);
     } catch {
       // non era JSON: ignora
@@ -158,6 +159,30 @@ chrome.webRequest.onBeforeRequest.addListener(
   { urls: apiDi("v2/item_upload/items*") },
   ["requestBody"]
 );
+
+/**
+ * Lo stesso formato, separato per categoria. Un libro e una giacca non mandano
+ * gli stessi campi: confrontare l'uno con il formato dell'altro dava falsi
+ * allarmi (is_unisex sui libri). Si salvano solo i NOMI dei campi e quali
+ * erano vuoti (null, false, "", [] o {}), non il contenuto dell'annuncio.
+ * Stessa regola di valoreNeutro in src/editor-logica.js.
+ */
+const MAX_FORMATI_CATEGORIA = 40;
+const neutro = (v) =>
+  v == null || v === false || v === "" ||
+  (Array.isArray(v) ? v.length === 0 : typeof v === "object" && Object.keys(v).length === 0);
+
+async function ricordaFormatoCategoria(item, fields) {
+  if (item?.catalog_id == null) return;
+  const { itemFormats = {} } = await chrome.storage.local.get("itemFormats");
+  itemFormats[String(item.catalog_id)] = {
+    campi: fields,
+    neutri: fields.filter((campo) => neutro(item[campo])),
+    at: Date.now(),
+  };
+  const voci = Object.entries(itemFormats).sort((a, b) => b[1].at - a[1].at).slice(0, MAX_FORMATI_CATEGORIA);
+  await chrome.storage.local.set({ itemFormats: Object.fromEntries(voci) });
+}
 
 // ---------------------------------------------------------------- photo fetch
 

@@ -23,7 +23,8 @@
     autoRuleDays: 7,
     autoRuleMax: 5,
     photoFormat: null,        // formato multipart imparato dagli upload di Vinted
-    itemFormat: null,         // campi del payload annuncio imparati da una modifica
+    itemFormat: null,         // campi del payload annuncio imparati da una modifica (l'ultima)
+    itemFormats: {},          // catalog_id → { campi, neutri }: lo stesso, separato per categoria
     toastsEnabled: true,      // i toast di errore e di esito incerto compaiono comunque
     toastDuration: "normal",  // "normal" | "long" (durate raddoppiate)
     consoleBridge: false,     // espone VR nella console della pagina, solo lettura

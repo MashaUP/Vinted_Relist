@@ -139,6 +139,14 @@ const scrivi = (el, v) => { el.value = v; el.dispatchEvent(new window.Event('inp
   ok('riepilogo annullato: nessuna seconda coda', messaggi.filter((m) => m.type === 'vr:queueStart').length === 1);
   ok('riepilogo annullato: Avvia di nuovo usabile', btn('Avvia') && !btn('Avvia').disabled);
 
+  // solo note (es. libro senza colore): non sono avvisi, la coda parte senza riepilogo
+  VR.canary = async () => ({ ok: true, problemi: [], avvisi: [], note: ['Nessun colore, come nell\'annuncio online.'] });
+  const avviiPrima = messaggi.filter((m) => m.type === 'vr:queueStart').length;
+  VR.selection.cambia('11', true);
+  btn('Avvia').click();
+  for (let k = 0; k < 20 && messaggi.filter((m) => m.type === 'vr:queueStart').length === avviiPrima; k++) await tick();
+  ok('solo note: nessun riepilogo, la coda parte', messaggi.filter((m) => m.type === 'vr:queueStart').length === avviiPrima + 1 && !doc.querySelector('.vr-summary'));
+
   ok('nessun errore JavaScript', !errori.length);
   console.log(`\n${pass} OK, ${fail} FAIL`);
   process.exit(fail ? 1 : 0);

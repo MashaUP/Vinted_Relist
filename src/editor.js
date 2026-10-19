@@ -183,7 +183,7 @@
         const esito = L.controlla(stato, {
           coloreMancante,
           coloreRiempito,
-          categoriaConColori: VR.categoriaHaColori(source.catalog_id),
+          categoria: VR.categoriaInfo(source.catalog_id, source.id),
         });
         const qualita = VR.punteggio({
           ...source,
@@ -203,6 +203,8 @@
           ),
           ...esito.errori.map((e) => h("div", { class: "vr-check-row is-error" }, "✕ ", e.testo)),
           ...esito.avvisi.map((a) => h("div", { class: "vr-check-row is-warn" }, "⚠ ", a.testo)),
+          // note: assenze legittime, dette per trasparenza ma non sono problemi
+          ...esito.note.map((n) => h("div", { class: "vr-check-row is-note" }, "ℹ ", n.testo)),
           !esito.errori.length && !esito.avvisi.length
             ? h("div", { class: "vr-check-row is-ok" }, "✓ Nessun problema trovato.")
             : null

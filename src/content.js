@@ -207,10 +207,20 @@
   const BRIDGE = {
     debugDraft: (itemId) => VR.debugDraft(itemId),
     canary: (itemId) => VR.canary(itemId),
+    // Riassunto senza id utente ne' contenuti degli annunci: i formati appresi
+    // diventano elenchi di campi, con la categoria da cui vengono.
     settings: async () => {
-      const { itemStats, colorMap, ...resto } = VR.settings;
-      return { ...resto, colori: Object.keys(colorMap || {}).length, articoliOsservati: Object.keys(itemStats || {}).length };
+      const { itemStats, colorMap, userId, vintedOrigin, itemFormat, itemFormats, photoFormat, ...resto } = VR.settings;
+      return {
+        ...resto,
+        colori: Object.keys(colorMap || {}).length,
+        articoliOsservati: Object.keys(itemStats || {}).length,
+        formatoFoto: photoFormat ? { campoFile: photoFormat.fileField, campi: Object.keys(photoFormat.constants || {}) } : null,
+        formatoAnnuncio: itemFormat ? { categoria: itemFormat.sample?.catalog_id ?? null, campi: itemFormat.fields } : null,
+        formatiPerCategoria: Object.fromEntries(Object.entries(itemFormats || {}).map(([c, f]) => [c, f.campi])),
+      };
     },
+    diagnosi: (itemId) => VR.diagnosi(itemId),
     source: (itemId) => VR.source(itemId),
     captured: () => VR.captured(),
     compare: (itemId) => VR.compare(itemId),

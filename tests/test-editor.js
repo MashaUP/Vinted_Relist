@@ -37,9 +37,9 @@ c = L.controlla({...base, photos: [{url:'a'}]});
 ok('una foto è solo un avviso', c.ok && c.avvisi.some(a=>a.campo==='photos'));
 
 c = L.controlla({...base, colorIds: []}, { coloreMancante: true });
-ok('colore mancante: avviso, non blocca (l’originale è online così)', c.ok && c.avvisi.some(a=>a.campo==='color' && /online così/.test(a.testo)));
-c = L.controlla({...base, colorIds: []}, { coloreMancante: true, categoriaConColori: true });
-ok('categoria dove gli altri hanno colore: avviso più deciso, sempre non bloccante', c.ok && c.avvisi.some(a=>/potrebbe chiederlo/.test(a.testo)));
+ok('colore mancante senza prove: nota, non avviso né errore (2.0.1)', c.ok && !c.avvisi.some(a=>a.campo==='color') && c.note.some(n=>n.campo==='color' && /online/.test(n.testo)));
+c = L.controlla({...base, colorIds: []}, { coloreMancante: true, categoria: { osservati: 3, conColore: 3 } });
+ok('categoria dove tutti gli altri hanno colore: avviso, sempre non bloccante', c.ok && c.avvisi.some(a=>/potrebbe chiederlo/.test(a.testo)));
 c = L.controlla({...base, colorIds: []}, { coloreMancante: true, coloreRiempito: true });
 ok('riempito in automatico: nessun avviso sul colore', c.ok && !c.avvisi.some(a=>a.campo==='color'));
 

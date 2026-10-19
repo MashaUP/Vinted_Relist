@@ -138,6 +138,16 @@ const out = []; const ok = (n, c) => out.push(`  ${c ? 'OK  ' : 'FAIL'} ${n}`);
   ok('clic con dashboard aperta: riusa la scheda', aperte[0]?.[0] === 'riusata' && aperte[0][1] === 9);
   ok('archivio limitato a 10 code', store.vrQueueArchive.length <= 10);
 
+  // --- formato appreso per categoria (2.0.1)
+  await ricordaFormatoCategoria({ catalog_id: 2320, title: 'Libro segreto', is_unisex: false, isbn: '978', color_ids: [] }, ['title', 'is_unisex', 'isbn', 'color_ids']);
+  await ricordaFormatoCategoria({ catalog_id: 1800, title: 'Giacca', is_unisex: true, size_id: 207 }, ['title', 'is_unisex', 'size_id']);
+  const f = store.itemFormats;
+  ok('formato salvato per categoria', JSON.stringify(f['2320'].campi) === '["title","is_unisex","isbn","color_ids"]' && JSON.stringify(f['1800'].campi) === '["title","is_unisex","size_id"]');
+  ok('neutri: false e [] sì, valori no', JSON.stringify(f['2320'].neutri) === '["is_unisex","color_ids"]' && JSON.stringify(f['1800'].neutri) === '[]');
+  ok('salvati solo i nomi dei campi, non il contenuto', !JSON.stringify(f).includes('Libro segreto'));
+  await ricordaFormatoCategoria({ title: 'x' }, ['title']);
+  ok('senza categoria non si salva niente', Object.keys(store.itemFormats).length === 2);
+
   console.log(out.join('\n'));
   process.exit(out.some((x) => x.includes('FAIL')) ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

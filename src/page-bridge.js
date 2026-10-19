@@ -52,11 +52,13 @@
     captured: () => call("captured", []),
     /** Confronto fra il nostro payload e quello vero. */
     compare: (itemId) => call("compare", [itemId]),
+    /** Colore, unisex, pacco: valore originale, convertito, inviato, fonte e motivo. */
+    diagnosi: (itemId) => call("diagnosi", [itemId]),
   };
 
   console.log(
     "%c[Relist]",
     "color:#007782;font-weight:600",
-    "diagnostica: VR.canary(id), VR.compare(id), VR.debugDraft(id), VR.settings() — va accesa nelle impostazioni avanzate"
+    "diagnostica: VR.diagnosi(id), VR.canary(id), VR.compare(id), VR.debugDraft(id), VR.settings() — va accesa nelle impostazioni avanzate"
   );
 })();

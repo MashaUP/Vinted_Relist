@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Vinted Relist",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Ripubblica i tuoi annunci Vinted con un clic o in coda: editor, controllo prima di pubblicare, notifiche e dashboard dell'armadio.",
   "permissions": [
     "storage",

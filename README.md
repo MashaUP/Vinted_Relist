@@ -4,7 +4,7 @@ Estensione Chrome e Brave per ripubblicare i tuoi annunci Vinted in un clic, da 
 Modifica foto e testi prima di pubblicare, scarica le foto, misura cosa funziona e tiene lo
 storico di ogni relist.
 
-**Versione 2.0.0** · [Novità](CHANGELOG.md) · [Documentazione tecnica](docs/SVILUPPO.md) ·
+**Versione 2.0.1** · [Novità](CHANGELOG.md) · [Documentazione tecnica](docs/SVILUPPO.md) ·
 [Supporta lo sviluppo su Ko-fi](https://ko-fi.com/mashaup)
 
 ## Cosa fa
@@ -20,8 +20,9 @@ storico di ogni relist.
   - **testi e prezzo:** titolo con contatore dei 100 caratteri, descrizione, prezzo, colore
     facoltativo
   - **controlli in tempo reale:** errori che bloccano (titolo vuoto o troppo lungo, prezzo
-    non valido, nessuna foto) e avvisi che no (colore mancante, titolo corto o tutto maiuscolo,
-    descrizione corta, contatti esterni), più il punteggio di completezza
+    non valido, nessuna foto), avvisi che no (titolo corto o tutto maiuscolo, descrizione corta,
+    contatti esterni) e note per le assenze legittime (un libro senza colore), più il punteggio
+    di completezza
   - **anteprima prima di pubblicare** con l'elenco esatto di cosa cambia (prima → dopo)
   - **bozza locale** salvata da sola e distinta da ciò che viene inviato
   - **scarica le foto:** una, alcune o tutte, nella qualità più alta disponibile e nel formato
@@ -35,7 +36,8 @@ storico di ogni relist.
     «Salvate / Modifiche non salvate»; restano salvate tra una sessione e l'altra (tranne
     l'orario di avvio, che vale una volta)
   - **controllo prima di avviare:** legge ogni articolo selezionato senza pubblicare e li divide
-    in pronti, con avvisi e bloccati; parti con i soli utilizzabili
+    in pronti, con avvisi e bloccati; parti con i soli utilizzabili. Le note (campi assenti ma
+    legittimi per la categoria) si leggono a parte e non contano come avvisi
   - pausa (riprende dal tempo residuo), salta, interrompi; doppio clic su Avvia innocuo
   - **stati di ogni articolo:** in attesa, completato, fallito, **da verificare**, saltato,
     annullato. «Da verificare» vuol dire che Vinted non ha dato una risposta chiara (rete,
@@ -107,7 +109,7 @@ storico di ogni relist.
 
 ## Installazione
 
-Nella radice del repo c'è `Vinted_Relist-2.0.0.zip`: è l'estensione già pronta.
+Nella radice del repo c'è `Vinted_Relist-2.0.1.zip`: è l'estensione già pronta.
 
 1. Scompatta lo zip **in una posizione stabile**, non nella cartella temporanea che Windows crea
    aprendo uno zip con doppio clic.
@@ -198,13 +200,22 @@ Lettura e scrittura non usano lo stesso formato: le conversioni stanno in `DERIV
 (`src/relist.js`). I dettagli, gli stati della coda e le scelte di progetto sono in
 [docs/SVILUPPO.md](docs/SVILUPPO.md).
 
-### Campi vuoti
+### Campi che dipendono dalla categoria
+
+Un libro, un manga e una giacca non hanno gli stessi campi: un campo assente non è per forza
+obbligatorio. Le prove sono solo i tuoi articoli con **lo stesso `catalog_id`** e il formato che
+Vinted usa per **quella** categoria; categorie diverse non si mescolano mai.
 
 | Campo | Cosa succede |
 |---|---|
-| `color_ids`, `is_unisex` | **Riempiti** se vuoti e se gli altri tuoi articoli della stessa categoria concordano; altrimenti l'annuncio parte senza, con un avviso. Se Vinted lo pretende, lo dice. |
+| `color_ids` | Presente: inviato com'è. Assente: **riempito** solo se tutti gli altri tuoi articoli della categoria (almeno 2) hanno un colore e concordano; altrimenti resta assente. È un **avviso** solo se tutta la categoria lo usa, altrimenti una **nota** (libri, manga…). Mai bloccante, mai dedotto da titolo o copertina. |
+| `is_unisex` | `true` e `false` sono valori e si conservano. Assente nella lettura (libri, manga): resta assente. Riempito solo con la stessa regola del colore. |
+| confronto con il formato appreso | Solo con il formato della stessa categoria. Un campo che Vinted manda vuoto o `false` equivale ad assente (nota); uno che manda con un valore è una differenza reale (avviso). |
 | `package_size_id` | **Solo segnalato**: sbagliarlo si paga in spedizione. |
 | `isbn`, misure, `manufacturer` | **Mai toccati**: sono dati del singolo oggetto. |
+
+Un campo già compilato non viene sovrascritto, e una tua scelta esplicita vince sempre.
+`VR.diagnosi(ID)` mostra per ogni campo valore originale, convertito e inviato, fonte e motivo.
 
 ## L'ordine conta
 
@@ -243,7 +254,8 @@ Spenti di default. Con Impostazioni › Avanzate › **Strumenti nella console**
 console della pagina (F12):
 
 ```js
-await VR.settings()        // impostazioni (senza id e dati appresi)
+await VR.settings()        // impostazioni, senza id utente né contenuti degli annunci
+await VR.diagnosi(ID)      // colore, unisex, pacco: originale → convertito → inviato, fonte, motivo
 await VR.source(ID)        // payload grezzo che Vinted restituisce per l'articolo
 await VR.captured()        // payload catturato da una modifica fatta a mano
 await VR.compare(ID)       // confronto: campi mancanti, di troppo, tipi diversi

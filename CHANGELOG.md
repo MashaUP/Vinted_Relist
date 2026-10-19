@@ -6,6 +6,33 @@ ultime tre leggendo questo file dall'estensione installata.
 Numerazione `x.y.z`: **x** quando cambia il modo di usarla o i dati salvati in modo non
 compatibile, **y** per funzioni nuove, **z** per sole correzioni.
 
+## 2.0.1 · Campi per categoria: niente falsi allarmi su libri e manga (19 ottobre 2026)
+
+Patch: cambia come vengono classificati i campi mancanti, non il flusso di pubblicazione.
+
+### Corretto
+- **«Campi assenti rispetto al formato appreso: is_unisex» sui libri e sui manga.** Il confronto
+  usava un unico formato appreso, quello dell'ultima modifica fatta a mano, anche se di un'altra
+  categoria. Ora il formato si impara e si confronta **per categoria**; un campo che Vinted manda
+  vuoto o `false` equivale ad assente (nota), solo un campo con un valore è una differenza reale
+  (avviso). `is_unisex` non viene mai impostato d'ufficio.
+- **«Nessun colore» su ogni libro.** È un avviso solo se tutti gli altri tuoi articoli della stessa
+  categoria hanno un colore; altrimenti è una nota, visibile ma non un problema.
+- Il riempimento automatico poteva assegnare un colore in una categoria dove solo alcuni articoli
+  ce l'hanno: ora riempie solo se il campo c'è su tutti gli altri articoli della categoria.
+- L'anteprima dei riempimenti li annunciava anche con il riempimento spento.
+- Il punteggio di completezza toglieva punti ai libri per il colore.
+- «Dimensione del pacco non impostata» compariva due volte nel controllo preventivo.
+- Id colore non validi nella lettura venivano inviati così com'erano: ora si scartano.
+- `VR.settings()` nella console mostrava l'id utente e il payload catturato, al contrario di quanto
+  diceva il README: ora riassume i formati come elenchi di campi.
+
+### Nuovo
+- `VR.diagnosi(ID)` nella console: per colore, unisex, pacco e i campi del formato della
+  categoria mostra valore originale, convertito e inviato, fonte (originale, derivazione,
+  riempimento, opzioni della coda) e motivo.
+- Nel controllo prima di avviare le **note** (assenze legittime) sono separate dagli avvisi.
+
 ## 2.0.0 · Popup nuovo, coda affidabile, download delle foto (17 ottobre 2026)
 
 Major perché cambiano insieme il popup, il ciclo di vita della coda (nuovi stati, archivio) e

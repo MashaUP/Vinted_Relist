@@ -60,7 +60,7 @@ const errori = []; window.addEventListener('error', (e) => errori.push(e.message
   ok('copertina segnata sulla prima', doc.querySelector('.vr-photo .vr-photo__cover') !== null);
   ok('badge: nessuna modifica', /Nessuna modifica/.test(doc.querySelector('.vr-editor__badge').textContent));
   ok('nessun «null» scritto nei controlli', !/\bnull\b/.test(doc.querySelector('.vr-checks').textContent));
-  ok('colore mancante: avviso, non errore', /Nessun colore/.test(testi()) && !doc.querySelector('.vr-check-row.is-error'));
+  ok('colore mancante senza prove: nota, né avviso né errore', /Nessun colore/.test(doc.querySelector('.vr-check-row.is-note')?.textContent || '') && !doc.querySelector('.vr-check-row.is-error') && ![...doc.querySelectorAll('.vr-check-row.is-warn')].some((r) => /colore/i.test(r.textContent)));
   ok('l’anteprima non è bloccata dal colore', !bottone('Anteprima').disabled);
   ok('colore indicato come facoltativo', /facoltativo/.test(testi()));
 

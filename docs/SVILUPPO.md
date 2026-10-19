@@ -1,7 +1,7 @@
 # Vinted Relist — documentazione tecnica
 
 Documento vivo: va aggiornato a ogni versione insieme a `CHANGELOG.md`. Descrive com'è fatta
-l'estensione, perché è fatta così e cosa resta da verificare. Aggiornato alla **2.0.0**.
+l'estensione, perché è fatta così e cosa resta da verificare. Aggiornato alla **2.0.1**.
 
 ## 1. Architettura
 
@@ -69,10 +69,48 @@ Stati della coda: `waiting` (sveglia impostata), `working` (articolo in corso), 
 - **Riprova:** `vr:queueRetry {queue?}` riparte con i soli `error`, con le opzioni della coda di
   origine (anche archiviata).
 
+### Campi che dipendono dalla categoria (2.0.1)
+
+Percorso di un campo, dalla lettura all'invio, con il punto in cui si decide:
+
+1. **Lettura** `GET item_upload/items/{id}` → `source`. Un campo può esserci con un valore, esserci
+   a `null`, o **mancare del tutto** (i libri non hanno `is_unisex`).
+2. **Copia** (`buildDraft`): ogni chiave di `ALLOWED_FIELDS` presente in `source` viene copiata,
+   `null` e `false` compresi. Una chiave assente resta assente.
+3. **Derivazioni** (`DERIVATIONS`): `color1_id`/`color2_id` → `color_ids` (solo id interi positivi;
+   nessun colore → `[]`).
+4. **Opzioni della coda**: colore scelto, solo dove manca.
+5. **Riempimento** (`valorePrevalente`): solo se il campo c'è su **tutti** gli altri tuoi articoli
+   letti con lo stesso `catalog_id` (almeno 2) e un valore ha almeno il 60%. Altrimenti niente.
+6. **Classificazione** (`VR.diagnosiCampi`, regole pure in `editor-logica.js`):
+   - colore → `statoColore`: avviso solo se tutta la categoria lo usa, altrimenti nota;
+   - campo mancante → `campoMancante`, confrontato **solo** con il formato appreso per la stessa
+     categoria (`VR.formatoPerCategoria`): vuoto/`false` per Vinted = nota, con valore = avviso,
+     nessun formato per la categoria = nota.
+7. Editor, controllo preventivo e `VR.diagnosi(ID)` usano tutti la stessa classificazione.
+
+Livelli: **bloccante** (titolo, prezzo, categoria, foto: Vinted rifiuterebbe), **avviso**
+(differenza reale o dato che la categoria usa sempre), **nota** (assenza legittima, visibile ma
+non conta come problema).
+
+**Causa dei falsi allarmi della 2.0.0** (libri e manga):
+
+- `is_unisex`: il controllo preventivo confrontava ogni articolo con **un solo** formato appreso,
+  quello dell'ultima modifica fatta a mano su Vinted, di qualunque categoria. Se veniva da un
+  articolo che manda `is_unisex` (abbigliamento, o anche un articolo che lo manda `false`), ogni
+  libro — la cui lettura non ha quella chiave — risultava "con campi assenti". Il valore `false`
+  non c'entrava: `buildDraft` copia anche i `false` e i `null`; l'avviso nasceva solo se la chiave
+  mancava proprio.
+- Colore: qualunque `color_ids` vuoto produceva un avviso, senza guardare se la categoria usa
+  i colori. In più il riempimento contava solo gli articoli **con** colore: in una categoria mista
+  avrebbe potuto assegnare un colore a un libro che non l'ha mai avuto. Anche il punteggio di
+  completezza toglieva 10 punti ai libri per il colore.
+
 ### Controllo preventivo (`queue.js` → `VR.canary`)
 
 Legge ogni articolo selezionato (foto provata solo sul primo), 400 ms di pausa tra uno e l'altro,
-e lo classifica: pronto, con avvisi, bloccato. Si ferma al primo errore di sessione (401/403).
+e lo classifica: pronto, con avvisi, bloccato. Le note si mostrano a parte e non trasformano un
+articolo pronto in uno «con avvisi». Si ferma al primo errore di sessione (401/403).
 Non garantisce l'esito: la decisione finale è di Vinted.
 
 ### Notifiche
@@ -118,6 +156,7 @@ Due download alla volta; un errore su una foto non ferma le altre.
 | Chiave | Contenuto |
 |---|---|
 | impostazioni (`VR.DEFAULTS`) | scelte dell'utente, più `userId`, `vintedOrigin`, `colorMap`, `itemStats`, `photoFormat`, `itemFormat` imparati |
+| `itemFormats` | dalla 2.0.1: per ogni `catalog_id` (max 40) i nomi dei campi che Vinted manda e quali erano vuoti; nessun contenuto dell'annuncio |
 | `inventory` | articoli visti nell'armadio: titolo, prezzo, visite, preferiti, miniatura, serie storica |
 | `qualityScores` | completezza per articolo |
 | `vrSnapshots` | ultimi 60 relist con prima/dopo |
@@ -155,9 +194,13 @@ Non vengono mai scritti in `local`, nei log, negli eventi o nella diagnostica.
 | Le API `item_upload` e `photos` hanno la forma descritta in `DERIVATIONS` | **Confermato** | payload osservati in sessioni reali e funzionamento delle versioni precedenti |
 | L'id utente è nel cookie `v_uid` (HttpOnly) o nel `sub` del token | **Confermato** | letto dal service worker; il link all'armadio funziona |
 | Un annuncio online senza colore è stato accettato così, quindi il colore non è sempre obbligatorio | **Probabile** | deduzione logica; può cambiare per categoria o nel tempo |
+| L'avviso «campi assenti: is_unisex» sui libri nasceva da una chiave **assente** nella lettura, non da un `false` scartato | **Confermato** | `is_unisex` è in `ALLOWED_FIELDS` e `buildDraft` copia ogni chiave presente, anche `false`/`null`: l'unico modo di finire tra i «mancanti» è non esserci nella lettura |
+| Il formato confrontato era di un'altra categoria | **Confermato** | fino alla 2.0.0 c'era un solo `itemFormat`, sovrascritto a ogni modifica fatta a mano, senza categoria |
+| Per i libri `is_unisex` non è richiesto da Vinted | **Probabile** | gli annunci sono online senza; da confermare con una modifica a mano di un libro (`VR.settings()` → `formatiPerCategoria`) e una ripubblicazione di prova |
+| Un campo che il form di Vinted manda `false`/`null` equivale a non mandarlo | **Probabile** | è il valore predefinito; resta una nota, non un'ipotesi usata per riempire |
 | Rete caduta o 5xx durante la creazione possono aver pubblicato comunque | **Probabile** | comportamento tipico di un POST interrotto; per questo diventa «da verificare» |
 | La tabella degli id colore di Vinted | **Da verificare** | fonti pubbliche in contraddizione (es. 12 = bianco o rosso): nessun elenco di riserva, i colori si imparano dagli annunci |
-| Il repository si chiama `MashaUP/Vinted_Relist` ed è pubblico | **Da verificare** | dedotto dal nome del progetto e dell'account; modificabile nelle Avanzate |
+| Il repository si chiama `MashaUP/Vinted_Relist` ed è pubblico | **Confermato** (2.0.1) | clonato senza credenziali; `version.json` raggiungibile |
 | Il selettore di file chiude il popup prima di restituire il file | **Probabile** | comportamento noto di Chrome; per questo l'import si apre in una scheda |
 | Gli alarm non sopravvivono al ricaricamento dell'estensione | **Probabile** | documentazione Chrome e comportamento osservato; il recupero copre entrambi i casi |
 
@@ -171,6 +214,11 @@ Non vengono mai scritti in `local`, nei log, negli eventi o nella diagnostica.
 - Le miniature dell'inventario possono puntare a foto di annunci cancellati: al primo errore di
   caricamento compare un riquadro vuoto.
 - Il confronto prima/dopo mostra la descrizione «dopo» solo per i relist dalla 2.0.0.
+- Il confronto con il formato appreso funziona per le categorie in cui hai modificato e salvato
+  a mano almeno un articolo dalla 2.0.1 (o l'ultima modifica prima era della stessa categoria);
+  per le altre resta una nota «nessun formato per questa categoria».
+- Le statistiche per categoria usano il `catalog_id` esatto: due sottocategorie di libri sono
+  categorie diverse e non si prestano dati.
 - Lo storico delle versioni prima della 1.9.0 non è stato conservato.
 
 ## 7. Debito tecnico
@@ -203,6 +251,8 @@ Non vengono mai scritti in `local`, nei log, negli eventi o nella diagnostica.
 | 13 | Dividere `background.js` in moduli | media | media | proposta |
 | 14 | Esportazione CSV dell'inventario e dello storico | bassa | bassa | proposta |
 | 15 | Prova manuale guidata (checklist) prima di ogni rilascio | alta | bassa | proposta |
+| 19 | Classificazione dei campi per categoria (note vs avvisi), formato appreso per categoria | alta | media | **fatto 2.0.1** |
+| 20 | Raggruppare sottocategorie affini (es. tutti i libri) per avere più prove | bassa | media | da valutare: rischio di mescolare categorie con requisiti diversi |
 | 16 | Controllo qualità e ritaglio automatico delle foto | — | alta | **escluso** dall'autore |
 | 17 | Finestra di annullamento dopo la pubblicazione | — | media | **escluso** dall'autore |
 | 18 | Micro-alterazioni delle foto per eludere i controlli di somiglianza | — | — | **rifiutato**: è elusione dei controlli di Vinted |
@@ -227,6 +277,7 @@ cd tests && npm install && node run.js
 | `test-mapping`, `test-sconto`, `test-prezzi`, `test-riempimento` | conversione lettura → scrittura, prezzi, campi vuoti |
 | `test-analisi`, `test-qualita`, `test-geometria` | dashboard, completezza, ritaglio |
 | `test-editor`, `test-flusso` | controlli dell'editor, flusso di ripubblicazione con API finte |
+| `test-campi` | 2.0.1: `is_unisex` vero/falso/assente, colore, formato per categoria, nessun travaso fra libri, manga e abbigliamento, coerenza fra controllo preventivo e invio |
 | `test-13`, `test-14`, `test-17`, `test-coda`, `test-coda2` | service worker: coda, recupero, watchdog, esiti, archivio, eventi, badge, notifiche |
 | `test-versione` | versioni, aggiornamenti, diagnostica, impostazioni |
 | `dom/test-ui` | editor in un DOM simulato: controlli, download foto, ritaglio, anteprima, pubblica |

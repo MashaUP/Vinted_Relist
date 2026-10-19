@@ -21,9 +21,10 @@
    * Un errore blocca la pubblicazione: Vinted la rifiuterebbe comunque.
    * Un avviso no: e' una cosa che probabilmente vuoi sapere.
    */
-  function controlla(stato, { coloreMancante = false, coloreRiempito = false, categoriaConColori = false } = {}) {
+  function controlla(stato, { coloreMancante = false, coloreRiempito = false, categoria = null } = {}) {
     const errori = [];
     const avvisi = [];
+    const note = [];
     const titolo = String(stato.title || "").trim();
     const descrizione = String(stato.description || "").trim();
     const prezzo = Number(stato.price);
@@ -59,26 +60,90 @@
       avvisi.push({ campo: "photos", testo: "Con meno di 3 foto l'annuncio risponde a poche domande." });
     }
 
-    // Il colore NON blocca: se l'annuncio e' online senza colore, Vinted l'ha
-    // accettato cosi'. Se ora per quella categoria lo chiede, la pubblicazione
-    // si ferma con il messaggio di Vinted, e niente e' stato ancora cancellato.
+    // Il colore NON blocca mai: se l'annuncio e' online senza colore, Vinted l'ha
+    // accettato cosi'. Diventa un avviso solo quando la categoria lo usa davvero.
     if (coloreMancante && !(stato.colorIds || []).length && !coloreRiempito) {
-      avvisi.push({
-        campo: "color",
-        testo: categoriaConColori
-          ? "Nessun colore. Gli altri tuoi articoli di questa categoria ne hanno uno: Vinted potrebbe chiederlo."
-          : "Nessun colore: l'annuncio è online così, lo ripubblico senza. Se Vinted lo chiede, te lo dirà.",
-      });
+      const c = statoColore([], { categoria });
+      (c.livello === "avviso" ? avvisi : note).push({ campo: "color", testo: c.testo });
     }
 
-    return { errori, avvisi, ok: errori.length === 0 };
+    return { errori, avvisi, note, ok: errori.length === 0 };
+  }
+
+  // ----------------------------------------------------- campi mancanti
+
+  /**
+   * Un valore che, inviato, equivale a "non impostato": null, false, stringa
+   * vuota, array o oggetto vuoti. Serve a capire se un campo che Vinted manda
+   * e noi no e' una differenza reale o solo un "niente" scritto esplicitamente.
+   * Attenzione: vale per il confronto con il formato appreso, non per i nostri
+   * dati — un false presente nell'annuncio si conserva sempre.
+   */
+  function valoreNeutro(v) {
+    if (v == null || v === false || v === "") return true;
+    if (Array.isArray(v)) return v.length === 0;
+    if (typeof v === "object") return Object.keys(v).length === 0;
+    return false;
+  }
+
+  /**
+   * Il colore di un annuncio, classificato con le prove che abbiamo.
+   * categoria: { osservati, conColore } contati sugli ALTRI tuoi articoli letti
+   * con lo stesso catalog_id (mai categorie diverse).
+   *
+   *   colore presente                         → ok
+   *   assente, tutti gli altri (≥2) ce l'hanno → avviso: la categoria lo usa
+   *   assente, nella categoria lo usi a volte → nota: facoltativo
+   *   assente, nella categoria non lo usi mai → nota
+   *   assente, nessun altro articolo letto    → nota: come l'originale online
+   */
+  function statoColore(colori, { categoria = null, riempito = false } = {}) {
+    if (Array.isArray(colori) && colori.length) {
+      return { livello: "ok", testo: riempito ? "colore preso dai tuoi articoli simili" : "colore presente" };
+    }
+    const osservati = Number(categoria?.osservati) || 0;
+    const conColore = Number(categoria?.conColore) || 0;
+    if (conColore >= 2 && conColore === osservati) {
+      return {
+        livello: "avviso",
+        testo: `Nessun colore, ma tutti gli altri tuoi ${osservati} articoli di questa categoria ne hanno uno: Vinted potrebbe chiederlo.`,
+      };
+    }
+    if (conColore > 0) {
+      return { livello: "nota", testo: `Nessun colore: in questa categoria lo usi solo su ${conColore} articoli su ${osservati}, quindi è facoltativo.` };
+    }
+    if (osservati > 0) {
+      return { livello: "nota", testo: `Nessun colore, come gli altri tuoi ${osservati} articoli di questa categoria.` };
+    }
+    return { livello: "nota", testo: "Nessun colore, come nell'annuncio online." };
+  }
+
+  /**
+   * Un campo che manca nel payload, rispetto al formato che Vinted usa per la
+   * STESSA categoria (formato: { campi, neutri }).
+   *   - non c'e' un formato per questa categoria → nota: confronto non applicabile
+   *   - Vinted lo manda vuoto/false               → nota: equivale ad assente
+   *   - Vinted lo manda con un valore             → avviso: differenza reale
+   *   - Vinted non lo manda nemmeno lui           → nota: non usato dalla categoria
+   */
+  function campoMancante(campo, formato) {
+    if (!formato?.campi?.length) {
+      return { livello: "nota", testo: `${campo}: non presente nella lettura; nessun formato appreso per questa categoria con cui confrontarlo.` };
+    }
+    if (!formato.campi.includes(campo)) {
+      return { livello: "nota", testo: `${campo}: non usato in questa categoria (nemmeno Vinted lo manda).` };
+    }
+    if ((formato.neutri || []).includes(campo)) {
+      return { livello: "nota", testo: `${campo}: Vinted lo manda vuoto per questa categoria, l'assenza è equivalente.` };
+    }
+    return { livello: "avviso", testo: `${campo}: Vinted lo manda con un valore per questa categoria e questo articolo non ce l'ha.` };
   }
 
   /**
    * Controllo del payload pronto da inviare, usato dal controllo preventivo.
    * Obbligatori: senza, Vinted rifiuta di sicuro. Facoltativi: si avvisa.
    */
-  function verificaPayload(draft, { foto = 0, categoriaConColori = false } = {}) {
+  function verificaPayload(draft, { foto = 0 } = {}) {
     const bloccanti = [];
     const avvisi = [];
     const titolo = String(draft.title ?? "").trim();
@@ -90,13 +155,10 @@
     if (draft.catalog_id == null || draft.catalog_id === "") bloccanti.push("categoria mancante");
     if (!foto) bloccanti.push("nessuna foto");
 
-    if (Array.isArray(draft.color_ids) && !draft.color_ids.length) {
-      avvisi.push(categoriaConColori
-        ? "nessun colore (gli altri articoli della categoria ne hanno uno: Vinted potrebbe chiederlo)"
-        : "nessun colore (l'originale è online così)");
-    }
+    // Colore, unisex, pacco e gli altri campi che dipendono dalla categoria li
+    // classifica VR.diagnosiCampi (relist.js) con statoColore e campoMancante:
+    // una sola regola per editor, controllo preventivo e console.
     if (draft.brand_id == null && !draft.brand) avvisi.push("nessuna marca");
-    if (draft.package_size_id == null) avvisi.push("dimensione del pacco non impostata");
 
     return { ok: bloccanti.length === 0, bloccanti, avvisi };
   }
@@ -280,7 +342,8 @@
 
   const api = {
     applicaPrezzo, validaOpzioniCoda,
-    controlla, verificaPayload, differenze, haModifiche, sposta, sostituisci,
+    controlla, verificaPayload, valoreNeutro, statoColore, campoMancante,
+    differenze, haModifiche, sposta, sostituisci,
     fotoModificata, formatoImmagine, nomiFoto, TITOLO_MAX,
   };
 
