@@ -277,6 +277,7 @@ Servono Node 18+ e, per i test dell'interfaccia, jsdom (lo installa `npm install
 
 ```
 manifest.json            permessi e registrazione degli script
+LICENSE                  licenza MIT
 background.js            service worker: token, formati, coda (unico scrittore), archivio, notifiche, download
 links.json               link del progetto (GitHub, Discord, Ko-fi…): predefiniti e remoti, vedi docs/LINK.md
 version.json             (solo nel repository) versione pubblicata, letta da «Cerca aggiornamento»
@@ -314,6 +315,11 @@ formato, sicurezza e riuso in altri progetti in [docs/LINK.md](docs/LINK.md).
 
 Vinted Relist è gratuito. Se ti fa risparmiare tempo puoi offrirmi un caffè su
 [Ko-fi](https://ko-fi.com/mashaup).
+
+## Licenza
+
+[MIT](LICENSE): puoi usare, modificare e ridistribuire il codice, anche in progetti tuoi, purché
+mantieni l'avviso di copyright. Il software è fornito così com'è, senza garanzie.
 
 ## Nota
 
