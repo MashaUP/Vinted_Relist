@@ -38,7 +38,7 @@ const items = (n) => Array.from({length:n},(_,i)=>({id:String(i+1),title:'A'+(i+
   await invia({type:'vr:queueStart', items: items(4), intervalMin:20}); await pausa();
   ok('articolo in lavorazione', store.vrQueue.state === 'working');
   await invia({type:'vr:queuePause'}); await pausa();
-  ok('la pausa non interrompe l\u0027articolo in corso', store.vrQueue.state === 'working' && store.vrQueue.pauseRequested);
+  ok('la pausa non interrompe l\u0027articolo in corso', store.vrQueue.state === 'working' && store.vrQueue.pausaDopoCorrente);
   await invia({type:'vr:relistDone', itemId:'1', ok:true}); await pausa();
   let q = store.vrQueue;
   ok('articolo concluso, poi pausa', q.items[0].status === 'done' && q.state === 'paused');
@@ -57,30 +57,28 @@ const items = (n) => Array.from({length:n},(_,i)=>({id:String(i+1),title:'A'+(i+
   ok('tempo residuo conservato', store.vrQueue.pausedRemainingMs > 60000);
   await invia({type:'vr:queueResume'}); await pausa();
 
-  // salto mentre l'articolo e' in lavorazione: non deve partirne un secondo
+  // salto mentre l'articolo e' in lavorazione: rifiutato, non si finge di fermarlo
   await sveglia('vr:queueNext'); await pausa();
-  const prima = store.vrQueue.index;
-  ok('articolo in volo prima del salto', store.vrQueue.state === 'working');
-  await invia({type:'vr:queueSkip'}); await pausa();
+  const inVolo = store.vrQueue.items.find((i) => i.status === 'working');
+  ok('articolo in volo prima del salto', store.vrQueue.state === 'working' && inVolo?.id === '2');
+  let r = await invia({type:'vr:queueSkip'}); await pausa();
   q = store.vrQueue;
-  ok('il salto segna e avanza', q.items[prima].status === 'skipped' && q.index === prima+1);
-  ok('non si sovrappone a quello in volo', q.state !== 'working' && 'vr:queueNext' in alarms);
+  ok('il salto durante la lavorazione è rifiutato, con il motivo', !r.ok && /Annulla operazione/.test(r.motivo) && q.items[1].status === 'working');
 
-  // salto a coda ferma in attesa: li' puo' partire subito
-  store.vrQueue.state = 'waiting';
-  await scriviProva(store.vrQueue);
-  const prima2 = store.vrQueue.index;
-  await invia({type:'vr:queueSkip'}); await pausa();
-  ok('a riposo il salto parte subito', store.vrQueue.state === 'working' && store.vrQueue.index === prima2+1);
+  // a riposo il salto marca il prossimo e lascia il timer com'e'
+  await invia({type:'vr:relistDone', itemId:'2', ok:true}); await pausa();
+  const timer = alarms['vr:queueNext'];
+  r = await invia({type:'vr:queueSkip'}); await pausa();
+  q = store.vrQueue;
+  ok('a riposo il salto segna il prossimo', r.ok && q.items[2].status === 'skipped' && q.items[2].motivoSalto === 'manuale');
+  ok('il ritmo resta: nessuna partenza immediata', q.state === 'waiting' && alarms['vr:queueNext'] === timer);
 
   // l'esito in ritardo dell'articolo saltato non sballa niente
-  const indice = store.vrQueue.index;
-  await invia({type:'vr:relistDone', itemId: String(prima+1), ok:true}); await pausa();
-  ok('esito tardivo del saltato ignorato', store.vrQueue.index === indice);
+  await invia({type:'vr:relistDone', itemId: '3', ok:true}); await pausa();
+  ok('esito tardivo del saltato ignorato', store.vrQueue.items[2].status === 'skipped');
 
   // conteggi nella notifica
   notifiche = [];
-  await invia({type:'vr:relistDone', itemId:'3', ok:true}); await pausa();
   await sveglia('vr:queueNext'); await pausa();
   await invia({type:'vr:relistDone', itemId:'4', ok:false, error:'boh'}); await pausa();
   ok('notifica con saltati', /saltati/.test(notifiche[0]?.message||''));

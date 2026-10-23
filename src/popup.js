@@ -99,14 +99,13 @@ function bottone(testo, classe, azione) {
 
 // ------------------------------------------------------------------- coda
 
-const CONCLUSI = new Set(["done", "error", "verify", "skipped", "cancelled"]);
+// Stessa logica di service worker e dashboard: conteggi, corrente, salute.
+const CL = window.CodaLogica;
+let passo = null;                       // vrQueueStep, da storage.session
 
 function conta(c) {
-  const r = { done: 0, error: 0, verify: 0, skipped: 0, cancelled: 0, pending: 0 };
-  for (const v of c.items || []) r[v.status] = (r[v.status] || 0) + 1;
-  r.trattati = (c.items || []).filter((v) => CONCLUSI.has(v.status)).length;
-  r.rimanenti = (c.items || []).length - r.trattati;
-  return r;
+  const r = CL.conta(c);
+  return { ...r, rimanenti: r.pending + r.working };
 }
 
 function anello(fatti, totale) {
@@ -138,12 +137,17 @@ function contatori(r) {
 
 /** Testa della coda in corso: titolo, chip di stato, sottotitolo. */
 function statoCoda(c) {
-  const corrente = c.items[c.index];
+  const corrente = CL.corrente(c);
+  const prossimo = CL.prossimo(c);
+  if (c.stopDopoCorrente) return { titolo: "Coda in chiusura", chip: "In chiusura", classe: "warn", sotto: "Aspetto l'esito dell'articolo in corso." };
   switch (c.state) {
-    case "working":
-      return { titolo: "Coda in esecuzione", chip: "In corso", sotto: c.step || "Pubblicazione in corso…" };
+    case "working": {
+      const mio = passo?.itemId === corrente?.id ? passo.step : null;
+      return { titolo: "Coda in esecuzione", chip: c.pausaDopoCorrente ? "Pausa dopo questo" : "In corso", sotto: mio || "Pubblicazione in corso…" };
+    }
     case "paused":
-      return { titolo: "Coda in pausa", chip: "In pausa", classe: "warn", sotto: "Riprende da dove si era fermata." };
+      return { titolo: c.pausaAuto ? "Coda fermata da sola" : "Coda in pausa", chip: "In pausa", classe: "warn",
+        sotto: c.motivoPausa || (c.riprendiAlle ? `Riprende alle ${new Date(c.riprendiAlle).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}.` : "Riprende da dove si era fermata.") };
     case "scheduled":
       return { titolo: "Coda programmata", chip: "Programmata",
         sotto: `Parte ${new Date(c.nextAt).toLocaleString("it-IT", { weekday: "long", hour: "2-digit", minute: "2-digit" })}` };
@@ -152,8 +156,15 @@ function statoCoda(c) {
         sotto: "Il browser o l'estensione si sono fermati: riprendi o annulla." };
     default:
       return { titolo: "Coda in esecuzione", chip: "In attesa",
-        sotto: c.note || (corrente ? `Prossimo tra ${manca((c.nextAt || 0) - Date.now())}` : "") };
+        sotto: c.note || (prossimo ? `Prossimo tra ${manca((c.nextAt || 0) - Date.now())}: ${prossimo.title}` : "") };
   }
+}
+
+/** Una riga con l'indicatore di salute: cosa sta succedendo e cosa fare. */
+function rigaSalute(c) {
+  const s = CL.salute(c);
+  if (s.livello === "ok" && c.running) return null;
+  return h("p", { class: `desc health-${s.livello}`, role: "status" }, h("b", {}, `${s.titolo}. `), `${s.perche} `, s.azione !== "Niente da fare." ? s.azione : "");
 }
 
 function disegnaCoda() {
@@ -177,28 +188,32 @@ function disegnaCoda() {
   }
 
   const r = conta(coda);
+  const gestisci = () => bottone("Gestisci coda", "", () => { apriPagina("src/dashboard.html#coda"); window.close(); });
 
   if (coda.running) {
     const s = statoCoda(coda);
-    const corrente = coda.items[coda.index];
+    const corrente = CL.corrente(coda);
     card.append(h("div", { class: "queue-top" },
-      anello(r.trattati, coda.items.length),
+      anello(r.trattati, r.totale),
       h("div", { class: "queue-info" },
         h("b", {}, s.titolo),
         h("div", { class: "queue-sub", title: s.sotto }, s.sotto),
         h("span", { class: `state-chip ${s.classe || ""}` }, s.chip))));
 
-    if (corrente && coda.state !== "recovering") {
-      const thumb = thumbSicura(corrente.thumb);
-      card.append(h("a", { class: "current", href: linkArticolo(corrente.id), target: "_blank", rel: "noopener", style: "text-decoration:none;color:inherit" },
+    const shownItem = corrente || (coda.state !== "recovering" ? CL.prossimo(coda) : null);
+    if (shownItem) {
+      const thumb = thumbSicura(shownItem.thumb);
+      card.append(h("a", { class: "current", href: linkArticolo(shownItem.id), target: "_blank", rel: "noopener", style: "text-decoration:none;color:inherit" },
         thumb ? h("img", { src: thumb, alt: "", loading: "lazy" }) : h("span", { class: "ph" }),
         h("span", { class: "current-text" },
-          h("b", {}, corrente.title || `Articolo ${corrente.id}`),
-          `ID ${corrente.id}`)));
+          h("b", {}, shownItem.title || `Articolo ${shownItem.id}`),
+          `${corrente ? "In elaborazione" : "Prossimo"} · ID ${shownItem.id}`)));
     }
 
     const azioni = h("div", { class: "queue-actions" });
-    if (coda.state === "recovering") {
+    if (coda.stopDopoCorrente) {
+      azioni.append(gestisci());
+    } else if (coda.state === "recovering") {
       azioni.append(bottone("Riprendi", "btn-primary", () => comando("vr:queueRecover")),
         bottone("Annulla coda", "danger", () => comando("vr:queueStop")));
     } else if (coda.state === "paused") {
@@ -206,13 +221,24 @@ function disegnaCoda() {
         bottone("Interrompi", "danger", () => comando("vr:queueStop")));
     } else if (coda.state === "scheduled") {
       azioni.append(bottone("Annulla", "danger", () => comando("vr:queueStop")));
+    } else if (corrente) {
+      // In lavorazione non si "salta": si chiede di annullare, e vale solo se non ha ancora inviato niente.
+      const tardi = passo?.itemId === corrente.id && passo.fase === "invio";
+      azioni.append(
+        coda.pausaDopoCorrente
+          ? bottone("Annulla la pausa", "", () => comando("vr:queueResume"))
+          : bottone("Pausa", "", () => comando("vr:queuePause")),
+        h("button", { class: "btn", type: "button", disabled: tardi ? "" : null,
+          title: tardi ? "La richiesta a Vinted è già partita: si aspetta l'esito." : "Ferma l'articolo se non ha ancora inviato niente a Vinted.",
+          onclick: () => comando("vr:queueCancelCurrent") }, "Annulla operazione"),
+        bottone("Interrompi", "danger", () => comando("vr:queueStop")));
     } else {
       azioni.append(
         bottone("Pausa", "", () => comando("vr:queuePause")),
-        bottone("Salta", "", () => comando("vr:queueSkip")),
+        bottone("Salta il prossimo", "", () => comando("vr:queueSkip")),
         bottone("Interrompi", "danger", () => comando("vr:queueStop")));
     }
-    card.append(azioni, contatori(r));
+    card.append(azioni, contatori(r), rigaSalute(coda) || "", h("div", { class: "queue-actions" }, coda.stopDopoCorrente ? "" : gestisci()));
 
     // il conto alla rovescia deve scorrere anche col popup fermo
     const serveTic = !["working", "paused", "recovering"].includes(coda.state);
@@ -226,7 +252,7 @@ function disegnaCoda() {
   tic = null;
   const daGuardare = r.error + r.verify;
   card.append(h("div", { class: "queue-top" },
-    anello(r.trattati, coda.items.length),
+    anello(r.trattati, r.totale),
     h("div", { class: "queue-info" },
       h("b", {}, daGuardare ? `Coda finita: ${daGuardare} da guardare` : "Coda finita"),
       h("div", { class: "queue-sub" }, coda.note || `${r.done} ripubblicati`),
@@ -253,16 +279,13 @@ function disegnaCoda() {
   }
 
   const azioni = h("div", { class: "queue-actions" });
-  if (r.error) azioni.append(bottone(`Riprova i falliti (${r.error})`, "btn-primary", async () => {
-    const esito = await comando("vr:queueRetry");
+  const riprovabili = coda.items.filter((v) => v.status === "error" && v.sicuro !== "no").length;
+  if (riprovabili) azioni.append(bottone(`Riprova i falliti (${riprovabili})`, "btn-primary", async () => {
+    const esito = await comando("vr:queueRetry", { queue: coda.startedAt });
     if (esito && esito.ok === false) card.append(h("p", { class: "desc error" }, esito.error || "Non sono riuscito a riavviare la coda."));
   }));
   if (daGuardare) azioni.append(bottone("Dettagli", "", () => { apriPagina(`src/dashboard.html#coda-${coda.startedAt}`); window.close(); }));
-  azioni.append(bottone("Nascondi", "quiet", async () => {
-    await chrome.storage.local.remove("vrQueue");
-    coda = null;
-    disegnaCoda();
-  }));
+  azioni.append(bottone("Nascondi", "quiet", () => comando("vr:queueClear")));
   card.append(azioni);
 }
 
@@ -381,10 +404,12 @@ async function controlli() {
       dettaglio: articoli ? `${articoli}, raccolti aprendo il tuo armadio` : "apri il tuo armadio almeno una volta" },
     { nome: "Colori conosciuti", livello: colori ? "ok" : "info",
       dettaglio: colori ? `${colori}` : "nessuno: si imparano dagli annunci letti" },
-    { nome: "Coda", livello: r?.verify || r?.error ? "warn" : "ok",
-      dettaglio: !r ? "nessuna" : r.verify || r.error
-        ? `${r.error} falliti, ${r.verify} da verificare`
-        : coda.running ? "in corso" : "conclusa senza problemi" },
+    (() => {
+      // Lo stesso indicatore della dashboard: livello, perche', cosa fare.
+      const sal = CL.salute(coda);
+      const livello = { ok: "ok", vuota: "ok", pausa: "info" }[sal.livello] || "warn";
+      return { nome: "Coda", livello, dettaglio: !r ? "nessuna" : `${sal.titolo.toLowerCase()} — ${sal.perche}` };
+    })(),
   ];
 }
 
@@ -548,6 +573,22 @@ el("checkUpdate").addEventListener("click", async () => {
   await mostraAggiornamento();
 });
 
+// ------------------------------------------------------------------- link
+
+/**
+ * GitHub, Discord, Ko-fi e gli altri link vengono da links.json (vedi
+ * link-chrome.js): qui si collegano e basta. Se la rete manca restano
+ * quelli gia' noti; nessun avviso ripetuto, solo una riga in Salute.
+ */
+const LC = window.LinkChrome;
+const statoLink = (r, s) => { el("linksState").textContent = window.LinkProgetto.descriviStato(r, s); };
+LC?.avvia(document, { dopo: statoLink });
+
+el("checkUpdate").addEventListener("click", () => {
+  // Chi cerca un aggiornamento vuole anche i link freschi (al massimo una richiesta al minuto).
+  LC?.avvia(document, { forza: true, dopo: statoLink });
+});
+
 el("reloadExt").addEventListener("click", () => {
   // Il codice nuovo e' quello che hai estratto nella cartella: niente arriva da Internet.
   chrome.runtime.reload();
@@ -707,7 +748,7 @@ chrome.storage.local.get(null).then((tutto) => {
 chrome.storage.local.get(["userId", "vintedOrigin", "vrQueue", "vrHistory", "vrEvents", "inventory"]).then((d) => {
   if (d.vintedOrigin && /^https:\/\/www\.vinted\.[a-z.]+$/.test(d.vintedOrigin)) origine = d.vintedOrigin;
   userId = d.userId || null;
-  coda = d.vrQueue || null;
+  coda = CL.migra(d.vrQueue || null);
   eventi = d.vrEvents || [];
   disegnaCoda();
   disegnaAttivita(d.vrHistory || []);
@@ -728,8 +769,19 @@ function vistaDaHash() {
 }
 window.addEventListener("hashchange", vistaDaHash);
 
+chrome.storage.session?.get("vrQueueStep").then((r) => { passo = r?.vrQueueStep || null; disegnaCoda(); }).catch(() => {});
+
 chrome.storage.onChanged.addListener((modifiche, area) => {
+  if (area === "session" && modifiche.vrQueueStep) {
+    passo = modifiche.vrQueueStep.newValue || null;
+    disegnaCoda();
+    return;
+  }
   if (area !== "local") return;
+  if ((modifiche.vrLinks || modifiche.linksRemote || modifiche.updateRepo) && LC) {
+    // Aggiornati da un'altra pagina (dashboard o un altro popup).
+    Promise.all([LC.risolti(), LC.stato()]).then(([r, st]) => { LC.collega(document, r); statoLink(r, st); }).catch(() => {});
+  }
   if (modifiche.userId) {
     userId = modifiche.userId.newValue || null;
     disegnaCoda();
@@ -737,7 +789,7 @@ chrome.storage.onChanged.addListener((modifiche, area) => {
   }
   if (modifiche.vintedOrigin?.newValue) origine = modifiche.vintedOrigin.newValue;
   if (modifiche.vrQueue) {
-    coda = modifiche.vrQueue.newValue || null;
+    coda = CL.migra(modifiche.vrQueue.newValue || null);
     disegnaCoda();
     disegnaStatoGenerale();
     if (vista === "salute") avvisoRicarica();

@@ -1,7 +1,8 @@
 # Vinted Relist — documentazione tecnica
 
 Documento vivo: va aggiornato a ogni versione insieme a `CHANGELOG.md`. Descrive com'è fatta
-l'estensione, perché è fatta così e cosa resta da verificare. Aggiornato alla **2.0.1**.
+l'estensione, perché è fatta così e cosa resta da verificare. Aggiornato alla **2.1.0**.
+I link del progetto e la configurazione remota hanno un documento a parte: [LINK.md](LINK.md).
 
 ## 1. Architettura
 
@@ -10,11 +11,11 @@ repository sono quelli che il browser carica.
 
 | Contesto | File | Ruolo |
 |---|---|---|
-| Service worker | `background.js` | cattura token, id utente e formati dalle richieste di Vinted; coda (sveglie, watchdog, recupero, rallentamento); archivio code; registro eventi e badge; notifiche; download; apertura pagine |
-| Content script (mondo isolato) | `src/utils.js` → `api.js` → `editor-logica.js` → `relist.js` → `editor.js` → `queue.js` → `ui.js` → `content.js` | tutto ciò che parla con Vinted e compare nella pagina. L'ordine nel manifest conta: ogni file usa quelli prima |
+| Service worker | `background.js` (+ `src/coda-logica.js` via `importScripts`) | cattura token, id utente e formati dalle richieste di Vinted; **unico scrittore della coda** (modifiche in fila con `conCoda`); sveglie, watchdog, recupero, rallentamento; archivio code; registro eventi e badge; notifiche; download; apertura pagine |
+| Content script (mondo isolato) | `src/utils.js` → `api.js` → `editor-logica.js` → `relist.js` → `editor.js` → `coda-logica.js` → `queue.js` → `ui.js` → `content.js` | tutto ciò che parla con Vinted e compare nella pagina. L'ordine nel manifest conta: ogni file usa quelli prima |
 | Mondo della pagina | `src/page-bridge.js` | strumenti di sola lettura nella console, solo se `consoleBridge` è attivo |
-| Pagine dell'estensione | `src/popup.*`, `src/dashboard.*` | interfaccia; leggono `chrome.storage` e mandano messaggi al service worker |
-| Moduli puri | `editor-logica.js`, `analisi.js`, `versione.js`, `impostazioni.js` | logica senza `chrome.*` né rete: si testano in Node e si caricano nel browser con lo stesso file (`module.exports` o `window.*`) |
+| Pagine dell'estensione | `src/popup.*`, `src/dashboard.*`, `src/dashboard-coda.js`, `src/link-chrome.js` | interfaccia; leggono `chrome.storage` e mandano messaggi al service worker; non scrivono mai la coda |
+| Moduli puri | `editor-logica.js`, `analisi.js`, `versione.js`, `impostazioni.js`, `coda-logica.js`, `link.js` | logica senza `chrome.*` né rete: si testano in Node e si caricano nel browser con lo stesso file (`module.exports` o `window.*`) |
 
 Tutto il codice del content script scrive su `window.VR`. Le pagine dell'estensione caricano
 `utils.js` per riusare `VR.DEFAULTS` e `VR.h` senza duplicarli.
@@ -48,26 +49,79 @@ Con ordine «elimina, poi pubblica» i passi 4 e 5 si invertono e prima di cance
 Regola guida: **nel dubbio non si ripubblica**. Un doppione su Vinted costa più di un articolo
 fermo un giro in più.
 
-### Coda (`background.js`)
+### Coda (2.1: `coda-logica.js` + `background.js`)
 
-Stati della coda: `waiting` (sveglia impostata), `working` (articolo in corso), `paused`,
-`scheduled` (avvio a data e ora), `recovering` (interrotta, aspetta te), `done`.
+**Una sola fonte di verità.** La coda vive in `storage.local.vrQueue` e la scrive **solo** il
+service worker. Ogni modifica (da pagina, popup, dashboard, sveglie, esiti) è un messaggio che
+passa da `conCoda(lavoro)`: una catena di promesse che esegue un lavoro alla volta, legge la coda,
+applica una funzione pura di `coda-logica.js`, scrive (`rev` + 1). Le funzioni interne ricevono la
+coda già letta e non richiamano `conCoda` (niente stalli). Popup, dashboard e pagina leggono e si
+aggiornano con `storage.onChanged`.
 
-- **Avvio:** `vr:queueStart`. Gli id duplicati entrano una volta. Se una coda con la stessa
-  selezione è già in corso la richiesta è un doppio clic e non cambia niente; con una selezione
-  diversa viene rifiutata.
-- **Passo:** la sveglia `vr:queueNext` manda `vr:relistOne` alla scheda di Vinted; il content
-  script passa da `VR.esclusivo` (lo stesso blocco del bottone) e risponde con `vr:relistDone`.
-- **Watchdog:** 6 minuti senza esito → `verify`.
-- **Rallentamento:** 429 o 403 → pausa 5, 15, 45 minuti, poi stop. L'articolo non si consuma.
-- **Recupero:** all'avvio del service worker, se la coda è attiva ma la sveglia manca, passa in
-  `recovering`; l'eventuale articolo in lavorazione diventa `verify`.
-- **Fine:** `fermaCoda` annulla i `pending`, archivia una copia compatta (ultime 10 in
-  `vrQueueArchive`), registra l'evento e manda la notifica `vr-coda-<startedAt>`.
-- **Verifica:** `vr:queueResolve {itemId, pubblicato, queue}` aggiorna la coda corrente e
-  l'archivio.
-- **Riprova:** `vr:queueRetry {queue?}` riparte con i soli `error`, con le opzioni della coda di
-  origine (anche archiviata).
+**Identità stabile.** Nessuna operazione usa indici: ogni elemento è il suo id Vinted, che compare
+una volta per sessione. L'ordine dell'array è l'ordine di esecuzione dei `pending`.
+
+| Stato dell'articolo | Etichetta | Terminale | Cosa si può fare |
+|---|---|---|---|
+| `pending` | In attesa | no | spostare, rimuovere dalla coda |
+| `working` | In elaborazione | no | «Annulla operazione» (solo prima dell'invio) |
+| `done` | Completato | sì | niente: l'annuncio vecchio non esiste più |
+| `error` | Fallito | sì | riprovare, se `sicuro` ≠ `no` |
+| `verify` | Da verificare | sì | «È stato pubblicato» / «Non è uscito»; mai riprovato da solo |
+| `skipped` | Saltato | sì | riattivare aggiungendolo di nuovo |
+| `cancelled` | Annullato | sì | riprendere la sessione |
+| `removed` | Rimosso | sì | riaggiungere (non conta nel totale) |
+
+Stati della sessione: `waiting`, `working`, `paused`, `scheduled`, `recovering`, `done`; più i flag
+`stopDopoCorrente`, `pausaDopoCorrente` (+ `pausaMinuti`), `pausaAuto`/`motivoPausa`,
+`riprendiAlle`, `erroriDiFila`, `backoff`.
+
+Messaggi (`MESSAGGI_CODA` in `background.js`):
+
+| Messaggio | Effetto |
+|---|---|
+| `vr:queueStart` | crea la sessione; stessa selezione già in corso = doppio clic, ignorato; selezione diversa con una coda attiva = rifiutata («usa Aggiungi alla coda») |
+| `vr:queueAdd {items, dove}` | aggiunge in fondo o in cima, anche in esecuzione o in pausa; `valutaAggiunta` dice per ognuno aggiungi / riattiva / rifiuta e perché (già in coda, in elaborazione, già ripubblicato, da verificare, errore definitivo, limite di 500) |
+| `vr:queueRemove {ids}` | solo `pending` → `removed`; l'articolo in corso è rifiutato con il motivo. **Non cancella nulla su Vinted.** Coda vuota → si chiude |
+| `vr:queueMove {ids, dove}` / `vr:queueReorder {ordine}` | su, giù, cima, fondo; riordino completo (trascinamento) rifiutato se l'insieme è cambiato nel frattempo |
+| `vr:queueRetry {ids?, queue?}` | solo `error` riprovabili, in fondo, `tentativi`+1; da una sessione archiviata li aggiunge alla coda attiva o ne avvia una nuova |
+| `vr:queueRestore {queue}` | riprende una sessione archiviata: `cancelled`, `error` riprovabili, `pending`; **mai** `done` né `verify` |
+| `vr:queueResolve` | conferma l'esito di un `verify` (coda corrente e archivio) |
+| `vr:queuePause {minuti?}` / `vr:queueResume` | pausa subito se nessuno è in corso, altrimenti dopo l'articolo corrente; a tempo con la sveglia `vr:queueResume` |
+| `vr:queueCancelCurrent` | annullamento cooperativo (sotto) |
+| `vr:queueStop` | interrompe: i `pending` diventano `cancelled`; se un articolo è in corso aspetta il suo esito (`stopDopoCorrente`) |
+| `vr:queueSkip` | salta il prossimo; rifiutato mentre un articolo è in corso |
+| `vr:queueRecover`, `vr:queueClear` | riprende dopo un'interruzione; nasconde la sessione (resta in archivio) |
+| `vr:relistDone` | esito dalla pagina → `concludiArticolo` |
+
+**Annullare l'articolo in corso** è diverso da rimuoverlo e da interrompere la sessione.
+`relist()` riceve un `segnale` e controlla prima di ogni foto e prima della prima chiamata
+distruttiva (creazione, o eliminazione con l'ordine «elimina, poi pubblica»): oltre quel punto
+`vr:relistCancel` risponde `troppoTardi` e si aspetta l'esito. La fase (`preparazione` / `invio`)
+sta in `storage.session.vrQueueStep`, così la dashboard sa se il bottone è ancora utile.
+
+**Esiti ed errori.** `classificaErrore` mette ogni esito in una categoria (temporaneo, dati,
+sessione, non consentito, rete, interno, incerto) con `cosaFare` e `sicuroRiprovare`
+(`si` / `dopo-correzione` / `no`). Tre esiti negativi di fila (`error` o `verify`) mettono la
+coda in **pausa prudente** con il motivo. 403/429: l'articolo non si consuma, pausa di 5, 15,
+45 minuti, poi stop.
+
+**Recupero.** All'avvio del service worker (`recupera`): un `working` rimasto a metà diventa
+`verify`, mai ripetuto; una pausa a tempo con la sveglia persa lo dice nella nota. Watchdog di
+6 minuti senza esito → `verify`.
+
+**Stima.** `stima()` usa la durata media osservata degli articoli conclusi in questa sessione più
+l'intervallo; con meno di 2 campioni lo dice («stima indicativa»).
+
+**Cronologia.** `coda.log` (max 300, 200 in archivio) con `natura`: `locale` (modifiche della coda:
+niente inviato a Vinted), `vinted` (esiti), `sistema` (pause, recuperi). Esportazione CSV (con BOM,
+protetta dalle formule) e JSON, resoconto da copiare: niente token, cookie, titoli nel resoconto.
+
+**Perché il service worker scrive da solo.** Nella 2.0 popup, pagina e service worker scrivevano la
+coda e `vr:queueProgress` (passo) e `vr:relistDone` (esito) potevano intrecciarsi: in un test che
+li fa arrivare insieme l'esito andava perso **11 volte su 40**, e l'articolo sarebbe stato
+ripubblicato due volte. Con `conCoda` e il passo spostato in `storage.session`: 40 su 40
+(`test-gara`).
 
 ### Campi che dipendono dalla categoria (2.0.1)
 
@@ -161,20 +215,27 @@ Due download alla volta; un errore su una foto non ferma le altre.
 | `qualityScores` | completezza per articolo |
 | `vrSnapshots` | ultimi 60 relist con prima/dopo |
 | `vrHistory` | relist degli ultimi 30 giorni (statistiche) |
-| `vrQueue` | coda corrente |
+| `vrQueue` | coda corrente (modello v3; le code 2.0 si migrano alla lettura) |
 | `vrQueueArchive` | ultime 10 code concluse, compatte |
 | `vrEvents` | registro notifiche |
 | `queueDraft` | opzioni della coda (senza orario di avvio) |
+| `queueTemplates` | dalla 2.1: modelli di opzioni con nome (max 20) |
+| `vrLinks` | dalla 2.1: ultima configurazione dei link valida letta da GitHub, ora dell'ultimo tentativo ed errore (vedi [LINK.md](LINK.md)) |
 | `editorDrafts` | bozze dell'editor |
 | `vrBackup:<id>` | copia di un annuncio cancellato prima che il nuovo fosse pubblicato |
 | `updateCheck` | ultimo controllo aggiornamenti |
 
-`chrome.storage.session` (si svuota alla chiusura del browser): `vrTokens` (CSRF e anon-id).
+`chrome.storage.session` (si svuota alla chiusura del browser): `vrTokens` (CSRF e anon-id),
+`vrQueueStep` (passo e fase dell'articolo in corso).
 Non vengono mai scritti in `local`, nei log, negli eventi o nella diagnostica.
 
 ## 4. Sicurezza e privacy
 
-- Nessuna telemetria. Unica richiesta esterna: il controllo aggiornamenti, manuale.
+- Nessuna telemetria. Richieste fuori da Vinted, tutte verso `api.github.com`, senza cookie né dati
+  dell'utente: il controllo aggiornamenti (manuale) e la lettura di `links.json` (al massimo ogni
+  12 ore aprendo popup o dashboard; si spegne in Impostazioni › Avanzate).
+- La configurazione remota dei link è un dato non attendibile: solo `https`, host in elenco,
+  testi in `textContent`, nessun codice (vedi [LINK.md](LINK.md)).
 - Token e cookie: letti dal service worker, tenuti in `storage.session`, mai mostrati (il popup
   dice solo se la sessione c'è), mai nei nomi dei file né nella diagnostica.
 - Diagnostica: elenco bianco delle impostazioni, niente titoli, `ripulisci()` oscura JWT, uuid,
@@ -202,6 +263,11 @@ Non vengono mai scritti in `local`, nei log, negli eventi o nella diagnostica.
 | La tabella degli id colore di Vinted | **Da verificare** | fonti pubbliche in contraddizione (es. 12 = bianco o rosso): nessun elenco di riserva, i colori si imparano dagli annunci |
 | Il repository si chiama `MashaUP/Vinted_Relist` ed è pubblico | **Confermato** (2.0.1) | clonato senza credenziali; `version.json` raggiungibile |
 | Il selettore di file chiude il popup prima di restituire il file | **Probabile** | comportamento noto di Chrome; per questo l'import si apre in una scheda |
+| Senza scritture serializzate l'esito di un articolo poteva perdersi (doppia pubblicazione) | **Confermato** (2.1) | `test-gara`: 11 esiti persi su 40 con il codice 2.0, 0 su 40 dopo |
+| «Interrompi» o «Salta» durante una pubblicazione segnavano annullato/saltato un articolo forse già pubblicato | **Confermato** (2.1) | lettura del codice 2.0 e test; ora si aspetta l'esito |
+| `api.github.com` consente richieste CORS dalle pagine dell'estensione senza `host_permissions` | **Confermato** (2.1) | Chromium reale con l'estensione caricata: lettura di `links.json` e `version.json` riuscita |
+| L'invito Discord `EPsbQCuAkx` è valido | **Da verificare** | indicato dall'autore; da qui Discord non è raggiungibile |
+| Le Issues del repository sono attive | **Probabile** | attive di default su GitHub; i link «Segnala» e «Proponi» le usano |
 | Gli alarm non sopravvivono al ricaricamento dell'estensione | **Probabile** | documentazione Chrome e comportamento osservato; il recupero copre entrambi i casi |
 
 ## 6. Problemi noti e limiti
@@ -220,6 +286,12 @@ Non vengono mai scritti in `local`, nei log, negli eventi o nella diagnostica.
 - Le statistiche per categoria usano il `catalog_id` esatto: due sottocategorie di libri sono
   categorie diverse e non si prestano dati.
 - Lo storico delle versioni prima della 1.9.0 non è stato conservato.
+- Gli articoli aggiunti dalla dashboard non passano dal controllo preventivo (che legge da Vinted
+  e vive nella pagina): vengono comunque letti e controllati quando arriva il loro turno.
+- Intervallo e opzioni di una sessione non si cambiano a sessione avviata: valgono per tutti gli
+  articoli, anche quelli aggiunti dopo.
+- Finché `links.json` non è sul ramo `main`, Chrome scrive un 404 nella console delle pagine
+  dell'estensione al massimo una volta l'ora.
 
 ## 7. Debito tecnico
 
@@ -227,9 +299,11 @@ Non vengono mai scritti in `local`, nei log, negli eventi o nella diagnostica.
 |---|---|---|
 | Elenco dei 17 domini ripetuto in manifest, `background.js`, `popup.js`, `dashboard.js` | medio | va tenuto allineato a mano; un modulo condiviso per le pagine è possibile, il manifest resta a parte |
 | Impostazioni predefinite del service worker (`impostazioni()`) separate da `VR.DEFAULTS` | basso | il service worker non carica `utils.js`; valori oggi coincidenti |
-| `background.js` oltre le 1000 righe | medio | candidati a moduli: coda, eventi, download, formati (richiede `importScripts` o service worker di tipo module) |
+| `background.js` oltre le 1000 righe | medio | la logica della coda è già in `coda-logica.js` (2.1); restano eventi, download, formati |
 | `dashboard.js` ridisegna tutta la pagina a ogni cambio di inventario | basso | accettabile fino a qualche centinaio di articoli |
 | Test non eseguiti in CI | medio | si lanciano a mano con `node tests/run.js` |
+| Link nel README scritti a mano | basso | il README è statico: va allineato a `links.json` quando cambia l'invito |
+| Verifica in Chromium reale fuori dai test automatici | basso | script a parte, non nel repository |
 | Nessun test end-to-end su Vinted reale | alto | vietato per scelta (niente pubblicazioni di prova su larga scala); serve una prova manuale guidata |
 
 ## 8. Registro proposte
@@ -253,14 +327,23 @@ Non vengono mai scritti in `local`, nei log, negli eventi o nella diagnostica.
 | 15 | Prova manuale guidata (checklist) prima di ogni rilascio | alta | bassa | proposta |
 | 19 | Classificazione dei campi per categoria (note vs avvisi), formato appreso per categoria | alta | media | **fatto 2.0.1** |
 | 20 | Raggruppare sottocategorie affini (es. tutti i libri) per avere più prove | bassa | media | da valutare: rischio di mescolare categorie con requisiti diversi |
+| 21 | Code dinamiche: aggiunta/rimozione/riordino in esecuzione, menu di gestione, cronologia, esportazione, modelli | alta | alta | **fatto 2.1.0** |
+| 22 | Scritture della coda serializzate nel service worker | alta | media | **fatto 2.1.0** (correzione di un bug reale) |
+| 23 | Link centralizzati in `links.json` con aggiornamento da GitHub | media | media | **fatto 2.1.0** |
+| 24 | Opzioni diverse per singolo articolo nella stessa coda | bassa | alta | proposta: oggi un modello per sessione, più semplice da capire |
+| 25 | Cambiare intervallo e opzioni a sessione avviata | media | media | proposta |
+| 26 | Controllo preventivo anche per gli articoli aggiunti dalla dashboard | media | media | proposta: richiede una scheda Vinted aperta |
+| 27 | Ripristino di un articolo rimosso per errore («annulla rimozione») | bassa | bassa | proposta; oggi si riaggiunge |
+| 28 | Redirect stabile su GitHub Pages per Discord | bassa | bassa | da valutare: il JSON basta (vedi LINK.md) |
+| 29 | Libreria condivisa dei link per più progetti | bassa | media | rimandata finché un secondo progetto non la usa |
 | 16 | Controllo qualità e ritaglio automatico delle foto | — | alta | **escluso** dall'autore |
 | 17 | Finestra di annullamento dopo la pubblicazione | — | media | **escluso** dall'autore |
 | 18 | Micro-alterazioni delle foto per eludere i controlli di somiglianza | — | — | **rifiutato**: è elusione dei controlli di Vinted |
 
 ## 9. Roadmap
 
-- **2.0.x** — correzioni dalla prova reale della 2.0.0.
-- **2.1** — proposte 11, 12, 14 se servono.
+- **2.1.x** — correzioni dalla prova reale delle code dinamiche e dei link.
+- **2.2** — proposte 25, 26, 12, 14 se servono.
 - **3.0** — solo se cambia il modo di distribuire (per esempio Chrome Web Store, vedi §11).
 
 ## 10. Test
@@ -279,16 +362,24 @@ cd tests && npm install && node run.js
 | `test-editor`, `test-flusso` | controlli dell'editor, flusso di ripubblicazione con API finte |
 | `test-campi` | 2.0.1: `is_unisex` vero/falso/assente, colore, formato per categoria, nessun travaso fra libri, manga e abbigliamento, coerenza fra controllo preventivo e invio |
 | `test-13`, `test-14`, `test-17`, `test-coda`, `test-coda2` | service worker: coda, recupero, watchdog, esiti, archivio, eventi, badge, notifiche |
+| `test-coda-logica` | 2.1: modello puro della coda: aggiunta, rimozione, spostamento, riordino, riprova, stima, salute, errori, esportazione, migrazione |
+| `test-coda-dinamica` | 2.1: code dinamiche nel service worker vero: aggiunte e rimozioni in corsa e in pausa, posizioni, stop e pausa dopo l'articolo, prudenza, pausa a tempo, recupero, ripresa di sessioni |
+| `test-gara` | 2.1: passo ed esito che arrivano insieme, 40 volte: l'esito non si perde |
+| `test-annulla` | 2.1: annullamento prima e dopo il punto di non ritorno |
+| `test-link` | 2.1: `links.json` del pacchetto, validazione, protocolli e siti vietati, precedenza, cache, tempi, timeout |
 | `test-versione` | versioni, aggiornamenti, diagnostica, impostazioni |
 | `dom/test-ui` | editor in un DOM simulato: controlli, download foto, ritaglio, anteprima, pubblica |
 | `dom/test-opzioni` | opzioni della coda, controllo preventivo, avvio |
-| `dom/test-popup` | popup: coda, notifiche, salute, diagnostica, aggiornamenti, impostazioni |
-| `dom/test-dashboard` | riepilogo coda, ricerca, ordinamento, miniature, confronto |
+| `dom/test-popup` | popup: coda, notifiche, salute, diagnostica, aggiornamenti, impostazioni; link (remoto valido, offline, JSON rotto, schema nuovo, spento, protocolli vietati, cache, repository diverso, interruttore) |
+| `dom/test-dashboard` | menu di gestione della coda (azioni, selezione, trascinamento e tastiera, filtri, cronologia, esportazione, sessioni), ricerca, ordinamento, miniature, confronto, link nel piede |
+
+`node tests/valida-link.js` controlla un `links.json` prima di pubblicarlo.
 
 **Non eseguibili qui** e da fare a mano su Vinted reale, su uno o due articoli a cui tieni poco:
 pubblicazione vera, upload foto, eliminazione, risposta reale a 403/429, notifica di sistema,
-download effettivo nella cartella, `chrome.runtime.reload()`, controllo aggiornamenti contro il
-repository vero.
+download effettivo nella cartella, `chrome.runtime.reload()`, controllo aggiornamenti e lettura
+di `links.json` contro il repository vero, annullamento durante una pubblicazione vera, notifica
+di sistema con il service worker sospeso.
 
 ## 11. Chrome Web Store: rischi
 
@@ -307,5 +398,8 @@ L'estensione **non è pronta** per il Chrome Web Store, e la distribuzione resta
   del repository) e lo zip `Vinted_Relist-x.y.z.zip` con la cartella `Vinted_Relist` da installare.
 - Prima di dire che una cosa «funziona su Vinted», distingui: verificata sul sito, verificata nei
   test, dedotta.
-- Il link Ko-fi è `https://ko-fi.com/mashaup`: non cambiarlo.
+- I link (Ko-fi `https://ko-fi.com/mashaup`, Discord, GitHub) stanno **solo** in `links.json`:
+  niente URL nell'HTML o nel codice. Il README è l'unica copia a mano.
+- La coda la scrive solo il service worker, attraverso `conCoda`: non aggiungere scritture di
+  `vrQueue` altrove.
 - Non introdurre telemetria, codice remoto o alterazioni delle foto per eludere i controlli.

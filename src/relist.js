@@ -686,11 +686,26 @@
    * @param {string|number} itemId
    * @param {object} overrides  title / description / price / deleteOld
    * @param {(step:string)=>void} onProgress
+   * @param {{annullato?:()=>boolean, oltre?:()=>void}} segnale
+   *   annullato(): la coda chiede di fermarsi. Si rispetta solo PRIMA del punto
+   *   di non ritorno (la prima chiamata che cambia qualcosa su Vinted: eliminare
+   *   il vecchio con "elimina, poi pubblica", altrimenti creare il nuovo).
+   *   oltre(): avvisa che quel punto e' stato passato.
    */
-  async function relist(itemId, overrides = {}, onProgress = () => {}) {
+  async function relist(itemId, overrides = {}, onProgress = () => {}, segnale = {}) {
     const settings = VR.settings;
     const deleteOld = overrides.deleteOld ?? settings.deleteOld;
     const deleteFirst = settings.order === "clean";
+
+    // Foto caricate e non usate restano orfane su Vinted, ma nessun annuncio
+    // viene creato o eliminato: e' il motivo per cui qui annullare e' sicuro.
+    const seAnnullato = async () => {
+      if (!segnale.annullato?.()) return;
+      await chrome.storage.local.remove(`vrBackup:${itemId}`).catch(() => {});
+      const errore = new Error("Annullato prima dell'invio a Vinted: nessun annuncio creato o eliminato.");
+      errore.annullato = true;
+      throw errore;
+    };
 
     onProgress("Lettura articolo…");
     let source;
@@ -719,6 +734,7 @@
     for (let i = 0; i < scelte.length; i++) {
       const number = i + 1;
       const foto = scelte[i];
+      await seAnnullato();
       onProgress(`Foto ${number}/${scelte.length}…`);
 
       try {
@@ -737,6 +753,10 @@
 
     const draft = buildDraft(source, photoIds, overrides, tempUuid);
     const uploadSessionId = VR.uuid();
+
+    // Ultimo controllo: da qui in poi la richiesta parte e non si torna indietro.
+    await seAnnullato();
+    segnale.oltre?.();
 
     if (deleteOld && deleteFirst) {
       onProgress("Elimino il vecchio annuncio…");

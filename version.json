@@ -1,12 +1,13 @@
 {
-  "version": "2.0.1",
-  "date": "2026-10-19",
-  "zip": "Vinted_Relist-2.0.1.zip",
+  "version": "2.1.0",
+  "date": "2026-10-23",
+  "zip": "Vinted_Relist-2.1.0.zip",
   "notes": [
-    "Libri e manga: niente più avvisi su is_unisex e colore quando la categoria non li usa",
-    "Formato appreso separato per categoria: il confronto non mescola libri e abbigliamento",
-    "Il colore si riempie solo se tutti gli altri articoli della categoria ce l'hanno",
-    "Note separate dagli avvisi nel controllo prima di avviare",
-    "Nuovo VR.diagnosi(ID) nella console: valore, fonte e motivo di ogni campo"
+    "Code dinamiche: aggiungi, rimuovi e riordina articoli anche con la coda in corso o in pausa",
+    "Pagina di gestione della coda con azioni per articolo, selezione multipla, filtri e trascinamento",
+    "Rimuovi dalla coda, Annulla operazione e Interrompi sono ora tre comandi distinti",
+    "Pausa a tempo, stima dei tempi, cronologia ed esportazione CSV/JSON",
+    "Corretto un caso in cui l'esito di un articolo poteva perdersi (rischio di doppia pubblicazione)",
+    "Link GitHub e Discord nel popup, aggiornabili dal repository senza una nuova versione"
   ]
 }

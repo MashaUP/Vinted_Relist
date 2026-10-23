@@ -57,7 +57,7 @@ const attesa = () => new Promise((r) => setTimeout(r, 10));
   await attesa();
   q = store.vrQueue;
   ok('primo segnato done', q.items[0].status === 'done');
-  ok('indice avanzato', q.index === 1);
+  ok('il prossimo è il secondo, niente in lavorazione', q.items[1].status === 'pending' && !q.items.some((i) => i.status === 'working'));
   ok('watchdog disarmato', !('vr:queueWatchdog' in alarms));
   const fra = Math.round((alarms['vr:queueNext'] - Date.now()) / 60000);
   ok(`prossimo fra ~20 min (${fra})`, fra === 20);
@@ -71,16 +71,16 @@ const attesa = () => new Promise((r) => setTimeout(r, 10));
   ok('messaggio di errore conservato', q.items[1].error === 'prezzo rifiutato');
 
   // esito fuori tempo massimo non deve sballare l'indice
-  const prima = store.vrQueue.index;
+  const prima = JSON.stringify(store.vrQueue);
   await invia({ type: 'vr:relistDone', itemId: '99', ok: true });
   await attesa();
-  ok('esito di un articolo non corrente ignorato', store.vrQueue.index === prima);
+  ok('esito di un articolo non corrente ignorato', JSON.stringify(store.vrQueue) === prima);
 
   // nessuna scheda Vinted: attende invece di consumare l'articolo
   tabs = [];
   await sveglia('vr:queueNext'); await attesa();
   q = store.vrQueue;
-  ok('senza scheda non consuma l\u0027articolo', q.index === 2 && q.items[2].status === 'pending');
+  ok('senza scheda non consuma l\u0027articolo', q.items[2].status === 'pending' && q.state === 'waiting');
   ok('riprova fra 1 minuto', Math.round((alarms['vr:queueNext'] - Date.now()) / 60000) === 1);
   tabs = [{ id: 1, status: 'complete' }];
 
@@ -97,7 +97,10 @@ const attesa = () => new Promise((r) => setTimeout(r, 10));
   await attesa();
   await invia({ type: 'vr:queueStop' });
   await attesa();
-  ok('stop manuale ferma tutto', !store.vrQueue.running && Object.keys(alarms).length === 0);
+  ok('stop con un articolo in volo: si chiude quando arriva il suo esito', store.vrQueue.running && store.vrQueue.stopDopoCorrente && store.vrQueue.items[0].status === 'working');
+  await invia({ type: 'vr:relistDone', itemId: '7', ok: true });
+  await attesa();
+  ok('stop manuale ferma tutto, con l\u0027esito vero dell\u0027articolo', !store.vrQueue.running && store.vrQueue.items[0].status === 'done' && Object.keys(alarms).length === 0);
 
   console.log(esiti.join('\n'));
   process.exit(esiti.some((e) => e.includes('FAIL')) ? 1 : 0);

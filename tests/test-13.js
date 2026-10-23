@@ -58,7 +58,7 @@ const items = (n) => Array.from({length:n},(_,i)=>({id:String(i+1),title:'A'+(i+
   ok(`scarto entro ±30% (${d1.toFixed(1)} min)`, d1 >= 14 && d1 <= 26);
 
   const ritardi = new Set();
-  for (let i=0;i<6;i++) { store.vrQueue.index = 1; store.vrQueue.items[1].status='pending';
+  for (let i=0;i<6;i++) { store.vrQueue.items[1].status='working'; store.vrQueue.items[1].startedAt=Date.now(); store.vrQueue.state='working';
     await invia({ type:'vr:relistDone', itemId:'2', ok:true }); await pausa();
     ritardi.add(Math.round((alarms['vr:queueNext']-Date.now())/1000)); }
   ok('gli intervalli non sono tutti uguali', ritardi.size > 1);
@@ -68,13 +68,16 @@ const items = (n) => Array.from({length:n},(_,i)=>({id:String(i+1),title:'A'+(i+
   await invia({ type:'vr:queueStart', items: items(3), intervalMin: 20 }); await pausa();
   await invia({ type:'vr:relistDone', itemId:'1', ok:false, error:'429', blocked:true }); await pausa();
   let q = store.vrQueue;
-  ok('il blocco non consuma l\u0027articolo', q.index === 0 && q.items[0].status === 'pending');
+  ok('il blocco non consuma l\u0027articolo', q.items[0].status === 'pending' && q.items[0].id === '1');
   ok('primo rallentamento 5 min', Math.round((alarms['vr:queueNext']-Date.now())/60000) === 5);
   ok('nota mostrata', /pausa 5 min/i.test(q.note));
+  await sveglia('vr:queueNext'); await pausa();
   await invia({ type:'vr:relistDone', itemId:'1', ok:false, error:'429', blocked:true }); await pausa();
   ok('secondo rallentamento 15 min', Math.round((alarms['vr:queueNext']-Date.now())/60000) === 15);
+  await sveglia('vr:queueNext'); await pausa();
   await invia({ type:'vr:relistDone', itemId:'1', ok:false, error:'429', blocked:true }); await pausa();
   ok('terzo rallentamento 45 min', Math.round((alarms['vr:queueNext']-Date.now())/60000) === 45);
+  await sveglia('vr:queueNext'); await pausa();
   await invia({ type:'vr:relistDone', itemId:'1', ok:false, error:'429', blocked:true }); await pausa();
   ok('dopo tre tentativi si ferma', !store.vrQueue.running);
   ok('motivo registrato', /continua a bloccare/i.test(store.vrQueue.note));
@@ -84,6 +87,7 @@ const items = (n) => Array.from({length:n},(_,i)=>({id:String(i+1),title:'A'+(i+
   store = {}; alarms = {};
   await invia({ type:'vr:queueStart', items: items(2), intervalMin: 20 }); await pausa();
   await invia({ type:'vr:relistDone', itemId:'1', ok:false, error:'429', blocked:true }); await pausa();
+  await sveglia('vr:queueNext'); await pausa();
   await invia({ type:'vr:relistDone', itemId:'1', ok:true }); await pausa();
   ok('il contatore di blocchi si azzera', store.vrQueue.backoff === 0 && !store.vrQueue.note);
 

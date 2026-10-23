@@ -40,7 +40,7 @@ const items=(n)=>Array.from({length:n},(_,i)=>({id:String(i+1),title:'A'+(i+1)})
   ok('conserva il lavoro fatto', store.vrQueue.items.filter(i=>i.status==='done').length === 2);
 
   await invia({type:'vr:queueRecover'}); await pausa();
-  ok('riprende da dove era', store.vrQueue.state === 'working' && store.vrQueue.index === 2);
+  ok('riprende da dove era (coda 2.0 con indice, portata al modello per id)', store.vrQueue.state === 'working' && store.vrQueue.items[2].status === 'working' && store.vrQueue.v === 3);
 
   // un alarm regolare non deve far scattare il recupero
   store.vrQueue = { items: items(3), index:0, intervalMin:20, running:true,
@@ -61,7 +61,7 @@ const items=(n)=>Array.from({length:n},(_,i)=>({id:String(i+1),title:'A'+(i+1)})
     state:'working', startedItemAt: Date.now()-20*60000, backoff:0 };
   alarms = {};
   await recuperaCoda(); await pausa();
-  ok('articolo appeso: da verificare, non rifatto alla cieca', store.vrQueue.items[1].status === 'verify' && store.vrQueue.index === 2);
+  ok('articolo appeso: da verificare, non rifatto alla cieca', store.vrQueue.items[1].status === 'verify' && store.vrQueue.items[2].status === 'pending');
   ok('stato recovering', store.vrQueue.state === 'recovering');
 
   // una coda in pausa non e' rotta

@@ -71,9 +71,16 @@
           <svg class="chev"><use href="#i-chev"/></svg>
         </button>
 
-        <a class="kofi-line" href="https://ko-fi.com/mashaup" target="_blank" rel="noopener noreferrer">
-          <svg><use href="#i-cup"/></svg> Ti è utile? Offrimi un caffè su Ko-fi
-        </a>
+        <!-- Link: niente href qui. Li mette link-chrome.js da links.json; senza link valido restano nascosti. -->
+        <footer class="project-foot">
+          <a class="kofi-line" data-link="kofi" hidden>
+            <svg><use href="#i-cup"/></svg> Ti è utile? Offrimi un caffè su Ko-fi
+          </a>
+          <span class="link-chips">
+            <a class="link-chip" data-link="github" data-link-etichetta hidden><span data-link-icona="github"></span><span class="link-label"></span></a>
+            <a class="link-chip" data-link="discord" data-link-etichetta hidden><span data-link-icona="discord"></span><span class="link-label"></span></a>
+          </span>
+        </footer>
       </section>
 
       <!-- ======================================================= NOTIFICHE -->
@@ -127,6 +134,12 @@
             <textarea id="diagText" class="diag" readonly rows="9" aria-label="Testo della diagnostica"></textarea>
             <button id="copyDiag" class="btn btn-primary" type="button">Copia diagnostica</button>
           </div>
+        </div>
+
+        <div class="card" id="linksCard">
+          <div class="card-title">Progetto e community</div>
+          <div class="link-list" data-link-elenco data-link-escludi="kofi" hidden></div>
+          <p class="desc" id="linksState" aria-live="polite"></p>
         </div>
       </section>
 
@@ -193,6 +206,7 @@
             <input type="number" data-key="delayMs" min="300" max="10000" step="100" inputmode="numeric" />
           </label>
           <label class="toggle"><span><b>Strumenti nella console</b><small>Espone funzioni di sola lettura (debugDraft, canary) nella console della pagina. Lascialo spento se non ti serve.</small></span><input type="checkbox" data-key="consoleBridge" /></label>
+          <label class="toggle"><span><b>Aggiorna i link del progetto</b><small>GitHub, Discord e gli altri link si rileggono dal repository al massimo ogni 12 ore, senza inviare dati tuoi. Spento: restano quelli della versione installata.</small></span><input type="checkbox" data-key="linksRemote" /></label>
           <label class="field"><span class="field-label">Repository per gli aggiornamenti</span>
             <input type="text" data-key="updateRepo" placeholder="MashaUP/Vinted_Relist" spellcheck="false" autocomplete="off" />
           </label>
@@ -213,7 +227,7 @@
           <button id="tutorial" class="btn quiet" type="button">Rivedi il tutorial</button>
         </details>
 
-        <a class="card kofi" href="https://ko-fi.com/mashaup" target="_blank" rel="noopener noreferrer">
+        <a class="card kofi" data-link="kofi" hidden>
           <svg class="row-icon"><use href="#i-cup"/></svg>
           <span><b>Supporta lo sviluppo</b><small>Vinted Relist è gratuito. Se ti fa risparmiare tempo, puoi offrirmi un caffè su Ko-fi.</small></span>
           <svg class="chev"><use href="#i-chev"/></svg>
@@ -229,7 +243,10 @@
 
     <script src="utils.js"></script>
     <script src="versione.js"></script>
+    <script src="link.js"></script>
+    <script src="link-chrome.js"></script>
     <script src="impostazioni.js"></script>
+    <script src="coda-logica.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

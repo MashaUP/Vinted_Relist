@@ -3,6 +3,7 @@
 const fs = require('fs');
 let store = {}, alarms = {}, tabs = [{ id: 1, status: 'complete' }];
 let notifiche = [], badge = '', aperte = [], contesti = [];
+const sessione = {};
 const L = { alarm: [], message: [], clic: [] };
 global.chrome = {
   storage: { local: {
@@ -10,7 +11,7 @@ global.chrome = {
       if (k && !Array.isArray(k)) { const o = {}; for (const [a, b] of Object.entries(k)) o[a] = a in store ? store[a] : b; return o; }
       return store; },
     set: async (o) => Object.assign(store, JSON.parse(JSON.stringify(o))), remove: async (k) => { delete store[k]; } },
-    session: { get: async () => ({}), set: async () => {} }, onChanged: { addListener() {} } },
+    session: { get: async (k) => ({ [k]: sessione[k] }), set: async (o) => Object.assign(sessione, o) }, onChanged: { addListener() {} } },
   alarms: { create: (n, o) => { alarms[n] = o.when ?? Date.now() + (o.delayInMinutes || 0) * 60000; },
     clear: (n) => { delete alarms[n]; }, get: async (n) => alarms[n] ? { name: n } : undefined,
     onAlarm: { addListener: (f) => L.alarm.push(f) } },
@@ -31,6 +32,12 @@ eval(fs.readFileSync(require('path').join(__dirname, '..', 'background.js'), 'ut
 const invia = (m) => new Promise((r) => { for (const f of L.message) if (f(m, {}, r)) return; r(null); });
 const sveglia = async (n) => { delete alarms[n]; for (const f of L.alarm) await f({ name: n }); };
 const pausa = () => new Promise((r) => setTimeout(r, 15));
+// Interrompi: se un articolo e' in volo la pagina rispetta l'annullamento (esito "cancelled").
+const ferma = async () => {
+  await invia({ type: 'vr:queueStop' }); await pausa();
+  const c = store.vrQueue?.items?.find((i) => i.status === 'working');
+  if (c) { await invia({ type: 'vr:relistDone', itemId: c.id, ok: false, outcome: 'cancelled' }); await pausa(); }
+};
 const items = (n, d = 0) => Array.from({ length: n }, (_, i) => ({ id: String(i + 1 + d), title: 'A' + (i + 1 + d) }));
 const out = []; const ok = (n, c) => out.push(`  ${c ? 'OK  ' : 'FAIL'} ${n}`);
 
@@ -46,9 +53,9 @@ const out = []; const ok = (n, c) => out.push(`  ${c ? 'OK  ' : 'FAIL'} ${n}`);
 
   // --- esiti tipizzati
   await invia({ type: 'vr:queueProgress', itemId: '1', step: 'Foto 2/5…' }); await pausa();
-  ok('avanzamento registrato sull’articolo corrente', store.vrQueue.step === 'Foto 2/5…');
+  ok('avanzamento nello storage di sessione, la coda non viene riscritta', sessione.vrQueueStep?.step === 'Foto 2/5…' && !('step' in store.vrQueue));
   await invia({ type: 'vr:queueProgress', itemId: '99', step: 'altro' }); await pausa();
-  ok('avanzamento di un altro articolo ignorato', store.vrQueue.step === 'Foto 2/5…');
+  ok('avanzamento di un altro articolo ignorato', sessione.vrQueueStep?.step === 'Foto 2/5…');
 
   await invia({ type: 'vr:relistDone', itemId: '1', ok: false, outcome: 'uncertain', error: 'timeout' }); await pausa();
   ok('esito incerto → da verificare', store.vrQueue.items[0].status === 'verify');
@@ -72,33 +79,33 @@ const out = []; const ok = (n, c) => out.push(`  ${c ? 'OK  ' : 'FAIL'} ${n}`);
   // --- archivio delle code concluse
   const primaCoda = store.vrQueue.startedAt;
   ok('coda conclusa archiviata', store.vrQueueArchive?.[0]?.startedAt === primaCoda && store.vrQueueArchive[0].items.length === 3);
-  ok('archivio compatto: niente passi né stato interno', !('step' in store.vrQueueArchive[0]) && !('index' in store.vrQueueArchive[0]) && Object.keys(store.vrQueueArchive[0].items[0]).sort().join() === 'error,id,status,thumb,title');
+  ok('archivio compatto: niente passi né stato interno, con registro e conteggi', !('step' in store.vrQueueArchive[0]) && !('nextAt' in store.vrQueueArchive[0]) && !('running' in store.vrQueueArchive[0]) && store.vrQueueArchive[0].log.length > 0 && store.vrQueueArchive[0].conteggi.verify === 2);
 
   // --- riprova: solo i falliti, mai i da verificare
   r = await invia({ type: 'vr:queueRetry' }); await pausa();
   ok('riprova falliti: solo l’articolo 3', r.ok && store.vrQueue.items.map((i) => i.id).join() === '3');
-  await invia({ type: 'vr:queueStop' }); await pausa();
+  await ferma();
 
   ok('dopo «riprova» la coda vecchia resta nell’archivio', store.vrQueueArchive.some((q) => q.startedAt === primaCoda));
   await invia({ type: 'vr:queueResolve', itemId: '1', pubblicato: true, queue: primaCoda }); await pausa();
-  await invia({ type: 'vr:queueStop' }); await pausa();
+  await ferma();
   r = await invia({ type: 'vr:queueRetry', queue: primaCoda }); await pausa();
   ok('riprova da una coda archiviata', r.ok && store.vrQueue.items.map((i) => i.id).join() === '3' && store.vrQueue.intervalMin === 20);
-  await invia({ type: 'vr:queueStop' }); await pausa();
+  await ferma();
   ok('verifica di una coda archiviata', store.vrQueueArchive.find((q) => q.startedAt === primaCoda).items[0].status === 'done');
 
   // --- lo stesso articolo due volte nella stessa richiesta
   r = await invia({ type: 'vr:queueStart', items: [{ id: '5' }, { id: '5' }, { id: '6' }] }); await pausa();
   ok('articolo ripetuto nella richiesta: entra una volta sola', r.ok && store.vrQueue.items.map((i) => i.id).join() === '5,6');
-  await invia({ type: 'vr:queueStop' }); await pausa();
+  await ferma();
 
   // --- stop con in attesa
   await invia({ type: 'vr:queueStart', items: items(3, 20), intervalMin: 20 }); await pausa();
   await invia({ type: 'vr:relistDone', itemId: '21', ok: true }); await pausa();
-  await invia({ type: 'vr:queueStop' }); await pausa();
+  await ferma();
   ok('interrompere: gli ultimi due annullati', store.vrQueue.items.filter((i) => i.status === 'cancelled').length === 2);
   ok('riavvio della stessa selezione dopo uno stop: parte', (await invia({ type: 'vr:queueStart', items: items(3, 20) })).ok);
-  await invia({ type: 'vr:queueStop' }); await pausa();
+  await ferma();
 
   // --- verifica manuale
   store.vrQueue = { running: false, items: [{ id: '7', status: 'verify', title: 'X' }, { id: '8', status: 'verify', title: 'Y' }] };

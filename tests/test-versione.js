@@ -25,7 +25,7 @@ ok('stato: errore', V.statoAggiornamento('2.0.0', { ok: false, errore: 'x' }).st
 ok('url con repository personalizzato', V.urlVersione('a/b') === 'https://api.github.com/repos/a/b/contents/version.json' && V.urlZip('Vinted_Relist-1.0.0.zip', 'a/b') === 'https://github.com/a/b/raw/HEAD/Vinted_Relist-1.0.0.zip');
 ok('un controllo al minuto', !V.puoControllare({ at: 1000 }, 30000) && V.puoControllare({ at: 1000 }, 62000) && V.puoControllare(null));
 ok('404 spiegato', /pubblico/.test(V.erroreGithub(404)) && /limitato/.test(V.erroreGithub(403)) && /raggiungibile/.test(V.erroreGithub(0)));
-ok('Ko-fi', V.KOFI === 'https://ko-fi.com/mashaup');
+ok('Ko-fi non più in versione.js (sta in links.json)', !('KOFI' in V));
 
 const md = '# Changelog\n\n## 2.0.0 · Grande (17 ottobre 2026)\n- **uno**\n- `due`\n\n## 1.9.0 - Editor\n* tre\n## 1.8.0\n- quattro\n';
 const sez = V.sezioniChangelog(md, 2);

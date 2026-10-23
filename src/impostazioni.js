@@ -67,6 +67,7 @@
     showOnOtherProfiles: booleano,
     delayMs: intero(300, 10000, "Tra 300 e 10000 millisecondi: sotto i 300 Vinted rischia di limitarti."),
     consoleBridge: booleano,
+    linksRemote: booleano,
     updateRepo: (v) => {
       const s = String(v ?? "").trim();
       if (!s) return { ok: true, valore: "" };          // vuoto = quello predefinito

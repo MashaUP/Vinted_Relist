@@ -21,20 +21,72 @@
         </div>
       </header>
 
-      <!-- Riepilogo della coda: ci arrivi dal clic sulla notifica o da «Dettagli» -->
-      <section class="panel queue-panel" id="coda" hidden tabindex="-1">
+      <!-- Gestione della coda: ci arrivi da «Gestisci», dal popup o dal clic sulla notifica -->
+      <section class="panel queue-panel" id="coda" tabindex="-1" aria-labelledby="queueTitle">
         <div class="panel-head">
-          <h2 id="queueTitle">Ultima coda</h2>
+          <div class="queue-heading">
+            <h2 id="queueTitle">Coda</h2>
+            <span class="health" id="queueHealth" role="status"></span>
+          </div>
           <label class="inline">
-            <span class="sr">Coda da mostrare</span>
+            <span>Sessione</span>
             <select id="queuePick"></select>
           </label>
         </div>
-        <p class="hint" id="queueNote"></p>
-        <div class="queue-counters" id="queueCounters"></div>
-        <div class="chips" id="queueFilters" role="group" aria-label="Filtra per stato"></div>
-        <ul class="queue-list" id="queueList"></ul>
-        <div class="actions" id="queueActions"></div>
+        <p class="hint" id="queueHealthText"></p>
+        <p class="empty" id="queueEmpty" hidden></p>
+
+        <div class="queue-summary" id="queueSummary"></div>
+        <p class="hint" id="queueEta"></p>
+        <div class="queue-current" id="queueCurrent" hidden></div>
+        <div class="actions" id="queueControls"></div>
+        <div class="confirm" id="queueConfirm" hidden role="alertdialog" aria-live="assertive"></div>
+        <p class="hint" id="queueMsg" role="status" aria-live="polite"></p>
+
+        <div id="queueToolbar">
+          <div class="toolbar">
+            <label class="search">
+              <span class="sr">Cerca nella coda</span>
+              <input type="search" id="queueSearch" placeholder="Cerca nella coda per titolo o ID…" autocomplete="off" />
+            </label>
+            <label class="inline">
+              <span>Mostra per</span>
+              <select id="queueSort">
+                <option value="posizione">Posizione (ordine vero)</option>
+                <option value="titolo">Titolo</option>
+                <option value="prezzo">Prezzo</option>
+              </select>
+            </label>
+          </div>
+          <div class="chips" id="queueFilters" role="group" aria-label="Filtra per stato"></div>
+          <p class="hint" id="queueSortNote" hidden></p>
+          <div class="selection-bar" id="queueSelBar" role="toolbar" aria-label="Azioni sugli articoli selezionati"></div>
+        </div>
+        <ul class="queue-list" id="queueList" aria-label="Articoli della sessione"></ul>
+        <p class="empty" id="queueEmptyList" hidden></p>
+
+        <div id="queueTimelineBox">
+          <details class="timeline" id="queueTimeline">
+            <summary>Cronologia <span id="queueLogCount"></span></summary>
+            <div class="chips" id="logFilters" role="group" aria-label="Filtra la cronologia"></div>
+            <ol class="log" id="queueLog"></ol>
+          </details>
+          <details class="keys" id="queueKeys">
+            <summary>Scorciatoie da tastiera</summary>
+            <ul>
+              <li><kbd>P</kbd> pausa / riprendi</li>
+              <li><kbd>A</kbd> apri l'articolo in corso</li>
+              <li><kbd>F</kbd> mostra solo i problemi</li>
+              <li><kbd>S</kbd> seleziona tutti gli articoli in attesa</li>
+              <li><kbd>Canc</kbd> rimuovi dalla coda i selezionati</li>
+              <li><kbd>H</kbd> apri la cronologia</li>
+              <li><kbd>C</kbd> copia il resoconto</li>
+              <li><kbd>Alt</kbd> + <kbd>↑</kbd> <kbd>↓</kbd> <kbd>Home</kbd> <kbd>Fine</kbd> sull'articolo: sposta (alternativa al trascinamento)</li>
+              <li><kbd>?</kbd> mostra questo elenco</li>
+            </ul>
+            <p class="hint">Valgono solo in questa pagina e quando non stai scrivendo in un campo.</p>
+          </details>
+        </div>
       </section>
 
       <section class="groups" id="groups"></section>
@@ -53,8 +105,13 @@
       <section class="panel">
         <div class="panel-head">
           <h2>Articoli</h2>
-          <button class="chip" id="clearFilter" hidden>Mostra tutti</button>
+          <div class="btn-row">
+            <button class="chip" id="clearFilter" hidden>Mostra tutti</button>
+            <button class="chip" id="clearSelection" type="button" hidden>Deseleziona</button>
+            <button class="btn btn-primary" id="addToQueue" type="button" disabled>Aggiungi alla coda</button>
+          </div>
         </div>
+        <div class="confirm" id="addConfirm" hidden role="alertdialog" aria-live="assertive"></div>
         <div class="toolbar">
           <label class="search">
             <span class="sr">Cerca per titolo</span>
@@ -78,6 +135,7 @@
           <table class="items">
             <thead>
               <tr>
+                <th class="pick-col"><span class="sr">Seleziona</span></th>
                 <th class="thumb-col"><span class="sr">Foto</span></th>
                 <th>Articolo</th>
                 <th class="num">Prezzo</th>
@@ -105,11 +163,21 @@
       <footer class="foot">
         <span>Vinted Relist <b id="version"></b></span>
         <button class="link" id="checkUpdate" type="button">Cerca aggiornamento</button>
-        <a href="https://ko-fi.com/mashaup" target="_blank" rel="noopener noreferrer">Supporta lo sviluppo su Ko-fi</a>
+        <a data-link="kofi" hidden>Supporta lo sviluppo su Ko-fi</a>
+        <!-- Link da links.json (link-chrome.js): senza link valido restano nascosti -->
+        <a class="foot-icon" data-link="github" data-link-etichetta hidden><span data-link-icona="github"></span><span class="link-label"></span></a>
+        <a class="foot-icon" data-link="discord" data-link-etichetta hidden><span data-link-icona="discord"></span><span class="link-label"></span></a>
+        <a class="foot-icon" data-link="bug-report" data-link-etichetta hidden><span data-link-icona="bug-report"></span><span class="link-label"></span></a>
       </footer>
     </main>
 
+    <script src="versione.js"></script>
+    <script src="link.js"></script>
+    <script src="link-chrome.js"></script>
     <script src="analisi.js"></script>
+    <script src="editor-logica.js"></script>
+    <script src="coda-logica.js"></script>
     <script src="dashboard.js"></script>
+    <script src="dashboard-coda.js"></script>
   </body>
 </html>

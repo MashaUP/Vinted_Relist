@@ -1,7 +1,7 @@
 // L'editor in un DOM simulato: apre, modifica, ritaglia, anteprima, pubblica.
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
-const SRC = require('path').join(__dirname, '..', '..', 'src') + '/';
+const SRC = require('path').join(__dirname, '..', '..', 'src/');
 
 const dom = new JSDOM('<!doctype html><body></body>', { pretendToBeVisual: true, runScripts: 'outside-only' });
 const { window } = dom;
@@ -23,7 +23,7 @@ window.createImageBitmap = async () => ({ width: 1200, height: 800, close(){} })
 window.HTMLCanvasElement.prototype.getContext = () => ({ scale(){}, translate(){}, rotate(){}, drawImage(){}, set imageSmoothingQuality(v){} });
 window.HTMLCanvasElement.prototype.toBlob = function (cb) { cb(new window.Blob([new Uint8Array(4096)])); };
 
-for (const f of ['utils.js', 'api.js', 'editor-logica.js', 'relist.js', 'editor.js', 'queue.js', 'ui.js']) {
+for (const f of ['utils.js', 'api.js', 'editor-logica.js', 'relist.js', 'editor.js', 'coda-logica.js', 'queue.js', 'ui.js']) {
   window.eval(fs.readFileSync(SRC + f, 'utf8'));
 }
 const VR = window.VR;

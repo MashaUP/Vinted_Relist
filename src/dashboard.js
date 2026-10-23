@@ -16,18 +16,8 @@ let dati = null;
 let filtro = null;
 let cerca = "";
 let ordine = "relist";
-let codaScelta = null;          // startedAt della coda mostrata
-let filtroCoda = "tutti";
-let codaRichiesta = false;      // arrivati da #coda: il pannello si mostra anche senza problemi
-
-const STATI = {
-  done: { nome: "Completato", classe: "ok" },
-  error: { nome: "Fallito", classe: "error" },
-  verify: { nome: "Da verificare", classe: "warn" },
-  skipped: { nome: "Saltato", classe: "" },
-  cancelled: { nome: "Annullato", classe: "" },
-  pending: { nome: "In attesa", classe: "" },
-};
+/** Articoli spuntati nella tabella, da aggiungere alla coda. Solo in memoria. */
+const selInventario = new Set();
 
 /** Ricerca che ignora maiuscole e accenti: "perche" trova "perché". */
 const piano = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
@@ -120,7 +110,14 @@ function disegna() {
     const img = foto ? crea("img", { src: foto, alt: "", loading: "lazy", decoding: "async", width: "40", height: "40" }) : null;
     // se il CDN non ha piu' la foto (annuncio ripubblicato), resta il riquadro vuoto
     img?.addEventListener("error", () => img.replaceWith(crea("span", { class: "ph" })));
+    const spunta = crea("input", { type: "checkbox", "aria-label": `Seleziona ${art.title || id}` });
+    spunta.checked = selInventario.has(id);
+    spunta.addEventListener("change", () => {
+      if (spunta.checked) selInventario.add(id); else selInventario.delete(id);
+      disegnaSelezioneInventario();
+    });
     corpo.append(crea("tr", {},
+      crea("td", { class: "pick-col" }, spunta),
       crea("td", { class: "thumb-col" }, img || crea("span", { class: "ph" })),
       crea("td", {},
         crea("a", { href: `${vintedOrigin}/items/${id}`, target: "_blank" }, art.title || `Articolo ${id}`),
@@ -138,7 +135,17 @@ function disegna() {
     : testo ? `Nessun articolo contiene «${cerca.trim()}».` : filtro ? "Nessun articolo in questo gruppo." : "";
 
   disegnaStorico(vrSnapshots);
-  disegnaCoda();
+  disegnaSelezioneInventario();
+}
+
+/** Bottone «Aggiungi alla coda» dell'elenco Articoli: conta solo gli spuntati che esistono ancora. */
+function disegnaSelezioneInventario() {
+  for (const id of [...selInventario]) if (!dati.inventory[id]) selInventario.delete(id);
+  const n = selInventario.size;
+  const b = el("addToQueue");
+  b.disabled = !n;
+  b.textContent = n ? `Aggiungi alla coda (${n})` : "Aggiungi alla coda";
+  el("clearSelection").hidden = !n;
 }
 
 /** Ordinamento della tabella; a parità, l'id tiene l'ordine stabile. */
@@ -285,144 +292,7 @@ function confronto(s) {
     tabella);
 }
 
-// ----------------------------------------------------------------------- coda
-
-function codeDisponibili() {
-  const elenco = [];
-  const corrente = dati.vrQueue;
-  if (corrente?.items?.length) elenco.push({ ...corrente, corrente: true });
-  for (const q of dati.vrQueueArchive) {
-    if (!elenco.some((x) => x.startedAt === q.startedAt)) elenco.push(q);
-  }
-  return elenco.sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
-}
-
-const daGuardare = (q) => (q?.items || []).some((i) => i.status === "error" || i.status === "verify");
-const quandoCoda = (q) => new Date(q.startedAt).toLocaleString("it-IT", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-
-function disegnaCoda() {
-  const pannello = el("coda");
-  const code = codeDisponibili();
-  const q = code.find((x) => x.startedAt === codaScelta) || (codaScelta == null ? code[0] : null);
-
-  // Senza una richiesta esplicita il pannello compare solo se c'e' qualcosa da guardare.
-  pannello.hidden = !(codaRichiesta || daGuardare(code[0]));
-  if (pannello.hidden) return;
-
-  const scelta = el("queuePick");
-  scelta.textContent = "";
-  for (const x of code) {
-    scelta.append(crea("option", { value: String(x.startedAt) },
-      `${quandoCoda(x)} · ${x.items.length} articoli${x.corrente && x.running ? " (in corso)" : ""}${x.auto ? " · automatica" : ""}`));
-  }
-  scelta.hidden = code.length < 2;
-  const lista = el("queueList");
-  const azioni = el("queueActions");
-  const contatori = el("queueCounters");
-  const filtri = el("queueFilters");
-  lista.textContent = ""; azioni.textContent = ""; contatori.textContent = ""; filtri.textContent = "";
-
-  if (!q) {
-    el("queueTitle").textContent = "Coda non trovata";
-    el("queueNote").textContent = code.length
-      ? "Questa coda non è più in archivio: si tengono le ultime 10. Sotto puoi scegliere tra quelle rimaste."
-      : "Nessuna coda registrata.";
-    if (code.length) { codaScelta = code[0].startedAt; scelta.value = String(codaScelta); }
-    return;
-  }
-  scelta.value = String(q.startedAt);
-
-  el("queueTitle").textContent = q.corrente && q.running ? "Coda in corso" : `Coda del ${quandoCoda(q)}`;
-  el("queueNote").textContent = [q.note, q.finishedAt ? `finita ${quandoFa(q.finishedAt)}` : null].filter(Boolean).join(" · ");
-
-  const conta = {};
-  for (const v of q.items) conta[v.status] = (conta[v.status] || 0) + 1;
-  for (const k of ["done", "error", "verify", "skipped", "cancelled", "pending"]) {
-    if (!conta[k]) continue;
-    contatori.append(crea("div", { class: STATI[k].classe }, crea("b", {}, conta[k]), crea("span", {}, STATI[k].nome)));
-  }
-
-  const usati = ["tutti", ...Object.keys(STATI).filter((k) => conta[k])];
-  if (!usati.includes(filtroCoda)) filtroCoda = "tutti";
-  for (const k of usati) {
-    filtri.append(crea("button", {
-      class: `chip${filtroCoda === k ? " is-active" : ""}`, type: "button", "aria-pressed": String(filtroCoda === k),
-      onclick: () => { filtroCoda = k; disegnaCoda(); },
-    }, k === "tutti" ? `Tutti (${q.items.length})` : `${STATI[k].nome} (${conta[k]})`));
-  }
-
-  const ordineStati = { verify: 0, error: 1, pending: 2, done: 3, skipped: 4, cancelled: 5 };
-  const voci = q.items
-    .filter((v) => filtroCoda === "tutti" || v.status === filtroCoda)
-    .sort((a, b) => (ordineStati[a.status] ?? 9) - (ordineStati[b.status] ?? 9));
-
-  for (const v of voci) {
-    const corrente = q.corrente && q.running && q.items[q.index] === v;
-    const stato = corrente ? { nome: "In corso", classe: "ok" } : STATI[v.status] || { nome: v.status, classe: "" };
-    const foto = miniatura(v.thumb);
-    const img = foto ? crea("img", { src: foto, alt: "", loading: "lazy", width: "40", height: "40" }) : null;
-    img?.addEventListener("error", () => img.replaceWith(crea("span", { class: "ph" })));
-    const li = crea("li", { class: `q-${v.status}` },
-      img || crea("span", { class: "ph" }),
-      crea("div", { class: "q-body" },
-        crea("a", { href: `${dati.vintedOrigin}/items/${encodeURIComponent(v.id)}`, target: "_blank", rel: "noopener" }, v.title || `Articolo ${v.id}`),
-        crea("span", { class: `tag ${stato.classe}` }, stato.nome),
-        v.error ? crea("p", { class: "q-why" }, v.error) : null));
-    if (v.status === "verify") {
-      li.append(crea("div", { class: "q-resolve" },
-        crea("button", { class: "btn", type: "button", onclick: () => risolvi(v.id, true, q.startedAt) }, "È stato pubblicato"),
-        crea("button", { class: "btn", type: "button", onclick: () => risolvi(v.id, false, q.startedAt) }, "Non è uscito")));
-    }
-    lista.append(li);
-  }
-
-  if (conta.verify) {
-    azioni.append(crea("p", { class: "hint" },
-      "«Da verificare» vuol dire che Vinted non ha dato una risposta chiara: apri l'articolo o il tuo armadio, " +
-      "guarda se il nuovo annuncio c'è e dillo qui. Così non viene ripubblicato due volte."));
-  }
-  if (conta.error && !(q.corrente && q.running)) {
-    const b = crea("button", { class: "btn btn-primary", type: "button" }, `Riprova i falliti (${conta.error})`);
-    b.addEventListener("click", async () => {
-      b.disabled = true;
-      const r = await chrome.runtime.sendMessage({ type: "vr:queueRetry", queue: q.startedAt }).catch((e) => ({ ok: false, error: e.message }));
-      const nota = crea("p", { class: `hint ${r?.ok ? "ok" : "error"}` }, r?.ok
-        ? "Coda avviata con i soli articoli falliti. Tieni aperta una scheda su Vinted."
-        : r?.error || "Non sono riuscito ad avviare la coda.");
-      azioni.append(nota);
-      if (!r?.ok) b.disabled = false;
-    });
-    azioni.prepend(b);
-  }
-}
-
-async function risolvi(itemId, pubblicato, queue) {
-  await chrome.runtime.sendMessage({ type: "vr:queueResolve", itemId, pubblicato, queue }).catch(() => {});
-}
-
-/** #coda o #coda-<id>: apre il pannello su quella coda e ci porta la vista. */
-function leggiHash() {
-  const m = /^#coda(?:-(\d+))?$/.exec(location.hash);
-  if (!m) return;
-  codaRichiesta = true;
-  codaScelta = m[1] ? Number(m[1]) : null;
-  filtroCoda = "tutti";
-  if (!dati) return;
-  disegnaCoda();
-  const pannello = el("coda");
-  pannello.scrollIntoView({ behavior: "smooth", block: "start" });
-  pannello.focus({ preventScroll: true });
-  pannello.classList.add("flash");
-  setTimeout(() => pannello.classList.remove("flash"), 1600);
-}
-
-window.addEventListener("hashchange", leggiHash);
-el("queuePick").addEventListener("change", (e) => {
-  codaScelta = Number(e.target.value);
-  filtroCoda = "tutti";
-  history.replaceState(null, "", `#coda-${codaScelta}`);
-  disegnaCoda();
-});
+// La gestione della coda e' in dashboard-coda.js (window.CodaUI).
 
 // ----------------------------------------------------------------- ripristino
 
@@ -465,8 +335,6 @@ async function carica() {
     inventory: {},
     qualityScores: {},
     vrSnapshots: [],
-    vrQueue: null,
-    vrQueueArchive: [],
     vintedOrigin: "https://www.vinted.it",
   });
   if (!/^https:\/\/www\.vinted\.[a-z.]+$/.test(dati.vintedOrigin)) dati.vintedOrigin = "https://www.vinted.it";
@@ -492,14 +360,21 @@ try {
 
 el("version").textContent = chrome.runtime.getManifest().version;
 el("checkUpdate").addEventListener("click", () => chrome.tabs.create({ url: chrome.runtime.getURL("src/popup.html#salute") }));
+// Link del progetto da links.json; se la rete manca restano quelli noti, senza avvisi.
+window.LinkChrome?.avvia(document);
 
 chrome.storage.onChanged.addListener((modifiche, area) => {
   if (area !== "local" || !dati) return;
-  if (["inventory", "qualityScores", "vrSnapshots"].some((k) => k in modifiche)) return carica();
-  // durante una coda vrQueue cambia spesso: si ridisegna solo il suo pannello
-  if ("vrQueue" in modifiche) dati.vrQueue = modifiche.vrQueue.newValue || null;
-  if ("vrQueueArchive" in modifiche) dati.vrQueueArchive = modifiche.vrQueueArchive.newValue || [];
-  if ("vrQueue" in modifiche || "vrQueueArchive" in modifiche) disegnaCoda();
+  if (["inventory", "qualityScores", "vrSnapshots"].some((k) => k in modifiche)) carica();
 });
 
-carica().then(leggiHash);
+el("addToQueue").addEventListener("click", () => {
+  const items = [...selInventario].map((id) => ({
+    id, title: dati.inventory[id]?.title || `Articolo ${id}`, thumb: dati.inventory[id]?.thumb || null, price: dati.inventory[id]?.price ?? null,
+  }));
+  if (items.length) window.CodaUI.proponiAggiunta(items);
+});
+el("clearSelection").addEventListener("click", () => { selInventario.clear(); disegna(); });
+window.addEventListener("vr-inventario-svuota", () => { selInventario.clear(); disegna(); });
+
+carica();

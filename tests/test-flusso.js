@@ -1,7 +1,7 @@
 // relist() eseguito davvero, con canvas e API di Vinted simulate: le scelte
 // dell'editor (ordine, rimozione, rotazione, ritaglio, testi) devono arrivare all'upload.
 const fs = require('fs');
-const leggi = (f) => fs.readFileSync(require('path').join(__dirname, '..', 'src') + '/' + f, 'utf8');
+const leggi = (f) => fs.readFileSync(require('path').join(__dirname, '..', 'src/') + f, 'utf8');
 const corpo = (s) => s.slice(s.indexOf('(() => {') + 8, s.lastIndexOf('})();'));
 
 let store = {}, operazioni = [], caricati = [], scaricati = [], creato = null, eliminati = [];

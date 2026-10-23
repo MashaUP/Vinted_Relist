@@ -1,0 +1,19 @@
+name: Proponi un'idea
+description: Una funzione nuova o un miglioramento
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problema
+    attributes:
+      label: Che problema risolve
+      description: Raccontalo dal tuo punto di vista: cosa fai oggi, cosa ti fa perdere tempo.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Come te la immagini
+  - type: textarea
+    id: alternative
+    attributes:
+      label: Alternative che hai provato

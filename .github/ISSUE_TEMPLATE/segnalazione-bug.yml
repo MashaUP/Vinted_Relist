@@ -1,0 +1,43 @@
+name: Segnala un problema
+description: Qualcosa non funziona come dovrebbe
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Grazie! **Non incollare** cookie, token, password, indirizzi o dati dell'account Vinted.
+        La diagnostica del popup (Salute › Diagnostica) li toglie già: puoi incollarla qui sotto.
+  - type: input
+    id: versione
+    attributes:
+      label: Versione di Vinted Relist
+      description: La trovi in alto nel popup, sotto il nome.
+      placeholder: "2.1.0"
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser e versione
+      placeholder: "Brave 1.70 / Chrome 130"
+  - type: textarea
+    id: cosa
+    attributes:
+      label: Cosa è successo
+      description: Cosa ti aspettavi e cosa è successo invece.
+    validations:
+      required: true
+  - type: textarea
+    id: passi
+    attributes:
+      label: Come ripeterlo
+      placeholder: |
+        1. Apri…
+        2. Premi…
+        3. Compare…
+  - type: textarea
+    id: diagnostica
+    attributes:
+      label: Diagnostica (facoltativa)
+      description: Popup › Salute › Prepara la diagnostica › Copia.
+      render: text

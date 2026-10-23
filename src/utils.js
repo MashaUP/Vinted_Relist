@@ -29,6 +29,7 @@
     toastDuration: "normal",  // "normal" | "long" (durate raddoppiate)
     consoleBridge: false,     // espone VR nella console della pagina, solo lettura
     updateRepo: "",           // repository GitHub per gli aggiornamenti; vuoto = MashaUP/Vinted_Relist
+    linksRemote: true,        // rilegge links.json dal repository (al massimo ogni 12 ore); spento = solo quelli installati
   };
 
   VR.settings = { ...VR.DEFAULTS };

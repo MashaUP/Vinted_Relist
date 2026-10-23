@@ -89,7 +89,17 @@
    */
   const OPZIONI_VUOTE = {
     modo: "", valore: "", aggiunta: "", cerca: "", con: "", colore: "", quando: "", intervallo: "",
+    modello: "",          // nome del modello applicato, se le opzioni sono ancora quelle
   };
+  const CAMPI_OPZIONI = ["modo", "valore", "aggiunta", "cerca", "con", "colore", "intervallo"];
+
+  /**
+   * Modelli di opzioni riutilizzabili. Solo impostazioni: niente articoli,
+   * niente orario di avvio (scade). Massimo 20.
+   */
+  const MAX_MODELLI = 20;
+  const leggiModelli = async () => (await chrome.storage.local.get("queueTemplates")).queueTemplates || [];
+  const soloCampi = (o) => Object.fromEntries(CAMPI_OPZIONI.map((k) => [k, String(o?.[k] ?? "")]));
   let opzioni = { ...OPZIONI_VUOTE };
 
   const L = () => VR.editorLogica;
@@ -114,11 +124,11 @@
 
   const euro = (n) => Number(n).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
 
-  function descriviOpzioni() {
-    const v = validate();
-    if (!v.ok) return "Opzioni da correggere";
+  /** Le opzioni della coda in parole: per il pannello, il riepilogo e la coda in corso. */
+  function descriviOverrides(o = {}, { intervalMin = null, startAt = null, modello = null } = {}) {
+    o = o || {};
     const parti = [];
-    const o = v.overrides || {};
+    if (modello) parti.push(`modello «${modello}»`);
     if (o.price) parti.push(`prezzo a ${euro(o.price)}`);
     if (o.pricePercent) parti.push(`${o.pricePercent > 0 ? "+" : ""}${o.pricePercent}% sul prezzo`);
     if (o.priceDelta) parti.push(`${o.priceDelta > 0 ? "+" : ""}${euro(o.priceDelta)} sul prezzo`);
@@ -126,9 +136,15 @@
     if (o.replace?.find) parti.push(o.replace.with ? `«${o.replace.find}» → «${o.replace.with}»` : `tolto «${o.replace.find}»`);
     if (o.autoFill) parti.push("colore dai simili se manca");
     if (o.colorIds?.length) parti.push(`colore ${(VR.settings.colorMap || {})[o.colorIds[0]] || o.colorIds[0]} se manca`);
-    if (v.startAt) parti.push(`parte ${new Date(v.startAt).toLocaleString("it-IT", { weekday: "short", hour: "2-digit", minute: "2-digit" })}`);
-    parti.push(`ogni ${v.intervalMin} min`);
-    return parti.join(" · ");
+    if (startAt) parti.push(`parte ${new Date(startAt).toLocaleString("it-IT", { weekday: "short", hour: "2-digit", minute: "2-digit" })}`);
+    if (intervalMin) parti.push(`ogni ${intervalMin} min`);
+    return parti.length ? parti.join(" · ") : "nessuna modifica";
+  }
+
+  function descriviOpzioni() {
+    const v = validate();
+    if (!v.ok) return "Opzioni da correggere";
+    return descriviOverrides(v.overrides || {}, { intervalMin: v.intervalMin, startAt: v.startAt, modello: opzioni.modello });
   }
 
   /**
@@ -163,8 +179,11 @@
     // Il toast in basso copriva i controlli: si chiude, l'evento resta nel registro.
     VR.toast.chiudiTutti();
     const h2 = VR.h;
-    let f = conIntervallo({ ...opzioni });
-    const salvate = JSON.stringify(conIntervallo({ ...opzioni }));
+    const formaDi = (o) => ({ ...soloCampi(conIntervallo(o)), quando: String(o.quando || "") });
+    let f = formaDi(opzioni);
+    const salvate = JSON.stringify(formaDi(opzioni));
+    let modelli = await leggiModelli();
+    let modelloApplicato = opzioni.modello || "";
 
     const campo = (etichetta, input, nome, nota) => {
       const errore = h2("p", { class: "vr-field__error", id: `vr-err-${nome}`, hidden: true });
@@ -204,6 +223,103 @@
     const errori = { valore: cValore.errore, aggiunta: cAggiunta.errore, cerca: cCerca.errore, quando: cQuando.errore, intervallo: cIntervallo.errore };
 
     const statoBozza = h2("span", { class: "vr-editor__badge" });
+
+    // ----- modelli
+    const etichettaModello = h2("span", { class: "vr-field__help" });
+    const sceltaModello = h2("select", { class: "vr-input vr-input--sm", "aria-label": "Modello di opzioni" });
+    const zonaModelli = h2("div", { class: "vr-templates__ask", hidden: true, role: "group" });
+    const bApplica = h2("button", { class: "vr-btn vr-btn--ghost vr-btn--sm", type: "button" }, "Applica");
+    const bElimina = h2("button", { class: "vr-btn vr-btn--quiet vr-btn--sm", type: "button" }, "Elimina");
+    const bSalvaModello = h2("button", { class: "vr-btn vr-btn--ghost vr-btn--sm", type: "button" }, "Salva come modello…");
+
+    function riempiModelli(selezionato = "") {
+      sceltaModello.textContent = "";
+      sceltaModello.append(h2("option", { value: "" }, modelli.length ? "Scegli un modello…" : "Nessun modello salvato"));
+      for (const m of modelli) sceltaModello.append(h2("option", { value: m.nome }, m.nome));
+      sceltaModello.value = selezionato;
+      sceltaModello.disabled = !modelli.length;
+      bApplica.disabled = !sceltaModello.value;
+      bElimina.disabled = !sceltaModello.value;
+    }
+    sceltaModello.addEventListener("change", () => { bApplica.disabled = bElimina.disabled = !sceltaModello.value; chiediChiudi(); });
+
+    /** Domanda in linea al posto di un confirm(): testo, pulsanti, e si richiude. */
+    function chiedi(testo, azioni) {
+      zonaModelli.textContent = "";
+      zonaModelli.hidden = false;
+      zonaModelli.append(h2("span", {}, testo), ...azioni.map(([etichetta, fn, classe]) =>
+        h2("button", { class: `vr-btn vr-btn--${classe || "ghost"} vr-btn--sm`, type: "button", onclick: fn }, etichetta)));
+      zonaModelli.querySelector("input, button")?.focus();
+    }
+    function chiediChiudi() { zonaModelli.hidden = true; zonaModelli.textContent = ""; }
+
+    function applicaModello(m) {
+      const o = soloCampi(m.opzioni);
+      modo.value = o.modo; valore.value = o.valore; aggiunta.value = o.aggiunta; cerca.value = o.cerca;
+      con.value = o.con; colore.value = o.colore || ""; intervallo.value = o.intervallo || intervalloPredefinito();
+      modelloApplicato = m.nome;
+      chiediChiudi();
+      aggiorna();
+    }
+
+    bApplica.addEventListener("click", () => {
+      const m = modelli.find((x) => x.nome === sceltaModello.value);
+      if (!m) return;
+      const sporco = JSON.stringify(f) !== salvate;
+      if (!sporco) return applicaModello(m);
+      chiedi(`Hai modifiche non salvate: sostituirle con «${m.nome}»?`, [
+        ["Sostituisci", () => applicaModello(m), "primary"], ["Annulla", chiediChiudi]]);
+    });
+
+    bElimina.addEventListener("click", () => {
+      const nome = sceltaModello.value;
+      if (!nome) return;
+      chiedi(`Eliminare il modello «${nome}»? Le code già avviate non cambiano.`, [
+        ["Elimina", async () => {
+          modelli = modelli.filter((x) => x.nome !== nome);
+          await chrome.storage.local.set({ queueTemplates: modelli });
+          if (modelloApplicato === nome) modelloApplicato = "";
+          riempiModelli();
+          chiediChiudi();
+          aggiorna();
+        }, "primary"], ["Annulla", chiediChiudi]]);
+    });
+
+    bSalvaModello.addEventListener("click", () => {
+      if (!aggiorna().ok) {
+        chiedi("Correggi prima i campi segnati: un modello si salva solo se valido.", [["Ok", chiediChiudi]]);
+        return;
+      }
+      const nome = h2("input", { class: "vr-input vr-input--sm", type: "text", maxlength: "40", placeholder: "Nome del modello", "aria-label": "Nome del modello" });
+      nome.value = modelloApplicato || "";
+      const salva = async (sostituisci = false) => {
+        const n = nome.value.trim().replace(/\s+/g, " ").slice(0, 40);
+        if (!n) { nome.focus(); return; }
+        if (!sostituisci && modelli.some((x) => x.nome === n)) {
+          chiedi(`Esiste già un modello «${n}»: sostituirlo?`, [["Sostituisci", () => { nome.value = n; salvaVero(n); }, "primary"], ["Annulla", chiediChiudi]]);
+          return;
+        }
+        salvaVero(n);
+      };
+      const salvaVero = async (n) => {
+        if (!modelli.some((x) => x.nome === n) && modelli.length >= MAX_MODELLI) {
+          chiedi(`Al massimo ${MAX_MODELLI} modelli: eliminane uno prima.`, [["Ok", chiediChiudi]]);
+          return;
+        }
+        const voce = { nome: n, opzioni: soloCampi(f), creato: Date.now() };
+        modelli = [voce, ...modelli.filter((x) => x.nome !== n)];
+        await chrome.storage.local.set({ queueTemplates: modelli });
+        modelloApplicato = n;
+        riempiModelli(n);
+        chiediChiudi();
+        aggiorna();
+      };
+      nome.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); salva(); } });
+      chiedi("Salva le opzioni attuali come:", [["Salva", () => salva(), "primary"], ["Annulla", chiediChiudi]]);
+      zonaModelli.insertBefore(nome, zonaModelli.children[1]);
+      nome.focus();
+    });
+    riempiModelli();
     const bSalva = h2("button", { class: "vr-btn vr-btn--ghost", type: "button" }, "Salva");
     const bAvvia = h2("button", { class: "vr-btn vr-btn--primary", type: "button" }, "Salva e avvia");
 
@@ -213,8 +329,13 @@
 
     function aggiorna() {
       f = { modo: modo.value, valore: valore.value, aggiunta: aggiunta.value, cerca: cerca.value,
-            con: con.value, colore: colore.value, quando: quando.value, intervallo: intervallo.value };
+            con: con.value, colore: colore.value, intervallo: intervallo.value, quando: quando.value };
       const v = L().validaOpzioniCoda(f);
+
+      // Il nome del modello resta solo finche' le opzioni sono le sue.
+      const m = modelli.find((x) => x.nome === modelloApplicato);
+      if (modelloApplicato && (!m || JSON.stringify(soloCampi(m.opzioni)) !== JSON.stringify(soloCampi(f)))) modelloApplicato = "";
+      etichettaModello.textContent = modelloApplicato ? `Modello «${modelloApplicato}»` : "";
 
       cValore.nodo.hidden = !f.modo;
       unita.textContent = f.modo === "percent" ? "%" : f.modo ? "€" : "";
@@ -259,6 +380,14 @@
         statoBozza,
         h2("button", { class: "vr-close", type: "button", "aria-label": "Chiudi senza salvare", title: "Chiudi senza salvare", onclick: () => chiudi() }, "×")),
       h2("p", { class: "vr-note" }, `Valgono per ${selezionati.size} ${selezionati.size === 1 ? "articolo selezionato" : "articoli selezionati"}. Foto, titolo intero e taglia si cambiano dal singolo articolo con Modifica.`),
+      coda?.running
+        ? h2("p", { class: "vr-note vr-note--warn" }, "C'è una coda in corso: queste opzioni valgono per la prossima coda. Gli articoli che aggiungi a quella in corso usano le opzioni con cui è partita.")
+        : null,
+      h2("div", { class: "vr-templates" },
+        h2("label", { class: "vr-templates__pick" }, h2("span", { class: "vr-field__label" }, "Modello"), sceltaModello),
+        bApplica, bElimina, h2("span", { class: "vr-templates__spacer" }), bSalvaModello),
+      zonaModelli,
+      etichettaModello,
       sezione("Prezzo",
         h2("div", { class: "vr-row" }, campo("Modalità", modo, "modo").nodo, cValore.nodo),
         anteprima),
@@ -281,6 +410,7 @@
           onclick: () => {
             modo.value = ""; valore.value = ""; aggiunta.value = ""; cerca.value = ""; con.value = "";
             colore.value = ""; quando.value = ""; intervallo.value = "20";
+            modelloApplicato = "";
             aggiorna();
           },
         }, "Ripristina predefiniti"),
@@ -291,13 +421,13 @@
 
     bSalva.addEventListener("click", async () => {
       if (!aggiorna().ok) return;
-      await salvaOpzioni(f);
+      await salvaOpzioni({ ...f, modello: modelloApplicato });
       chiudi();
       disegna();
     });
     bAvvia.addEventListener("click", async () => {
       if (!aggiorna().ok) return;
-      await salvaOpzioni(f);
+      await salvaOpzioni({ ...f, modello: modelloApplicato });
       chiudi();
       disegna();
       parti();
@@ -310,6 +440,8 @@
 
   // ------------------------------------------------------ controllo preventivo
 
+  const CL = () => window.CodaLogica;
+
   /**
    * Legge ogni articolo selezionato, senza pubblicare niente, e li divide in
    * pronti, con avvisi e bloccati. La foto si prova a scaricare solo sul primo:
@@ -317,8 +449,12 @@
    * Non garantisce il risultato: Vinted decide al momento della pubblicazione.
    */
   async function controlloPreventivo(items, overrides, avanzamento) {
-    const { vrQueue: precedente } = await chrome.storage.local.get("vrQueue");
-    const daVerificare = new Set((precedente?.items || []).filter((i) => i.status === "verify").map((i) => i.id));
+    const { vrQueue: precedente, vrQueueArchive = [] } = await chrome.storage.local.get(["vrQueue", "vrQueueArchive"]);
+    // Incerti delle ultime sessioni: potrebbero essere gia' stati ripubblicati.
+    const daVerificare = new Set();
+    for (const s of [precedente, ...vrQueueArchive.slice(0, 3)]) {
+      for (const i of s?.items || []) if (i.status === "verify") daVerificare.add(String(i.id));
+    }
 
     const esiti = [];
     for (let i = 0; i < items.length; i++) {
@@ -326,8 +462,8 @@
       const it = items[i];
       const r = await VR.canary(it.id, overrides || {}, { foto: i === 0 });
       const avvisi = [...(r.avvisi || [])];
-      if (daVerificare.has(it.id)) {
-        avvisi.unshift("era «da verificare» nella coda precedente: controlla che non sia già stato ripubblicato");
+      if (daVerificare.has(String(it.id))) {
+        avvisi.unshift("era «da verificare» in una sessione recente: controlla che non sia già stato ripubblicato");
       }
       esiti.push({ ...it, ok: r.ok, problemi: r.problemi || [], avvisi, note: r.note || [], sessione: r.sessione });
       if (r.sessione) break;            // senza sessione e' inutile leggere gli altri
@@ -336,24 +472,58 @@
     return esiti;
   }
 
-  function mostraRiepilogo(esiti, totale) {
+  /**
+   * Riepilogo prima di avviare (o di aggiungere a una coda in corso): cosa
+   * parte, in che ordine, con quali opzioni, quali prezzi cambiano e cosa resta
+   * fuori e perche'. Risolve con { items, dove } oppure null.
+   */
+  function mostraRiepilogo({ voci, controllati, rifiutati = [], attiva, overrides = {}, descrizione, totale }) {
     const h2 = VR.h;
-    const pronti = esiti.filter((e) => e.ok && !e.avvisi.length);
-    const conAvvisi = esiti.filter((e) => e.ok && e.avvisi.length);
-    const bloccati = esiti.filter((e) => !e.ok);
-    const conNote = esiti.filter((e) => (e.note || []).length);
-    const sessione = esiti.find((e) => e.sessione);
+    const bloccati = voci.filter((e) => e.ok === false);
+    const utilizzabili = voci.filter((e) => e.ok !== false);
+    const conAvvisi = utilizzabili.filter((e) => (e.avvisi || []).length);
+    const pronti = utilizzabili.filter((e) => !(e.avvisi || []).length);
+    const conNote = voci.filter((e) => (e.note || []).length);
+    const sessione = voci.find((e) => e.sessione);
+    const nonControllati = controllati ? Math.max(0, totale - voci.length) : 0;
 
     return new Promise((risolvi) => {
-      const elenco = (voci, testo) => h2("ul", { class: "vr-check-list" },
-        voci.map((e) => h2("li", {}, h2("strong", {}, e.title), " — ", testo(e).join("; "))));
+      const elenco = (lista, testo) => h2("ul", { class: "vr-check-list" },
+        lista.map((e) => h2("li", {}, h2("strong", {}, e.title), " — ", testo(e))));
 
-      const avviaTutti = h2("button", { class: "vr-btn vr-btn--primary", type: "button" },
-        bloccati.length ? `Avvia solo i ${pronti.length + conAvvisi.length} utilizzabili` : "Avvia");
-      avviaTutti.disabled = !(pronti.length + conAvvisi.length);
+      const prezzo = (e) => {
+        if (typeof e.price !== "number") return null;
+        const dopo = L().applicaPrezzo(e.price, overrides || {});
+        return dopo !== e.price
+          ? h2("span", { class: "vr-plan__price" }, `${euro(e.price)} → `, h2("b", {}, euro(dopo)))
+          : h2("span", { class: "vr-plan__price" }, euro(e.price));
+      };
 
-      const card = h2("div", { class: "vr-card vr-card--wide", role: "dialog", "aria-modal": "true" },
-        h2("h2", { class: "vr-card__title" }, "Controllo prima di avviare"),
+      const piano = h2("ol", { class: "vr-plan", "aria-label": attiva ? "Articoli da aggiungere" : "Ordine di pubblicazione" },
+        utilizzabili.map((e) => h2("li", {},
+          h2("span", { class: "vr-plan__title" }, e.title),
+          prezzo(e),
+          (e.avvisi || []).length ? h2("span", { class: "vr-tag vr-tag--warn" }, `⚠ ${e.avvisi.length}`) : null)));
+
+      let dove = "fondo";
+      const scegliDove = attiva
+        ? h2("fieldset", { class: "vr-section vr-dove" },
+          h2("legend", { class: "vr-section__title" }, "Dove inserirli"),
+          ...[["fondo", "In fondo alla coda"], ["cima", "In cima, subito dopo quello in corso"]].map(([valore, testo]) => {
+            const radio = h2("input", { type: "radio", name: "vr-dove", value: valore, checked: valore === "fondo" ? "" : null });
+            radio.addEventListener("change", () => { if (radio.checked) dove = valore; });
+            return h2("label", { class: "vr-radio" }, radio, " ", testo);
+          }))
+        : null;
+
+      const n = utilizzabili.length;
+      const conferma = h2("button", { class: "vr-btn vr-btn--primary", type: "button" },
+        attiva ? `Aggiungi ${n}` : bloccati.length ? `Avvia solo i ${n} utilizzabili` : `Avvia ${n}`);
+      conferma.disabled = !n;
+
+      const card = h2("div", { class: "vr-card vr-card--wide", role: "dialog", "aria-modal": "true", "aria-labelledby": "vr-riep-title" },
+        h2("h2", { class: "vr-card__title", id: "vr-riep-title" }, attiva ? "Aggiungi alla coda in corso" : "Prima di avviare"),
+        h2("p", { class: "vr-note" }, attiva ? `Useranno le opzioni della coda in corso: ${descrizione}.` : `Opzioni: ${descrizione}.`),
         sessione
           ? h2("p", { class: "vr-note vr-note--error" }, `Non riesco a leggere gli articoli: ${sessione.problemi[0]}. Ricarica Vinted e controlla di essere entrato.`)
           : null,
@@ -361,48 +531,97 @@
           h2("span", { class: "is-ok" }, h2("b", {}, pronti.length), " pronti"),
           h2("span", { class: "is-warn" }, h2("b", {}, conAvvisi.length), " con avvisi"),
           h2("span", { class: "is-error" }, h2("b", {}, bloccati.length), " bloccati"),
-          esiti.length < totale ? h2("span", {}, h2("b", {}, totale - esiti.length), " non controllati") : null),
-        bloccati.length ? h2("div", {}, h2("p", { class: "vr-section__title" }, "Bloccati: Vinted li rifiuterebbe"), elenco(bloccati, (e) => e.problemi)) : null,
-        conAvvisi.length ? h2("details", {}, h2("summary", {}, `Avvisi (${conAvvisi.length})`), elenco(conAvvisi, (e) => e.avvisi)) : null,
+          rifiutati.length ? h2("span", {}, h2("b", {}, rifiutati.length), attiva ? " non aggiungibili" : " esclusi") : null,
+          nonControllati ? h2("span", {}, h2("b", {}, nonControllati), " non controllati") : null),
+        controllati ? null : h2("p", { class: "vr-field__help" }, "Controllo prima di avviare spento nelle impostazioni: gli articoli non sono stati letti."),
+        n ? h2("details", { open: n <= 12 ? "" : null }, h2("summary", {}, attiva ? `Da aggiungere (${n})` : `Ordine di pubblicazione (${n})`), piano) : null,
+        scegliDove,
+        bloccati.length ? h2("div", {}, h2("p", { class: "vr-section__title" }, "Bloccati: Vinted li rifiuterebbe"), elenco(bloccati, (e) => e.problemi.join("; "))) : null,
+        rifiutati.length ? h2("details", { open: "" }, h2("summary", {}, `${attiva ? "Non aggiungibili" : "Esclusi"} (${rifiutati.length})`), elenco(rifiutati, (e) => e.motivo)) : null,
+        conAvvisi.length ? h2("details", {}, h2("summary", {}, `Avvisi (${conAvvisi.length})`), elenco(conAvvisi, (e) => e.avvisi.join("; "))) : null,
         // Assenze legittime (es. un libro senza colore): visibili, ma non contano come avvisi.
-        conNote.length ? h2("details", {}, h2("summary", {}, `Note, non sono problemi (${conNote.length})`), elenco(conNote, (e) => e.note)) : null,
+        conNote.length ? h2("details", {}, h2("summary", {}, `Note, non sono problemi (${conNote.length})`), elenco(conNote, (e) => e.note.join("; "))) : null,
         h2("p", { class: "vr-field__help" }, "Il controllo non garantisce il risultato: la decisione finale è di Vinted, al momento della pubblicazione."),
         h2("div", { class: "vr-actions" },
           h2("button", { class: "vr-btn vr-btn--ghost", type: "button", onclick: () => { risolvi(null); chiudi(); } }, "Annulla"),
-          avviaTutti));
+          conferma));
 
       // prima la risposta, poi la chiusura: chiudere risponde "annullato"
-      avviaTutti.addEventListener("click", () => { risolvi([...pronti, ...conAvvisi]); chiudi(); });
+      conferma.addEventListener("click", () => { risolvi({ items: utilizzabili, dove }); chiudi(); });
       const chiudi = VR.openOverlay(card, { onClose: () => risolvi(null) });
+      conferma.focus();
     });
   }
 
   // ------------------------------------------------------------------- avvio
 
+  /**
+   * Avvia una coda nuova, oppure — se una coda e' gia' in corso — aggiunge gli
+   * articoli selezionati a quella, senza fermarla. In entrambi i casi passa dal
+   * riepilogo: niente parte senza che tu l'abbia visto.
+   */
   async function parti() {
     if (controlloInCorso) return;          // doppio clic
+    const attiva = Boolean(coda?.running);
+    if (attiva && coda.stopDopoCorrente) {
+      VR.toast("La coda si sta chiudendo: aspetta che finisca, poi avviane una nuova.", "warn", { chiave: "avvio-coda" });
+      return;
+    }
     const v = validate();
-    if (!v.ok) return apriOpzioni({ eAvvia: true });
+    if (!attiva && !v.ok) return apriOpzioni({ eAvvia: true });
 
-    let items = [...selezionati].map(infoCard);
-    if (!items.length) return;
+    const { inventory = {} } = await chrome.storage.local.get("inventory");
+    const tutti = [...selezionati].map((id) => ({
+      ...infoCard(id),
+      price: typeof inventory[id]?.price === "number" ? inventory[id].price : null,
+    }));
+    if (!tutti.length) return;
+    const overrides = attiva ? coda.overrides || {} : v.overrides || {};
 
-    if (VR.settings.canary !== false) {
+    // Con una coda in corso: chi non puo' entrare (gia' in coda, completato,
+    // da verificare) lo dice la stessa regola che usa il service worker.
+    const rifiutati = attiva
+      ? CL().valutaAggiunta(coda, tutti).filter((x) => x.esito === "rifiuta")
+        .map((x) => ({ ...tutti.find((t) => t.id === x.id), motivo: x.motivo }))
+      : [];
+    const daControllare = tutti.filter((t) => !rifiutati.some((r) => r.id === t.id));
+
+    let voci = daControllare;
+    let controllati = false;
+    if (daControllare.length && VR.settings.canary !== false) {
       controlloInCorso = true;
       disegna();
       try {
-        const esiti = await controlloPreventivo(items, v.overrides, (n, tot) => {
+        voci = await controlloPreventivo(daControllare, overrides, (n, tot) => {
           const t = pannello?.querySelector(".vr-queue__title");
           if (t) t.textContent = `Controllo ${n} di ${tot}…`;
         });
-        const tutti = esiti.length === items.length && esiti.every((e) => e.ok && !e.avvisi.length);
-        const scelti = tutti ? esiti : await mostraRiepilogo(esiti, items.length);
-        if (!scelti) return;
-        items = scelti.map(({ id, title, thumb }) => ({ id, title, thumb }));
+        controllati = true;
       } finally {
         controlloInCorso = false;
         disegna();
       }
+    }
+
+    const scelta = await mostraRiepilogo({
+      voci, controllati, rifiutati, attiva, overrides, totale: daControllare.length,
+      descrizione: attiva ? descriviOverrides(coda.overrides, { intervalMin: coda.intervalMin }) : descriviOpzioni(),
+    });
+    if (!scelta) return;
+    const items = scelta.items.map(({ id, title, thumb, price }) => ({ id, title, thumb, price }));
+
+    if (attiva) {
+      const r = await chrome.runtime.sendMessage({ type: "vr:queueAdd", items, dove: scelta.dove });
+      if (r?.ok) {
+        const n = (r.aggiunti?.length || 0) + (r.riattivati?.length || 0);
+        const fuori = r.rifiutati?.length || 0;
+        VR.toast(`${n} ${n === 1 ? "articolo aggiunto" : "articoli aggiunti"} alla coda${fuori ? `; ${fuori} non aggiunti (${r.rifiutati[0].motivo})` : ""}.`,
+          fuori ? "warn" : "ok", { chiave: "aggiunta-coda" });
+        VR.selection.nessuno();
+      } else {
+        VR.toast(r?.error || r?.rifiutati?.[0]?.motivo || "Non sono riuscito ad aggiungere gli articoli.", "error", { chiave: "aggiunta-coda" });
+      }
+      return;
     }
 
     const esito = await chrome.runtime.sendMessage({
@@ -411,6 +630,7 @@
       intervalMin: v.intervalMin,
       overrides: v.overrides,
       startAt: v.startAt,
+      modello: opzioni.modello || null,
     });
 
     if (esito?.ok) {
@@ -442,13 +662,16 @@
 
   const bottone = (testo, classe, azione, attributi = {}) =>
     h("button", { class: `vr-btn vr-btn--${classe} vr-btn--sm`, type: "button", onclick: azione, ...attributi }, testo);
-  const comando = (tipo, extra = {}) => () => chrome.runtime.sendMessage({ type: tipo, ...extra });
 
-  function conta(c) {
-    const r = { done: 0, error: 0, verify: 0, skipped: 0, cancelled: 0, pending: 0 };
-    for (const v of c.items || []) r[v.status] = (r[v.status] || 0) + 1;
+  /** Comando al service worker: se rifiuta, il motivo si vede. */
+  const comando = (tipo, extra = {}) => async () => {
+    const r = await chrome.runtime.sendMessage({ type: tipo, ...extra }).catch((e) => ({ ok: false, error: e.message }));
+    if (r && r.ok === false && (r.motivo || r.error)) VR.toast(r.motivo || r.error, "warn", { chiave: `cmd:${tipo}` });
     return r;
-  }
+  };
+
+  /** Il passo dell'articolo che QUESTA scheda sta lavorando (le altre non lo vedono). */
+  let passoLocale = null;
 
   function disegna() {
     const inCorso = Boolean(coda?.running);
@@ -478,53 +701,60 @@
       return;
     }
 
-    if (inCorso && coda.state === "recovering") {
-      const r = conta(coda);
-      titolo.textContent = "Coda interrotta";
-      sotto.textContent = `${r.done} completati` + (r.verify ? `, ${r.verify} da verificare` : "") +
-        (r.skipped ? `, ${r.skipped} saltati` : "") + `, ${coda.items.length - coda.index} rimanenti`;
-      controlli.append(
-        bottone("Annulla coda", "ghost", comando("vr:queueStop")),
-        bottone("Riprendi", "primary", comando("vr:queueRecover")));
-      return;
-    }
-
-    if (inCorso && coda.state === "paused") {
-      titolo.textContent = `Coda in pausa: ${coda.index} di ${coda.items.length}`;
-      sotto.textContent = "Riprende da dove si era fermata.";
-      controlli.append(
-        bottone("Interrompi", "ghost", comando("vr:queueStop")),
-        bottone("Riprendi", "primary", comando("vr:queueResume")));
-      return;
-    }
-
-    if (inCorso && coda.state === "scheduled") {
-      titolo.textContent = `Coda programmata: ${coda.items.length} articoli`;
-      sotto.textContent = `Parte ${new Date(coda.nextAt).toLocaleString("it-IT", { weekday: "long", hour: "2-digit", minute: "2-digit" })}`;
-      controlli.append(bottone("Annulla", "ghost", comando("vr:queueStop")));
-      return;
-    }
+    const gestisci = () => bottone("Gestisci", "ghost", comando("vr:openPage", { pagina: "src/dashboard.html#coda" }), { title: "Apri la gestione della coda" });
+    // Con una coda in corso, la selezione si aggiunge a quella: non serve fermarla.
+    const aggiunta = () => (quanti && !coda.stopDopoCorrente
+      ? [bottone(`Aggiungi alla coda (${quanti})`, "primary", (e) => { e.currentTarget.disabled = true; parti().finally(disegna); }),
+        bottone("Nessuno", "ghost", () => VR.selection.nessuno())]
+      : []);
 
     if (inCorso) {
-      titolo.textContent = `Coda: ${coda.index} di ${coda.items.length}`;
-      // Il conto alla rovescia sta nel titolo: nel sottotitolo i nomi lunghi lo tagliavano.
-      const corrente = coda.items[coda.index];
-      if (coda.state === "working") titolo.textContent += " — in corso";
-      else if (coda.nextAt) titolo.textContent += ` — ${manca(coda.nextAt - Date.now())}`;
-      sotto.textContent = coda.note || (coda.state === "working" && coda.step ? `${corrente?.title || ""} · ${coda.step}` : corrente?.title || "");
+      const C = CL();
+      const r = C.conta(coda);
+      const cor = C.corrente(coda);
+      const pros = C.prossimo(coda);
 
-      controlli.append(
-        bottone("Pausa", "ghost", comando("vr:queuePause")),
-        bottone("Interrompi", "ghost", comando("vr:queueStop")));
-      if (!tic) tic = setInterval(disegna, 1000);
+      if (coda.state === "recovering") {
+        titolo.textContent = "Coda interrotta";
+        sotto.textContent = `${r.done} completati` + (r.verify ? `, ${r.verify} da verificare` : "") +
+          (r.skipped ? `, ${r.skipped} saltati` : "") + `, ${r.pending} in attesa`;
+        controlli.append(gestisci(), bottone("Interrompi", "ghost", comando("vr:queueStop")), bottone("Riprendi", "primary", comando("vr:queueRecover")));
+      } else if (coda.stopDopoCorrente) {
+        titolo.textContent = "Coda in chiusura";
+        sotto.textContent = cor ? `Aspetto l'esito di: ${cor.title}` : "";
+        controlli.append(gestisci());
+      } else if (coda.state === "paused") {
+        titolo.textContent = `Coda in pausa: ${r.trattati} di ${r.totale}${coda.pausaAuto ? " — fermata da sola" : ""}`;
+        sotto.textContent = coda.motivoPausa ||
+          (coda.riprendiAlle ? `Riprende alle ${new Date(coda.riprendiAlle).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}` : "Riprende da dove si era fermata.");
+        controlli.append(...aggiunta(), gestisci(), bottone("Interrompi", "ghost", comando("vr:queueStop")), bottone("Riprendi", "primary", comando("vr:queueResume")));
+      } else if (coda.state === "scheduled") {
+        titolo.textContent = `Coda programmata: ${r.totale} articoli`;
+        sotto.textContent = `Parte ${new Date(coda.nextAt).toLocaleString("it-IT", { weekday: "long", hour: "2-digit", minute: "2-digit" })}`;
+        controlli.append(...aggiunta(), gestisci(), bottone("Annulla", "ghost", comando("vr:queueStop")));
+      } else {
+        titolo.textContent = `Coda: ${r.trattati} di ${r.totale}`;
+        // Il conto alla rovescia sta nel titolo: nel sottotitolo i nomi lunghi lo tagliavano.
+        if (cor) titolo.textContent += " — in corso";
+        else if (coda.nextAt) titolo.textContent += ` — ${manca(coda.nextAt - Date.now())}`;
+        const passo = cor && passoLocale?.id === cor.id ? ` · ${passoLocale.testo}` : "";
+        sotto.textContent = coda.note || (cor ? `${cor.title}${passo}` : pros ? `Prossimo: ${pros.title}` : "");
+        controlli.append(...aggiunta(), gestisci(),
+          bottone(coda.pausaDopoCorrente ? "Pausa richiesta" : "Pausa", "ghost", comando("vr:queuePause"), { disabled: coda.pausaDopoCorrente ? "" : null }),
+          bottone("Interrompi", "ghost", comando("vr:queueStop")));
+        if (!tic) tic = setInterval(disegna, 1000);
+        return;
+      }
+      clearInterval(tic);
+      tic = null;
       return;
     }
 
     clearInterval(tic);
     tic = null;
 
-    if (conclusa) {
-      const r = conta(coda);
+    if (conclusa && !quanti) {
+      const r = CL().conta(coda);
       const daGuardare = r.error + r.verify;
       titolo.textContent = daGuardare
         ? `Finita: ${r.done} ripubblicati, ${daGuardare} da guardare`
@@ -533,15 +763,12 @@
         r.error ? `${r.error} falliti` : "",
         r.verify ? `${r.verify} da verificare` : "",
         r.cancelled ? `${r.cancelled} annullati` : "",
+        r.removed ? `${r.removed} rimossi` : "",
       ].filter(Boolean).join(" · ");
 
-      if (daGuardare) controlli.append(bottone("Dettagli", "ghost", comando("vr:openPage", { pagina: `src/dashboard.html#coda-${coda.startedAt}` })));
-      if (r.error) controlli.append(bottone(`Riprova i falliti (${r.error})`, "ghost", comando("vr:queueRetry")));
-      controlli.append(bottone("Chiudi", "ghost", async () => {
-        await chrome.storage.local.remove("vrQueue");
-        coda = null;
-        disegna();
-      }));
+      controlli.append(bottone("Dettagli", "ghost", comando("vr:openPage", { pagina: `src/dashboard.html#coda-${coda.startedAt}` })));
+      if (r.error) controlli.append(bottone(`Riprova i falliti (${r.error})`, "ghost", comando("vr:queueRetry", { queue: coda.startedAt })));
+      controlli.append(bottone("Chiudi", "ghost", comando("vr:queueClear")));
       return;
     }
 
@@ -562,6 +789,12 @@
   // ---------------------------------------------------------------- esecuzione
 
   /**
+   * Annullamenti in sospeso per gli articoli che QUESTA scheda sta lavorando.
+   * oltre = la richiesta che cambia qualcosa su Vinted e' gia' partita.
+   */
+  const lavorazioni = new Map();
+
+  /**
    * Il service worker chiede di ripubblicare un articolo: rispondo subito e
    * riferisco l'esito a cose fatte. Passa dallo stesso blocco del bottone:
    * se l'articolo e' gia' in ripubblicazione a mano, la coda lo salta.
@@ -572,36 +805,63 @@
 
     const id = String(message.itemId);
     const barra = VR.bars.get(id);
+    const stato = { richiesto: false, oltre: false };
+    lavorazioni.set(id, stato);
     const riferisci = (esito) =>
       chrome.runtime.sendMessage({ type: "vr:relistDone", itemId: id, ...esito }).catch(() => {});
 
     let ultimoPasso = 0;
     const passo = (testo) => {
+      passoLocale = { id, testo };
       barra?.stato(testo);
       const sotto = pannello?.querySelector(".vr-queue__sub");
       if (sotto) sotto.textContent = testo;
       // al popup basta un aggiornamento ogni tanto, non uno per evento
       if (Date.now() - ultimoPasso > 700 || /Fatto|Pubblico/.test(testo)) {
         ultimoPasso = Date.now();
-        chrome.runtime.sendMessage({ type: "vr:queueProgress", itemId: id, step: testo }).catch(() => {});
+        chrome.runtime.sendMessage({ type: "vr:queueProgress", itemId: id, step: testo, fase: stato.oltre ? "invio" : "preparazione" }).catch(() => {});
       }
     };
 
     barra?.occupato(true);
-    VR.esclusivo(id, () => VR.relist(id, message.overrides || {}, passo))
+    VR.esclusivo(id, () => VR.relist(id, message.overrides || {}, passo, {
+      annullato: () => stato.richiesto,
+      oltre: () => { stato.oltre = true; },
+    }))
       .then(() => {
         barra?.segnaFatto();
         riferisci({ ok: true });
       })
       .catch((e) => {
-        if (e?.duplicato) return riferisci({ ok: false, outcome: "skipped", error: "già in ripubblicazione a mano" });
-        const outcome = VR.esitoDaErrore(e);
+        if (e?.duplicato) return riferisci({ ok: false, outcome: "skipped", motivoSalto: "in-uso", error: "già in ripubblicazione a mano" });
+        const k = CL().classificaErrore(e);
+        const outcome = e?.annullato ? "cancelled" : VR.esitoDaErrore(e);
         barra?.stato(e?.message || String(e), outcome === "error" ? "error" : "warn");
         if (outcome === "partial") barra?.segnaFatto();
         else barra?.occupato(false);
-        riferisci({ ok: false, outcome, error: e?.message || String(e), blocked: Boolean(e?.blocked) });
+        riferisci({
+          ok: false, outcome, error: e?.message || String(e), blocked: Boolean(e?.blocked),
+          categoria: k.categoria, sicuro: k.sicuroRiprovare,
+        });
+      })
+      .finally(() => {
+        lavorazioni.delete(id);
+        if (passoLocale?.id === id) passoLocale = null;
       });
 
+    return false;
+  });
+
+  /** «Annulla operazione»: rispettato solo se la richiesta a Vinted non e' ancora partita. */
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type !== "vr:relistCancel") return false;
+    const stato = lavorazioni.get(String(message.itemId));
+    if (!stato) sendResponse({ ok: false, motivo: "l'articolo non è in lavorazione in questa scheda" });
+    else if (stato.oltre) sendResponse({ ok: false, troppoTardi: true });
+    else {
+      stato.richiesto = true;
+      sendResponse({ ok: true });
+    }
     return false;
   });
 

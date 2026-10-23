@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "project": "vinted-relist",
+  "revision": 1,
+  "links": {
+    "github": {
+      "url": "https://github.com/MashaUP/Vinted_Relist",
+      "enabled": true,
+      "label": "GitHub",
+      "description": "Codice sorgente e nuove versioni"
+    },
+    "discord": {
+      "url": "https://discord.gg/EPsbQCuAkx",
+      "enabled": true,
+      "label": "Discord",
+      "description": "Community: domande, idee e aiuto"
+    },
+    "kofi": {
+      "url": "https://ko-fi.com/mashaup",
+      "enabled": true,
+      "label": "Ko-fi",
+      "description": "Offrimi un caffè se ti è utile"
+    },
+    "documentation": {
+      "url": "https://github.com/MashaUP/Vinted_Relist#readme",
+      "enabled": true,
+      "label": "Guida",
+      "description": "Come si installa e come si usa"
+    },
+    "bug-report": {
+      "url": "https://github.com/MashaUP/Vinted_Relist/issues/new?template=segnalazione-bug.yml",
+      "enabled": true,
+      "label": "Segnala un problema",
+      "description": "Apre una segnalazione su GitHub"
+    },
+    "feature-request": {
+      "url": "https://github.com/MashaUP/Vinted_Relist/issues/new?template=proposta.yml",
+      "enabled": true,
+      "label": "Proponi un'idea",
+      "description": "Chiedi una funzione nuova"
+    },
+    "changelog": {
+      "url": "https://github.com/MashaUP/Vinted_Relist/blob/main/CHANGELOG.md",
+      "enabled": true,
+      "label": "Novità",
+      "description": "Cosa cambia in ogni versione"
+    }
+  }
+}

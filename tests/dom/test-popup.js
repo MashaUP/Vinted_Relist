@@ -1,15 +1,21 @@
 // Popup 2.0: viste, coda, notifiche, salute, aggiornamenti, impostazioni.
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
-const SRC = require('path').join(__dirname, '..', '..', 'src') + '/';
+const SRC = require('path').join(__dirname, '..', '..', 'src/');
 let pass = 0, fail = 0;
 const ok = (n, c) => { console.log(`  ${c ? 'OK  ' : 'FAIL'} ${n}`); c ? pass++ : fail++; };
 const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
 
 const CHANGELOG = '# Changelog\n\n## 2.0.0 · Popup nuovo (17 ottobre 2026)\n- **Popup** a schede\n- Download delle foto\n\n## 1.9.0 · Editor\n- Ritaglio\n';
 
-async function apri(store, { hash = '', session = {}, versioneRemota = null, statoRemoto = 200, inScheda = false } = {}) {
-  const html = fs.readFileSync(SRC + 'popup.html', 'utf8').replace(/<script[^>]*><\/script>/g, '');
+const LINKS = fs.readFileSync(SRC + '../links.json', 'utf8');
+
+async function apri(store, { hash = '', session = {}, versioneRemota = null, statoRemoto = 200, inScheda = false,
+  linkRemoto = null, statoLink = 404, linksPacchetto = LINKS } = {}) {
+  const sorgente = fs.readFileSync(SRC + 'popup.html', 'utf8');
+  // Gli script nell'ordine dell'HTML: un file aggiunto alla pagina entra anche nel test.
+  const script = [...sorgente.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]);
+  const html = sorgente.replace(/<script[^>]*><\/script>/g, '');
   const dom = new JSDOM(html, { runScripts: 'outside-only', url: `chrome-extension://abc/src/popup.html${hash}` });
   const w = dom.window;
   const ascoltatori = [];
@@ -17,6 +23,7 @@ async function apri(store, { hash = '', session = {}, versioneRemota = null, sta
   const schede = [];
   const scaricati = [];
   const richieste = [];
+  const richiesteLink = [];
   const errori = [];
   w.addEventListener('error', (e) => errori.push(e.message));
   let ricaricata = false;
@@ -48,19 +55,25 @@ async function apri(store, { hash = '', session = {}, versioneRemota = null, sta
     tabs: { query: async () => [], create: async (o) => schede.push(o.url), getCurrent: async () => (inScheda ? { id: 1 } : undefined) },
     downloads: { download: async (o) => { scaricati.push(o); return 1; } },
   };
-  w.fetch = async (url) => {
+  w.fetch = async function (url) {
     richieste.push(url);
     if (url.endsWith('CHANGELOG.md')) return { ok: true, text: async () => CHANGELOG };
+    if (url === 'chrome-extension://abc/links.json') return { ok: true, status: 200, text: async () => linksPacchetto };
+    if (/\/contents\/links\.json$/.test(url)) {
+      richiesteLink.push({ url, opzioni: arguments[1] });
+      if (statoLink === 'rete') throw new TypeError('Failed to fetch');
+      return { ok: statoLink === 200, status: statoLink, text: async () => (typeof linkRemoto === 'string' ? linkRemoto : JSON.stringify(linkRemoto)) };
+    }
     return { ok: statoRemoto === 200, status: statoRemoto, text: async () => JSON.stringify(versioneRemota) };
   };
   let appunti = '';
   Object.defineProperty(w.navigator, 'clipboard', { value: { writeText: async (t) => { appunti = t; } } });
   w.close = () => {};
-  for (const f of ['utils.js', 'versione.js', 'impostazioni.js', 'popup.js']) w.eval(fs.readFileSync(SRC + f, 'utf8'));
-  await tick(30);
+  for (const f of script) w.eval(fs.readFileSync(SRC + f, 'utf8'));
+  await tick(50);
   const d = w.document;
   return {
-    w, d, store, messaggi, schede, scaricati, richieste, errori, ascoltatori,
+    w, d, store, messaggi, schede, scaricati, richieste, richiesteLink, errori, ascoltatori,
     appunti: () => appunti, ricaricata: () => ricaricata,
     btn: (testo, radice = d) => [...radice.querySelectorAll('button')].find((b) => b.textContent.trim() === testo),
     tab: (nome) => d.querySelector(`.tab[data-tab="${nome}"]`),
@@ -100,19 +113,35 @@ const EVENTI = [
 
   // ------------------------------------------------------------- coda in corso
   const items = Array.from({ length: 12 }, (_, i) => ({ id: String(100 + i), title: `Articolo ${i}`, status: i < 2 ? 'done' : i === 2 ? 'error' : 'pending', thumb: i === 3 ? 'https://images1.vinted.net/t/x.webp' : null }));
-  p = await apri({ userId: '1', vrQueue: { running: true, state: 'working', index: 3, items, startedAt: 1700, step: 'Carico le foto 2 di 5' } });
+  // coda salvata da una 2.0 (con l'indice): il popup la legge nel modello nuovo
+  p = await apri({ userId: '1', vrQueue: { running: true, state: 'working', index: 3, items, startedAt: 1700 } },
+    { session: { vrQueueStep: { itemId: '103', step: 'Carico le foto 2 di 5', fase: 'preparazione' } } });
   const card = p.d.getElementById('queueCard');
   ok('anello 3/12', card.querySelector('.ring span').textContent === '3/12');
   ok('chip «In corso» e passo corrente', /In corso/.test(card.textContent) && /Carico le foto 2 di 5/.test(card.textContent));
   ok('articolo corrente con miniatura del CDN', card.querySelector('.current img')?.getAttribute('src') === 'https://images1.vinted.net/t/x.webp');
   ok('contatori: 2 completati, 1 fallito, 9 rimanenti', [...card.querySelectorAll('.counters b')].map((b) => b.textContent).join() === '2,1,0,9');
-  p.btn('Pausa').click(); p.btn('Salta').click(); p.btn('Interrompi').click(); await tick();
-  ok('Pausa/Salta/Interrompi mandano i comandi', p.messaggi.map((m) => m.type).join() === 'vr:queuePause,vr:queueSkip,vr:queueStop');
+  ok('in lavorazione niente «Salta»: c\'è «Annulla operazione»', !p.btn('Salta il prossimo') && p.btn('Annulla operazione') && !p.btn('Annulla operazione').disabled);
+  p.btn('Pausa').click(); p.btn('Annulla operazione').click(); p.btn('Interrompi').click(); await tick();
+  ok('Pausa/Annulla/Interrompi mandano i comandi', p.messaggi.map((m) => m.type).join() === 'vr:queuePause,vr:queueCancelCurrent,vr:queueStop');
+  p.btn('Gestisci coda').click(); await tick();
+  ok('«Gestisci coda» apre il menu nella dashboard', p.messaggi.at(-1).type === 'vr:openPage' && p.messaggi.at(-1).pagina === 'src/dashboard.html#coda');
+  p.ascoltatori.forEach((f) => f({ vrQueueStep: { newValue: { itemId: '103', step: 'Pubblico…', fase: 'invio' } } }, 'session')); await tick();
+  ok('richiesta già partita: «Annulla operazione» spento con il motivo', p.btn('Annulla operazione').disabled && /già partita/.test(p.btn('Annulla operazione').title));
+
+  // a riposo: si vede il prossimo e si può saltarlo
+  const riposo = items.map((x) => ({ ...x, status: x.status === 'pending' && x.id === '103' ? 'pending' : x.status }));
+  p = await apri({ userId: '1', vrQueue: { v: 3, running: true, state: 'waiting', nextAt: Date.now() + 60000, items: riposo, startedAt: 1700, log: [] } });
+  ok('a riposo: prossimo articolo e «Salta il prossimo»', /Prossimo · ID 103/.test(p.d.getElementById('queueCard').textContent) && p.btn('Salta il prossimo'));
+  ok('salute: un fallito chiede attenzione, con cosa fare', /Attenzione richiesta/.test(p.d.getElementById('queueCard').textContent) && /riprova/.test(p.d.getElementById('queueCard').textContent));
+  p = await apri({ userId: '1', vrQueue: { v: 3, running: true, state: 'paused', pausaAuto: true, motivoPausa: '3 esiti negativi di fila', items: riposo, startedAt: 1700, log: [] } });
+  ok('fermata da sola: titolo e motivo', /Coda fermata da sola/.test(p.d.getElementById('queueCard').textContent) && /3 esiti negativi/.test(p.d.getElementById('queueCard').textContent));
+  p = await apri({ userId: '1', vrQueue: { running: true, state: 'working', index: 3, items, startedAt: 1700 } });
 
   // miniatura da un dominio estraneo: ignorata
   items[3].thumb = 'https://evil.example/x.png';
   await p.w.chrome.storage.local.set({ vrQueue: { running: true, state: 'working', index: 3, items, startedAt: 1700 } });
-  ok('miniature solo dal CDN di Vinted', !card.querySelector('.current img'));
+  ok('miniature solo dal CDN di Vinted', !p.d.getElementById('queueCard').querySelector('.current img'));
 
   // ------------------------------------------------------------ coda conclusa
   const fine = [
@@ -231,7 +260,87 @@ const EVENTI = [
   p.btn('Importa…').click(); await tick();
   ok('importa dal popup: apre la scheda (il selettore chiuderebbe il popup)', p.messaggi.at(-1)?.pagina === 'src/popup.html#impostazioni');
 
+  ok('backup: niente cache dei link', !('vrLinks' in json.impostazioni));
   ok('nessun errore JavaScript', !p.errori.length);
+
+  // ------------------------------------------------------------- link del progetto
+  const vis = (q) => q.d.querySelectorAll('[data-link]:not([hidden])');
+  const chip = (q, id) => q.d.querySelector(`.link-chip[data-link="${id}"]`);
+  const elencoIds = (q) => [...q.d.querySelectorAll('[data-link-elenco] .link-item')].map((x) => x.dataset.linkId);
+  const remota = (links, revision = 2, extra = {}) => ({ schemaVersion: 1, project: 'vinted-relist', revision, links, ...extra });
+  const DISCORD2 = 'https://discord.gg/NuovoInvito';
+
+  p = await apri({});
+  ok('L1. GitHub e Discord nel piede dal links.json del pacchetto', chip(p, 'github').href === 'https://github.com/MashaUP/Vinted_Relist' && chip(p, 'discord').href === 'https://discord.gg/EPsbQCuAkx' && !chip(p, 'github').hidden);
+  ok('    etichette dal file, aperti in una scheda nuova senza referrer', chip(p, 'github').textContent.trim() === 'GitHub' && chip(p, 'discord').title && [...vis(p)].every((x) => x.target === '_blank' && /noopener/.test(x.rel) && /noreferrer/.test(x.rel)));
+  ok('    nessun link visibile senza destinazione, nessun href vuoto o «#»', [...vis(p)].every((x) => /^https:\/\//.test(x.getAttribute('href'))) && !p.d.querySelector('a[href=""], a[href="#"]'));
+  ok('    raggiungibili da tastiera (veri link con href)', chip(p, 'github').tabIndex === 0 && chip(p, 'discord').tabIndex === 0);
+  ok('    icone decorative nascoste ai lettori di schermo', [...p.d.querySelectorAll('.link-chip svg')].every((x) => x.getAttribute('aria-hidden') === 'true') && p.d.querySelectorAll('.link-chip svg').length === 2);
+  ok('L2. Salute: elenco del progetto senza doppioni di Ko-fi', elencoIds(p).join() === 'github,discord,documentation,bug-report,feature-request,changelog');
+  ok('    nessun URL duplicato nell\'HTML del popup', !/https:\/\/(github\.com|discord|ko-fi)/.test(fs.readFileSync(SRC + 'popup.html', 'utf8')));
+  ok('    remoto non ancora pubblicato (404): una riga discreta, nessuna notifica', /versione installata/.test(p.d.getElementById('linksState').textContent) && /non ancora pubblicato/.test(p.d.getElementById('linksState').textContent) && !p.messaggi.some((m) => /notif/i.test(m.type || '')));
+  const richiesta = p.richiesteLink[0];
+  ok('    richiesta: API del repository, senza credenziali, senza cache del browser', richiesta.url === 'https://api.github.com/repos/MashaUP/Vinted_Relist/contents/links.json' && richiesta.opzioni.credentials === 'omit' && richiesta.opzioni.cache === 'no-store' && !JSON.stringify(richiesta.opzioni).match(/cookie|token|authorization/i));
+
+  p = await apri({}, { statoLink: 200, linkRemoto: remota({ discord: { url: DISCORD2, enabled: true } }) });
+  ok('L3. remoto valido: Discord cambia senza una nuova versione', chip(p, 'discord').href === DISCORD2 && chip(p, 'github').href === 'https://github.com/MashaUP/Vinted_Relist');
+  ok('    etichetta mancante nel remoto: resta quella del pacchetto', chip(p, 'discord').textContent.trim() === 'Discord');
+  ok('    salvato in cache con revisione e repository', p.store.vrLinks.cache.revision === 2 && p.store.vrLinks.cache.repo === 'MashaUP/Vinted_Relist' && p.store.vrLinks.okAt > 0);
+  ok('    stato: «aggiornati dal progetto»', /aggiornati dal progetto/.test(p.d.getElementById('linksState').textContent));
+  const cacheValida = JSON.parse(JSON.stringify(p.store.vrLinks));
+
+  const dueMinutiFa = Date.now() - 120e3;
+  p = await apri({ vrLinks: { ...cacheValida, okAt: dueMinutiFa, tentativoAt: dueMinutiFa } }, { statoLink: 200, linkRemoto: remota({ discord: { url: 'https://discord.gg/Altro' } }) });
+  ok('L4. cache fresca: nessuna richiesta prima di 12 ore', p.richiesteLink.length === 0 && chip(p, 'discord').href === DISCORD2);
+  p.btn('Cerca aggiornamento').click(); await tick(50);
+  ok('    «Cerca aggiornamento» rinnova anche i link', p.richiesteLink.length === 1 && chip(p, 'discord').href === 'https://discord.gg/Altro');
+  p.btn('Cerca aggiornamento').click(); await tick(50);
+  ok('    ma non più di una volta al minuto', p.richiesteLink.length === 1);
+
+  const vecchia = { ...cacheValida, okAt: Date.now() - 13 * 3600e3, tentativoAt: Date.now() - 13 * 3600e3 };
+  p = await apri({ vrLinks: vecchia }, { statoLink: 200, linkRemoto: '{"schemaVersion": 1, "links": {' });
+  ok('L5. JSON remoto rotto: restano i link in cache, la cache non si tocca', chip(p, 'discord').href === DISCORD2 && p.store.vrLinks.cache.revision === 2 && /non è un JSON valido/.test(p.store.vrLinks.errore));
+  ok('    lo dice una volta, senza allarmi', /Ultimo controllo non riuscito/.test(p.d.getElementById('linksState').textContent));
+
+  p = await apri({ vrLinks: vecchia }, { statoLink: 'rete' });
+  ok('L6. offline: link dalla cache, nessun errore', chip(p, 'discord').href === DISCORD2 && /rete non raggiungibile/.test(p.store.vrLinks.errore) && !p.errori.length);
+  ok('    il popup funziona lo stesso (coda e salute)', p.d.getElementById('queueCard').childElementCount > 0);
+
+  p = await apri({}, { statoLink: 200, linkRemoto: remota({ discord: { url: 'x', enabled: true } }, 2, { schemaVersion: 2 }) });
+  ok('L7. schema più nuovo: ignorato, restano i predefiniti', chip(p, 'discord').href === 'https://discord.gg/EPsbQCuAkx' && !p.store.vrLinks.cache && /più recente/.test(p.store.vrLinks.errore));
+
+  p = await apri({}, { statoLink: 200, linkRemoto: remota({ discord: { enabled: false } }) });
+  ok('L8. Discord spento dal remoto: sparisce ovunque, senza href', chip(p, 'discord').hidden && !chip(p, 'discord').hasAttribute('href') && !elencoIds(p).includes('discord'));
+
+  p = await apri({}, { statoLink: 200, linkRemoto: remota({ discord: { url: 'javascript:alert(1)' }, github: { url: 'https://evil.example/x' }, 'bug-report': { url: 'https://github.com/MashaUP/Vinted_Relist/issues' } }) });
+  ok('L9. protocolli e siti non consentiti scartati voce per voce', chip(p, 'discord').href === 'https://discord.gg/EPsbQCuAkx' && chip(p, 'github').href === 'https://github.com/MashaUP/Vinted_Relist');
+  ok('    le voci valide dello stesso file si applicano', p.d.querySelector('[data-link-id="bug-report"]').href === 'https://github.com/MashaUP/Vinted_Relist/issues' && p.store.vrLinks.cache.scartati.length === 2);
+  ok('    nessun javascript: nella pagina', !p.d.querySelector('a[href^="javascript"]'));
+
+  p = await apri({}, { statoLink: 200, linkRemoto: remota({ discord: { url: DISCORD2 } }, 0) });
+  ok('L10. remoto più vecchio del pacchetto (revision): ignorato', chip(p, 'discord').href === 'https://discord.gg/EPsbQCuAkx' && /più vecchio/.test(p.store.vrLinks.errore));
+
+  p = await apri({ vrLinks: { ...cacheValida, cache: { ...cacheValida.cache, revision: 0 } } });
+  ok('L11. cache più vecchia del pacchetto installato: vince il pacchetto', chip(p, 'discord').href === 'https://discord.gg/EPsbQCuAkx');
+
+  p = await apri({ updateRepo: 'altro/Fork' });
+  ok('L12. repository personalizzato: i link si leggono da lì', p.richiesteLink[0].url === 'https://api.github.com/repos/altro/Fork/contents/links.json');
+  p = await apri({ updateRepo: 'altro/Fork', vrLinks: cacheValida });
+  ok('    la cache di un altro repository non si usa', chip(p, 'discord').href === 'https://discord.gg/EPsbQCuAkx');
+
+  p = await apri({}, { linksPacchetto: '{rotto' });
+  ok('L13. links.json del pacchetto rotto: link nascosti, niente crash', vis(p).length === 0 && !p.errori.length && p.d.getElementById('queueCard').childElementCount > 0);
+  p = await apri({}, { statoLink: 200, linkRemoto: { schemaVersion: 1, project: 'altro-progetto', revision: 5, links: { discord: { url: DISCORD2 } } } });
+  ok('L14. file di un altro progetto rifiutato', chip(p, 'discord').href === 'https://discord.gg/EPsbQCuAkx' && /altro progetto/.test(p.store.vrLinks.errore));
+  p = await apri({ linksRemote: false, vrLinks: cacheValida }, { statoLink: 200, linkRemoto: remota({ discord: { url: 'https://discord.gg/Altro' } }) });
+  ok('L15. aggiornamento spento: nessuna richiesta, solo i link installati', p.richiesteLink.length === 0 && chip(p, 'discord').href === 'https://discord.gg/EPsbQCuAkx' && /spento/.test(p.d.getElementById('linksState').textContent));
+  p.btn('Cerca aggiornamento').click(); await tick(50);
+  ok('    nemmeno con «Cerca aggiornamento»', p.richiesteLink.length === 0);
+  const interruttore = p.d.querySelector('[data-key="linksRemote"]');
+  ok('    l\'interruttore è in Avanzate e rispecchia il valore', interruttore && interruttore.checked === false);
+  await p.cambia(interruttore, true); await tick(30);
+  ok('    riacceso: torna la cache valida senza riaprire il popup', p.store.linksRemote === true && chip(p, 'discord').href === DISCORD2);
+  ok('nessun errore JavaScript nei test dei link', !p.errori.length);
   console.log(`\n${pass} OK, ${fail} FAIL`);
   process.exit(fail ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

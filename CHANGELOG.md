@@ -6,6 +6,37 @@ ultime tre leggendo questo file dall'estensione installata.
 Numerazione `x.y.z`: **x** quando cambia il modo di usarla o i dati salvati in modo non
 compatibile, **y** per funzioni nuove, **z** per sole correzioni.
 
+## 2.1.0 · Code dinamiche e link del progetto (23 ottobre 2026)
+
+Minor: funzioni nuove retrocompatibili. Le code della 2.0 si convertono da sole alla prima lettura;
+impostazioni, storico e inventario restano com'erano.
+
+### Nuovo
+- **Code dinamiche:** aggiungi, rimuovi e riordina articoli anche mentre la coda lavora o è in
+  pausa; alla ripresa vale l'elenco aggiornato. «Aggiungi alla coda» dalla pagina, in fondo o in cima.
+- **Pagina di gestione della coda** nella dashboard: stato di ogni articolo con etichetta e icona,
+  azioni sulla riga e su più articoli, ricerca, filtri, trascinamento e riordino da tastiera.
+- **Rimuovi dalla coda, Annulla operazione, Interrompi la sessione** sono tre gesti distinti;
+  rimuovere non cancella niente su Vinted, annullare funziona solo prima dell'invio.
+- Pausa dopo l'articolo in corso e **pausa a tempo**, ripresa affidabile anche a popup chiuso.
+- **Stima dei tempi**, salute della coda, errori per categoria con cosa fare; pausa prudente
+  dopo tre problemi di fila.
+- **Cronologia** filtrabile, esportazione CSV e JSON, resoconto da copiare; sessioni precedenti da
+  riprendere senza mai ripubblicare quelle già fatte; **modelli** di opzioni.
+- **Link del progetto centralizzati** in `links.json`: icone GitHub e Discord nel popup e nella
+  dashboard, sezione «Progetto e community» in Salute. L'invito Discord si cambia sul repository
+  senza una versione nuova (si spegne in Impostazioni › Avanzate).
+- Modelli per segnalare un problema e proporre un'idea su GitHub; `tests/valida-link.js`.
+
+### Corretto
+- **Esito perso con passo ed esito simultanei** (possibile doppia pubblicazione): le modifiche
+  alla coda ora le fa solo il service worker, una alla volta. In prova: 11 esiti persi su 40
+  prima, 0 dopo.
+- «Interrompi» e «Salta» durante una pubblicazione segnavano annullato o saltato un articolo
+  forse già pubblicato: ora si aspetta il suo esito.
+- Nella pagina della coda comparivano scritte «null» accanto ai contatori e ai bottoni.
+- Dopo un'azione su più articoli la selezione cambiava ma la vista no.
+
 ## 2.0.1 · Campi per categoria: niente falsi allarmi su libri e manga (19 ottobre 2026)
 
 Patch: cambia come vengono classificati i campi mancanti, non il flusso di pubblicazione.

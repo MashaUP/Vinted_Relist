@@ -10,7 +10,7 @@
    * Se il repository ha un altro nome, va cambiato qui e solo qui.
    */
   const REPO = "MashaUP/Vinted_Relist";
-  const KOFI = "https://ko-fi.com/mashaup";
+  // Ko-fi, Discord e gli altri link non stanno qui: vedi links.json e link.js.
 
   /**
    * Il nome del repository non e' verificabile da qui: si puo' cambiare nelle
@@ -116,7 +116,7 @@
   const IMPOSTAZIONI_DIAGNOSTICA = [
     "deleteOld", "order", "delayMs", "autoReload", "showOnOtherProfiles", "queueIntervalMin",
     "humanRhythm", "notifyOnFinish", "canary", "autoFill", "peakOnly", "peakWindows",
-    "autoRule", "autoRuleDays", "autoRuleMax", "toastsEnabled", "toastDuration", "consoleBridge", "updateRepo",
+    "autoRule", "autoRuleDays", "autoRuleMax", "toastsEnabled", "toastDuration", "consoleBridge", "updateRepo", "linksRemote",
   ];
 
   /** Toglie dal testo tutto quello che somiglia a un segreto o a un contatto. */
@@ -169,7 +169,7 @@
   }
 
   const api = {
-    REPO, KOFI, URL_VERSIONE, URL_REPO, urlVersione, urlRepo, urlZip, puoControllare, erroreGithub, ATTESA_CONTROLLO_MS,
+    REPO, URL_VERSIONE, URL_REPO, urlVersione, urlRepo, urlZip, puoControllare, erroreGithub, ATTESA_CONTROLLO_MS,
     confrontaVersioni, leggiVersioneRemota, statoAggiornamento, sezioniChangelog,
     costruisciDiagnostica, ripulisci,
   };
