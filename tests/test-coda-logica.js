@@ -130,7 +130,7 @@ let { riprendibili, esclusi } = C.daRiprendere({ items: [
   { id: '4', status: 'verify' }, { id: '5', status: 'removed' }, { id: '6', status: 'error', sicuro: 'no' }] });
 ok('ripresa di una sessione: solo falliti riprovabili e annullati, mai i completati', riprendibili.map((a) => a.id).join() === '2,3' && esclusi.map((e) => e.id).join() === '1,4,5,6');
 const csv = C.esportaCSV({ startedAt: T0, items: [{ id: '1', title: '=HYPERLINK("x")', status: 'done' }, { id: '2', title: 'Libro, "bello"', status: 'error', error: 'a\nb' }] });
-ok('CSV: intestazione e righe', csv.split('\r\n')[0].startsWith('sessione,ordine,id,titolo,stato'));
+ok('CSV: intestazione e righe', csv.split('\r\n')[0].startsWith('sessione,ordine,id,titolo,batch,stato'));
 ok('CSV: formule neutralizzate, virgolette e a capo protetti', csv.includes(`'=HYPERLINK`) && csv.includes('"Libro, ""bello"""') && csv.includes('"a\nb"'));
 const js = C.esportaJSON(coda, '2.1.0');
 ok('JSON: formato riconoscibile, eventi con natura', js.formato === 'vinted-relist-sessione' && js.eventi.every((e) => e.natura) && js.articoli.length === coda.items.length);

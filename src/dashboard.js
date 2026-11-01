@@ -52,7 +52,7 @@ function disegna() {
   const { inventory, qualityScores, vrSnapshots, vintedOrigin } = dati;
   const ids = Object.keys(inventory);
   const gruppi = A.classifica(inventory, qualityScores);
-  const valore = A.valoreTotale(inventory);
+  const valore = A.statoValore(inventory, dati.vrQueue);
   const doppi = A.duplicati(inventory);
   const sospetti = new Set(doppi.flatMap((c) => [c.a, c.b]));
   const gruppoDi = {};
@@ -61,8 +61,7 @@ function disegna() {
   el("summary").textContent = ids.length
     ? `${ids.length} articoli conosciuti`
     : "Nessun articolo ancora: apri il tuo armadio su Vinted e torna qui.";
-  el("value").textContent = euro(valore.totale);
-  el("value").title = `Somma di ${valore.conPrezzo} prezzi letti dalle card`;
+  disegnaValore(valore);
 
   // gruppi
   const box = el("groups");
@@ -328,6 +327,19 @@ async function ripristina(s, bottone) {
   }
 }
 
+/**
+ * Valore dell'armadio: si aggiorna da solo a ogni pubblicazione confermata
+ * (l'inventario cambia e questa pagina lo rilegge). Se una pubblicazione e' in
+ * corso o da verificare lo dice, invece di dare il numero per definitivo.
+ */
+function disegnaValore(valore) {
+  el("value").textContent = euro(valore.totale);
+  el("value").title = `Somma di ${valore.conPrezzo} prezzi degli articoli conosciuti`;
+  const nota = el("valueNote");
+  nota.hidden = !valore.provvisorio;
+  nota.textContent = valore.provvisorio ? `In aggiornamento: ${valore.nota}` : "";
+}
+
 // ------------------------------------------------------------------- avvio
 
 async function carica() {
@@ -336,6 +348,7 @@ async function carica() {
     qualityScores: {},
     vrSnapshots: [],
     vintedOrigin: "https://www.vinted.it",
+    vrQueue: null,
   });
   if (!/^https:\/\/www\.vinted\.[a-z.]+$/.test(dati.vintedOrigin)) dati.vintedOrigin = "https://www.vinted.it";
   disegna();
@@ -366,6 +379,10 @@ window.LinkChrome?.avvia(document);
 chrome.storage.onChanged.addListener((modifiche, area) => {
   if (area !== "local" || !dati) return;
   if (["inventory", "qualityScores", "vrSnapshots"].some((k) => k in modifiche)) carica();
+  else if ("vrQueue" in modifiche) {
+    dati.vrQueue = modifiche.vrQueue.newValue || null;
+    disegnaValore(A.statoValore(dati.inventory, dati.vrQueue));
+  }
 });
 
 el("addToQueue").addEventListener("click", () => {

@@ -211,14 +211,20 @@ const scrivi = (el, v) => { el.value = v; el.dispatchEvent(new window.Event('inp
   VR.canary = async () => ({ ok: true, problemi: [], avvisi: [], note: [] });
   risposta = (m) => (m.type === 'vr:queueAdd' ? { ok: true, aggiunti: m.items.map((i) => i.id), riattivati: [], rifiutati: [] } : {});
   bAgg.click();
+  // 2.2.0: con una coda in corso si apre il Centro di modifica per la nuova batch
+  await aspetta(() => dialogo());
+  ok('coda in corso: si apre il Centro di modifica per la nuova batch, senza pianificazione', /Centro di modifica · Batch 2/.test(dialogo().textContent) && !dialogo().querySelector('input[type=datetime-local]'));
+  campi().modo.value = 'fixed'; campi().modo.dispatchEvent(new window.Event('change'));
+  scrivi(campi().valore, '6');
+  btn('Continua al riepilogo', dialogo()).click();
   await aspetta(() => riepilogo());
-  ok('riepilogo d\'aggiunta: titolo, opzioni della coda in corso', /Aggiungi alla coda in corso/.test(riepilogo().textContent) && /Useranno le opzioni della coda in corso: -10% sul prezzo/.test(riepilogo().textContent));
+  ok('riepilogo d\'aggiunta: titolo, nuova batch con le sue regole', /Aggiungi alla coda in corso/.test(riepilogo().textContent) && /Nuova Batch 2: prezzo a 6,00/.test(riepilogo().textContent));
   ok('il già in coda è escluso con il motivo, prima del controllo', /Non aggiungibili \(1\)/.test(riepilogo().textContent) && /posizione 1/.test(riepilogo().textContent));
   riepilogo().querySelector('input[value="cima"]').click();
   confermaRiepilogo();
   await aspetta(() => messaggi.some((m) => m.type === 'vr:queueAdd'));
   const agg = messaggi.find((m) => m.type === 'vr:queueAdd');
-  ok('aggiunta inviata: solo il nuovo, in cima', agg.items.map((i) => i.id).join() === '11' && agg.dove === 'cima');
+  ok('aggiunta inviata: solo il nuovo, in cima, con le regole della nuova batch', agg.items.map((i) => i.id).join() === '11' && agg.dove === 'cima' && agg.batch.overrides.price === 6 && agg.batch.campi.modo === 'fixed');
   ok('nessuna coda nuova avviata', messaggi.filter((m) => m.type === 'vr:queueStart').length === avviiPrima + 1);
 
   // ---------------------------------------------- annullamento nella pagina
@@ -230,7 +236,9 @@ const scrivi = (el, v) => { el.value = v; el.dispatchEvent(new window.Event('inp
   await tick();
   let rc = await onMsg({ type: 'vr:relistCancel', itemId: '77' });
   ok('annulla prima dell\'invio: accettato e passato a relist', rc.ok && segnale.annullato() === true);
-  segnale.oltre();
+  // 2.2.0: il punto di non ritorno si passa solo con il permesso del service worker
+  risposta = (m) => (m.type === 'vr:relistConfirm' ? { ok: true } : {});
+  await segnale.oltre({ fotoIds: ['1'] });
   rc = await onMsg({ type: 'vr:relistCancel', itemId: '77' });
   ok('annulla dopo il punto di non ritorno: troppo tardi', rc.troppoTardi === true);
   const err = new Error('Annullato prima dell\'invio'); err.annullato = true;

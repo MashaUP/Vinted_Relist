@@ -1,13 +1,13 @@
 {
-  "version": "2.1.0",
-  "date": "2026-10-23",
-  "zip": "Vinted_Relist-2.1.0.zip",
+  "version": "2.2.0",
+  "date": "2026-10-31",
+  "zip": "Vinted_Relist-2.2.0.zip",
   "notes": [
-    "Code dinamiche: aggiungi, rimuovi e riordina articoli anche con la coda in corso o in pausa",
-    "Pagina di gestione della coda con azioni per articolo, selezione multipla, filtri e trascinamento",
-    "Rimuovi dalla coda, Annulla operazione e Interrompi sono ora tre comandi distinti",
-    "Pausa a tempo, stima dei tempi, cronologia ed esportazione CSV/JSON",
-    "Corretto un caso in cui l'esito di un articolo poteva perdersi (rischio di doppia pubblicazione)",
-    "Link GitHub e Discord nel popup, aggiornabili dal repository senza una nuova versione"
+    "Esito incerto corretto alla radice: dopo 6 minuti si chiede alla scheda se sta ancora lavorando, invece di dare l'articolo «da verificare»",
+    "Nuovo stato «Interrotto»: scheda chiusa o ricaricata prima dell'invio, niente pubblicato, riprovabile in sicurezza",
+    "«Verifica pubblicazione»: controllo su Vinted, anche automatico, senza ripubblicare",
+    "Batch con regole indipendenti: aggiungi articoli alla coda in corso con regole diverse dal Centro di modifica",
+    "«Ripubblica ora» nella coda: l'articolo diventa il prossimo, con le regole della sua batch",
+    "Valore dell'armadio aggiornato a ogni pubblicazione confermata, senza doppioni"
   ]
 }

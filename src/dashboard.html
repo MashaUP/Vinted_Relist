@@ -17,7 +17,8 @@
         </div>
         <div class="value">
           <span class="value-label">Valore in vendita</span>
-          <strong id="value">—</strong>
+          <strong id="value" aria-live="polite">—</strong>
+          <span class="value-note" id="valueNote" hidden></span>
         </div>
       </header>
 
@@ -38,6 +39,8 @@
 
         <div class="queue-summary" id="queueSummary"></div>
         <p class="hint" id="queueEta"></p>
+        <!-- Batch: gruppi di articoli con le loro regole (2.2.0) -->
+        <div class="batches" id="queueBatches" aria-label="Batch della sessione"></div>
         <div class="queue-current" id="queueCurrent" hidden></div>
         <div class="actions" id="queueControls"></div>
         <div class="confirm" id="queueConfirm" hidden role="alertdialog" aria-live="assertive"></div>
@@ -53,6 +56,7 @@
               <span>Mostra per</span>
               <select id="queueSort">
                 <option value="posizione">Posizione (ordine vero)</option>
+                <option value="batch">Batch</option>
                 <option value="titolo">Titolo</option>
                 <option value="prezzo">Prezzo</option>
               </select>
@@ -77,6 +81,7 @@
               <li><kbd>P</kbd> pausa / riprendi</li>
               <li><kbd>A</kbd> apri l'articolo in corso</li>
               <li><kbd>F</kbd> mostra solo i problemi</li>
+              <li><kbd>R</kbd> sull'articolo: ripubblica ora (diventa il prossimo)</li>
               <li><kbd>S</kbd> seleziona tutti gli articoli in attesa</li>
               <li><kbd>Canc</kbd> rimuovi dalla coda i selezionati</li>
               <li><kbd>H</kbd> apri la cronologia</li>

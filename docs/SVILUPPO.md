@@ -1,7 +1,7 @@
 # Vinted Relist — documentazione tecnica
 
 Documento vivo: va aggiornato a ogni versione insieme a `CHANGELOG.md`. Descrive com'è fatta
-l'estensione, perché è fatta così e cosa resta da verificare. Aggiornato alla **2.1.0**.
+l'estensione, perché è fatta così e cosa resta da verificare. Aggiornato alla **2.2.0**.
 I link del progetto e la configurazione remota hanno un documento a parte: [LINK.md](LINK.md).
 
 ## 1. Architettura
@@ -41,8 +41,9 @@ Con ordine «elimina, poi pubblica» i passi 4 e 5 si invertono e prima di cance
 |---|---|---|---|
 | ok | creato (e vecchio eliminato) | `done` | — |
 | `error` | Vinted ha rifiutato in modo esplicito (4xx con messaggio, campi non validi) | `error` | sì |
-| `uncertain` | rete caduta, timeout, 5xx, risposta senza id, watchdog, interruzione a metà | `verify` | **no**, finché non lo confermi |
+| `uncertain` | dopo il permesso di invio: rete caduta, timeout, 5xx, risposta senza id, pagina morta, browser fermato | `verify` | **no**, finché non è verificato |
 | `partial` | nuovo pubblicato, vecchio non eliminato | `verify` | **no**: riprovare creerebbe un terzo annuncio |
+| `interrupted` (2.2) | pagina chiusa, ricaricata o ferma **prima** del permesso di invio | `interrupted` | sì: la prima volta torna in cima da solo |
 | `skipped` | saltato a mano, già ripubblicato dal bottone, già in lavorazione | `skipped` | — |
 | — | coda interrotta prima del suo turno | `cancelled` | — |
 
@@ -67,7 +68,8 @@ una volta per sessione. L'ordine dell'array è l'ordine di esecuzione dei `pendi
 | `working` | In elaborazione | no | «Annulla operazione» (solo prima dell'invio) |
 | `done` | Completato | sì | niente: l'annuncio vecchio non esiste più |
 | `error` | Fallito | sì | riprovare, se `sicuro` ≠ `no` |
-| `verify` | Da verificare | sì | «È stato pubblicato» / «Non è uscito»; mai riprovato da solo |
+| `verify` | Da verificare | sì | «Verifica pubblicazione», «È stato pubblicato» / «Non è uscito»; mai riprovato da solo; un esito vero arrivato dopo vale ancora (`attendeEsito`) |
+| `interrupted` | Interrotto (2.2) | sì | riprovare, «Ripubblica ora»; niente era arrivato a Vinted |
 | `skipped` | Saltato | sì | riattivare aggiungendolo di nuovo |
 | `cancelled` | Annullato | sì | riprendere la sessione |
 | `removed` | Rimosso | sì | riaggiungere (non conta nel totale) |
@@ -92,7 +94,12 @@ Messaggi (`MESSAGGI_CODA` in `background.js`):
 | `vr:queueStop` | interrompe: i `pending` diventano `cancelled`; se un articolo è in corso aspetta il suo esito (`stopDopoCorrente`) |
 | `vr:queueSkip` | salta il prossimo; rifiutato mentre un articolo è in corso |
 | `vr:queueRecover`, `vr:queueClear` | riprende dopo un'interruzione; nasconde la sessione (resta in archivio) |
-| `vr:relistDone` | esito dalla pagina → `concludiArticolo` |
+| `vr:relistDone` | esito dalla pagina → `concludiArticolo`; se non è l'articolo in corso (stesso id **e** stesso `avviatoAt`) → `esitoTardivo`, che vale solo per un `verify` dello stesso tentativo |
+| `vr:relistConfirm` (2.2) | permesso di passare il punto di non ritorno: sì solo se l'articolo è ancora quello in lavorazione, con lo stesso avvio e senza annullamento; registra `fase: "invio"`, `invioAt` e la traccia (id delle foto caricate, prezzo, ordine) |
+| `vr:queueAdd {…, batch | batchId}` (2.2) | `batch: {overrides, campi, modello}` = nuova batch con quelle regole; `batchId` = unisciti a una esistente; nessuno dei due (messaggi 2.1) = nuova batch con le regole della prima |
+| `vr:queueBatchEdit` (2.2) | nuove regole per una batch, solo per i suoi `pending` (`modificaBatch`) |
+| `vr:queueNow {id}` (2.2) | «Ripubblica ora»: `pending`, `error` riprovabile o `interrupted` → primo in attesa; avvicina `nextAt` (almeno 1 min dopo la pubblicazione precedente) solo se la coda è in attesa tra due articoli |
+| `vr:queueVerify {itemId, queue}` (2.2) | verifica su Vinted (fuori dal lock), poi `applicaVerifica` su coda e archivio |
 
 **Annullare l'articolo in corso** è diverso da rimuoverlo e da interrompere la sessione.
 `relist()` riceve un `segnale` e controlla prima di ogni foto e prima della prima chiamata
@@ -106,9 +113,44 @@ sessione, non consentito, rete, interno, incerto) con `cosaFare` e `sicuroRiprov
 coda in **pausa prudente** con il motivo. 403/429: l'articolo non si consuma, pausa di 5, 15,
 45 minuti, poi stop.
 
-**Recupero.** All'avvio del service worker (`recupera`): un `working` rimasto a metà diventa
-`verify`, mai ripetuto; una pausa a tempo con la sveglia persa lo dice nella nota. Watchdog di
-6 minuti senza esito → `verify`.
+**Recupero.** All'avvio del service worker (`recupera`), un `working` la cui sveglia di controllo
+è sparita (estensione ricaricata, browser riavviato): esito nel giornale → si applica; `fase`
+`preparazione` → `interrupted` e in cima; `invio` o fase sconosciuta (articolo partito con la 2.1)
+→ `verify` e verifica pianificata. Mai ripetuto alla cieca. Una pausa a tempo con la sveglia
+persa lo dice nella nota.
+
+**Esito incerto (2.2).** Fino alla 2.1 la sveglia `vr:queueWatchdog` dopo 6 minuti scriveva
+`verify` senza guardare niente, e `esitoCoda` scartava un esito arrivato dopo («fuori tempo»).
+Ma 6 minuti non bastano a un tentativo legittimo: ogni chiamata ha un limite di 60 s, l'upload di
+una foto può fare 3 tentativi per 3 formati, il download delle foto non aveva limite, e in una
+scheda in secondo piano i timer del browser rallentano. Così un annuncio pubblicato restava «da
+verificare». Ora:
+
+1. `passoCoda` registra la scheda (`scheda`) e la `fase: "preparazione"`, e manda `avviatoAt`.
+2. La pagina scrive il giornale `vrOp:<id>` (fase, foto, id nuovo, esito) e, subito prima della
+   prima richiesta distruttiva, chiede `vr:relistConfirm`. Un no la ferma senza danni: per questo
+   «interrotto prima dell'invio» è una prova e non una stima.
+3. A 6 minuti `controllaLavoro()` (fuori dal lock): esito nel giornale → applicato; altrimenti
+   `sondaScheda` chiede alla scheda `vr:relistStatus`. In corso o non raggiungibile ma esistente
+   (congelata) → si aspetta (6 o 2 minuti), fino a 30. Scheda chiusa, scaricata o ricaricata, o
+   oltre i 30 minuti: `preparazione` → `interrupted`; `invio` → `verify` con un messaggio che dice
+   ora, motivo e cosa fare, e verifica automatica.
+4. `verificaArticolo()` chiede a una scheda Vinted `vr:verifyRelist` (solo letture: stato del
+   vecchio, del nuovo se se ne conosce l'id, ultimi 20 annunci dell'armadio cercando le foto
+   caricate in quel tentativo); il verdetto lo dà `valutaVerifica` (pura, testata). Stato cambiato
+   solo con una prova; mai «non pubblicato» da un'assenza. Fino a 5 tentativi automatici a 3
+   minuti di distanza (`vr:queueVerify`), poi il bottone.
+5. L'esito della pagina si ritrasmette (0, 2, 5, 15, 30, 60 s) finché il service worker non
+   risponde `ok`.
+
+**Batch (2.2).** `coda.batches[]` con `{id, n, nome, overrides, campi, modello, rev, storico}`;
+ogni articolo ha `batch`. `passoCoda` manda `overridesDi(coda, id)`: le regole della batch
+dell'articolo, mai quelle della coda. `avviaArticolo` registra `regole: {batch, rev}`;
+`modificaBatch` cambia le regole solo per i `pending` e conserva le revisioni precedenti.
+`coda.overrides` resta uguale alla prima batch per compatibilità. `migra` trasforma una coda 2.1
+in Batch 1. Ripresa e riprova da sessioni passate raggruppano per batch d'origine
+(`rimettiPerBatch`). Regole ripulite da `pulisciOverrides` (solo le chiavi di
+`validaOpzioniCoda`).
 
 **Stima.** `stima()` usa la durata media osservata degli articoli conclusi in questa sessione più
 l'intervallo; con meno di 2 campioni lo dice («stima indicativa»).
@@ -211,11 +253,13 @@ Due download alla volta; un errore su una foto non ferma le altre.
 |---|---|
 | impostazioni (`VR.DEFAULTS`) | scelte dell'utente, più `userId`, `vintedOrigin`, `colorMap`, `itemStats`, `photoFormat`, `itemFormat` imparati |
 | `itemFormats` | dalla 2.0.1: per ogni `catalog_id` (max 40) i nomi dei campi che Vinted manda e quali erano vuoti; nessun contenuto dell'annuncio |
-| `inventory` | articoli visti nell'armadio: titolo, prezzo, visite, preferiti, miniatura, serie storica |
+| `inventory` | articoli visti nell'armadio: titolo, prezzo, visite, preferiti, miniatura, serie storica. Dalla 2.2 lo scrive solo il service worker (`vr:inventarioAnnota`, `vr:inventarioSostituisci`, regole in `armadio-logica.js`); è la base del valore dell'armadio |
+| `vrInventoryReplaced` | dalla 2.2: id sostituiti da una ripubblicazione (max 500): una card vecchia a schermo non li rimette dentro |
+| `vrOp:<id>` | dalla 2.2: giornale del tentativo in corso scritto dalla pagina (fase, id foto, id nuovo, esito); tolto quando l'esito è registrato, potato dopo 14 giorni |
 | `qualityScores` | completezza per articolo |
 | `vrSnapshots` | ultimi 60 relist con prima/dopo |
 | `vrHistory` | relist degli ultimi 30 giorni (statistiche) |
-| `vrQueue` | coda corrente (modello v3; le code 2.0 si migrano alla lettura) |
+| `vrQueue` | coda corrente (modello v3 con batch; le code 2.0 e 2.1 si migrano alla lettura) |
 | `vrQueueArchive` | ultime 10 code concluse, compatte |
 | `vrEvents` | registro notifiche |
 | `queueDraft` | opzioni della coda (senza orario di avvio) |
@@ -288,8 +332,14 @@ Non vengono mai scritti in `local`, nei log, negli eventi o nella diagnostica.
 - Lo storico delle versioni prima della 1.9.0 non è stato conservato.
 - Gli articoli aggiunti dalla dashboard non passano dal controllo preventivo (che legge da Vinted
   e vive nella pagina): vengono comunque letti e controllati quando arriva il loro turno.
-- Intervallo e opzioni di una sessione non si cambiano a sessione avviata: valgono per tutti gli
-  articoli, anche quelli aggiunti dopo.
+- L'intervallo di una sessione non si cambia a sessione avviata. Le regole sì, per batch (2.2).
+- La verifica di un esito incerto riconosce il nuovo annuncio dall'id restituito da Vinted o dalle
+  foto caricate in quel tentativo, cercandole fra gli ultimi 20 annunci dell'armadio
+  (`/api/v2/wardrobe/<id>/items`, lettura usata dal sito). Endpoint e forma della risposta non
+  sono stati verificati su Vinted reale: se cambiano, la verifica dice «non riesco a leggere» e
+  l'articolo resta da verificare.
+- Il valore dell'armadio conta gli articoli dell'inventario: uno venduto o eliminato a mano esce
+  dal totale solo quando non compare più (o quando una verifica lo trova assente).
 - Finché `links.json` non è sul ramo `main`, Chrome scrive un 404 nella console delle pagine
   dell'estensione al massimo una volta l'ora.
 
@@ -303,7 +353,8 @@ Non vengono mai scritti in `local`, nei log, negli eventi o nella diagnostica.
 | `dashboard.js` ridisegna tutta la pagina a ogni cambio di inventario | basso | accettabile fino a qualche centinaio di articoli |
 | Test non eseguiti in CI | medio | si lanciano a mano con `node tests/run.js` |
 | Link nel README scritti a mano | basso | il README è statico: va allineato a `links.json` quando cambia l'invito |
-| Verifica in Chromium reale fuori dai test automatici | basso | script a parte, non nel repository |
+| Verifica in Chromium reale fuori dai test automatici | basso | script a parte con un Vinted finto (`context.route`), non nel repository |
+| Pagina della coda (`queue.js`) e dashboard senza moduli | medio | il Centro di modifica esiste in due forme (finestra sulla pagina, modulo nella dashboard) con la stessa validazione (`validaOpzioniCoda`) |
 | Nessun test end-to-end su Vinted reale | alto | vietato per scelta (niente pubblicazioni di prova su larga scala); serve una prova manuale guidata |
 
 ## 8. Registro proposte
@@ -330,20 +381,24 @@ Non vengono mai scritti in `local`, nei log, negli eventi o nella diagnostica.
 | 21 | Code dinamiche: aggiunta/rimozione/riordino in esecuzione, menu di gestione, cronologia, esportazione, modelli | alta | alta | **fatto 2.1.0** |
 | 22 | Scritture della coda serializzate nel service worker | alta | media | **fatto 2.1.0** (correzione di un bug reale) |
 | 23 | Link centralizzati in `links.json` con aggiornamento da GitHub | media | media | **fatto 2.1.0** |
-| 24 | Opzioni diverse per singolo articolo nella stessa coda | bassa | alta | proposta: oggi un modello per sessione, più semplice da capire |
-| 25 | Cambiare intervallo e opzioni a sessione avviata | media | media | proposta |
+| 24 | Opzioni diverse per gruppi di articoli nella stessa coda | alta | alta | **fatto 2.2.0** (batch) |
+| 25 | Cambiare intervallo e opzioni a sessione avviata | media | media | **opzioni fatto 2.2.0** (per batch); intervallo: proposta |
 | 26 | Controllo preventivo anche per gli articoli aggiunti dalla dashboard | media | media | proposta: richiede una scheda Vinted aperta |
 | 27 | Ripristino di un articolo rimosso per errore («annulla rimozione») | bassa | bassa | proposta; oggi si riaggiunge |
 | 28 | Redirect stabile su GitHub Pages per Discord | bassa | bassa | da valutare: il JSON basta (vedi LINK.md) |
 | 29 | Libreria condivisa dei link per più progetti | bassa | media | rimandata finché un secondo progetto non la usa |
+| 30 | Esito incerto: sonda della scheda, permesso prima dell'invio, giornale, verifica su Vinted, esiti tardivi | alta | alta | **fatto 2.2.0** (correzione di un bug reale) |
+| 31 | «Ripubblica ora» | media | bassa | **fatto 2.2.0** |
+| 32 | Inventario con un solo scrittore e valore dell'armadio con stato provvisorio | media | media | **fatto 2.2.0** |
+| 33 | Timer della pagina non rallentati in secondo piano (pause via service worker) | bassa | media | da valutare dopo la prova reale: oggi la sonda distingue «lento» da «fermo» |
 | 16 | Controllo qualità e ritaglio automatico delle foto | — | alta | **escluso** dall'autore |
 | 17 | Finestra di annullamento dopo la pubblicazione | — | media | **escluso** dall'autore |
 | 18 | Micro-alterazioni delle foto per eludere i controlli di somiglianza | — | — | **rifiutato**: è elusione dei controlli di Vinted |
 
 ## 9. Roadmap
 
-- **2.1.x** — correzioni dalla prova reale delle code dinamiche e dei link.
-- **2.2** — proposte 25, 26, 12, 14 se servono.
+- **2.2.x** — correzioni dalla prova reale (esiti incerti, verifica, batch).
+- **2.3** — proposte 26, 12, 14, 33 se servono.
 - **3.0** — solo se cambia il modo di distribuire (per esempio Chrome Web Store, vedi §11).
 
 ## 10. Test
@@ -366,6 +421,11 @@ cd tests && npm install && node run.js
 | `test-coda-dinamica` | 2.1: code dinamiche nel service worker vero: aggiunte e rimozioni in corsa e in pausa, posizioni, stop e pausa dopo l'articolo, prudenza, pausa a tempo, recupero, ripresa di sessioni |
 | `test-gara` | 2.1: passo ed esito che arrivano insieme, 40 volte: l'esito non si perde |
 | `test-annulla` | 2.1: annullamento prima e dopo il punto di non ritorno |
+| `test-esito-incerto` | 2.2: sonda a 6 minuti, giornale, pagina chiusa o congelata, riavvio, esito tardivo, verifica manuale e automatica, permesso negato, niente ripubblicazione degli incerti |
+| `test-pagina-coda` | 2.2: lato pagina: giornale, permesso, esito ritrasmesso, sonda, osservazioni per la verifica, ordine permesso → crea → id → elimina |
+| `test-batch` | 2.2: batch nel modello e nel service worker: regole per batch, aggiunta in corsa, modifica, revisioni, persistenza, ripresa per batch, migrazione 2.1 |
+| `test-ripubblica-ora` | 2.2: priorità, corrente non interrotto, regole della batch, stati non compatibili, pausa, persistenza |
+| `test-armadio` | 2.2: valore progressivo, prezzo cambiato, card vecchie, doppioni, incerti, scritture simultanee (40 giri) |
 | `test-link` | 2.1: `links.json` del pacchetto, validazione, protocolli e siti vietati, precedenza, cache, tempi, timeout |
 | `test-versione` | versioni, aggiornamenti, diagnostica, impostazioni |
 | `dom/test-ui` | editor in un DOM simulato: controlli, download foto, ritaglio, anteprima, pubblica |
@@ -401,5 +461,8 @@ L'estensione **non è pronta** per il Chrome Web Store, e la distribuzione resta
 - I link (Ko-fi `https://ko-fi.com/mashaup`, Discord, GitHub) stanno **solo** in `links.json`:
   niente URL nell'HTML o nel codice. Il README è l'unica copia a mano.
 - La coda la scrive solo il service worker, attraverso `conCoda`: non aggiungere scritture di
-  `vrQueue` altrove.
+  `vrQueue` altrove. Lo stesso vale dalla 2.2 per `inventory` (`conInventario`).
+- Mai dare un articolo per «interrotto» senza la fase registrata `preparazione`: è il permesso di
+  invio negato a renderlo sicuro. Senza fase (o con `invio`) è «da verificare».
+- Le regole si leggono sempre con `overridesDi(coda, id)`: mai `coda.overrides` per pubblicare.
 - Non introdurre telemetria, codice remoto o alterazioni delle foto per eludere i controlli.

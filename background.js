@@ -8,8 +8,9 @@
  */
 
 // Modello della coda: le stesse funzioni pure usate da popup, dashboard e pagina.
-importScripts("src/coda-logica.js");
+importScripts("src/coda-logica.js", "src/armadio-logica.js");
 const C = self.CodaLogica;
+const A = self.ArmadioLogica;
 
 const TOKEN_KEY = "vrTokens";
 
@@ -195,10 +196,21 @@ async function downloadAsDataUrl(url) {
   if (!/^https:\/\/[a-z0-9.-]*vinted\.(net|com)\//i.test(String(url))) {
     throw new Error("Indirizzo della foto non riconosciuto.");
   }
-  const response = await fetch(url, { credentials: "omit", cache: "no-store" });
-  if (!response.ok) throw new Error("Download foto fallito (HTTP " + response.status + ")");
+  const controllo = new AbortController();
+  const scadenza = setTimeout(() => controllo.abort(), 60_000);
+  let buffer;
+  let response;
+  try {
+    response = await fetch(url, { credentials: "omit", cache: "no-store", signal: controllo.signal });
+    if (!response.ok) throw new Error("Download foto fallito (HTTP " + response.status + ")");
+    buffer = await response.arrayBuffer();
+  } catch (errore) {
+    if (errore?.name === "AbortError") throw new Error("Download foto: nessuna risposta in 60 secondi.");
+    throw errore;
+  } finally {
+    clearTimeout(scadenza);
+  }
 
-  const buffer = await response.arrayBuffer();
   const mime = response.headers.get("content-type") || "image/jpeg";
   const bytes = new Uint8Array(buffer);
 
@@ -350,6 +362,56 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return false;
 });
 
+// ---------------------------------------------------- inventario dell'armadio
+
+/**
+ * L'inventario (base del valore dell'armadio) lo scrive solo il service worker,
+ * una modifica alla volta: la pagina manda le letture delle card e le
+ * ripubblicazioni riuscite. Le regole stanno in src/armadio-logica.js.
+ */
+let catenaInventario = Promise.resolve();
+function conInventario(lavoro) {
+  const giro = catenaInventario.then(async () =>
+    lavoro(await chrome.storage.local.get({ inventory: {}, vrSnapshots: [], vrInventoryReplaced: {} })));
+  catenaInventario = giro.catch((errore) => console.warn("[Relist] inventario:", errore));
+  return giro;
+}
+
+const MAX_VOCI_ANNOTATE = 300;
+
+function annotaInventario(voci) {
+  const pulite = Object.fromEntries(Object.entries(voci && typeof voci === "object" ? voci : {})
+    .filter(([id]) => /^\d{1,20}$/.test(id)).slice(0, MAX_VOCI_ANNOTATE));
+  return conInventario(async (stato) => {
+    const r = A.annota(stato, pulite);
+    if (r.cambiati) await chrome.storage.local.set({ inventory: r.inventory });
+    return { ok: true, ignorati: r.ignorati.length };
+  });
+}
+
+function sostituisciInInventario(dati) {
+  return conInventario(async (stato) => {
+    const r = A.sostituisci(stato, dati);
+    if (r.cambiato) {
+      await chrome.storage.local.set({ inventory: r.inventory, vrSnapshots: r.vrSnapshots, vrInventoryReplaced: r.vrInventoryReplaced });
+    }
+    return { ok: true, cambiato: r.cambiato };
+  });
+}
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "vr:inventarioAnnota") {
+    annotaInventario(message.voci).then(sendResponse, (e) => sendResponse({ ok: false, error: String(e?.message || e) }));
+    return true;
+  }
+  if (message?.type === "vr:inventarioSostituisci") {
+    sostituisciInInventario({ oldId: message.oldId, newId: message.newId, vecchio: message.vecchio, nuovo: message.nuovo })
+      .then(sendResponse, (e) => sendResponse({ ok: false, error: String(e?.message || e) }));
+    return true;
+  }
+  return false;
+});
+
 // ---------------------------------------------------- coda di ripubblicazione
 
 /**
@@ -376,7 +438,20 @@ const STEP_KEY = "vrQueueStep";          // passo corrente: in storage.session, 
 const ALARM_NEXT = "vr:queueNext";
 const ALARM_WATCHDOG = "vr:queueWatchdog";
 const ALARM_RIPRESA = "vr:queueResume";
-const WATCHDOG_MIN = 6;          // oltre questo, l'esito dell'articolo e' incerto
+/**
+ * WATCHDOG_MIN non e' piu' un verdetto (fino alla 2.1: "6 minuti senza risposta
+ * = da verificare"). E' l'intervallo dei CONTROLLI: si chiede alla scheda se sta
+ * ancora lavorando; se si', si aspetta. Una foto lenta o una scheda in secondo
+ * piano (timer rallentati dal browser) superano facilmente i 6 minuti.
+ * MAX_LAVORO_MIN e' il limite oltre il quale si smette di aspettare.
+ */
+const WATCHDOG_MIN = 6;
+const MAX_LAVORO_MIN = 30;
+const ALARM_VERIFICA = "vr:queueVerify";
+const VERIFICA_MIN = 3;          // tra una verifica automatica e l'altra
+const MAX_VERIFICHE_AUTO = 5;
+const STACCO_MIN_MS = 60_000;    // «Ripubblica ora»: almeno un minuto dalla pubblicazione precedente
+const GIORNALE = "vrOp:";        // + id: cosa ha fatto la pagina su un tentativo (prove, non stato)
 const MAX_ATTESE = 60;           // minuti di attesa complessivi: scheda chiusa o utente assente
 const RALLENTA = [5, 15, 45];    // minuti di pausa dopo un 429 o un 403, in scala
 const JITTER = 0.3;              // ±30% sull'intervallo, per non avere un ritmo a metronomo
@@ -490,6 +565,7 @@ async function chiudiCoda(coda, motivo) {
       voce.error = "non partito: sessione conclusa";
     }
   }
+  // Gli articoli da verificare restano verificabili anche a sessione chiusa.
   coda.running = false;
   coda.state = "done";
   coda.nextAt = null;
@@ -497,7 +573,7 @@ async function chiudiCoda(coda, motivo) {
   coda.finishedAt = ora;
   if (motivo) coda.note = motivo;
   const r = C.conta(coda);
-  C.registra(coda, "conclusa", `${motivo ? `${motivo} ` : ""}${r.done} ripubblicati, ${r.error} falliti, ${r.verify} da verificare.`, {}, ora);
+  C.registra(coda, "conclusa", `${motivo ? `${motivo} ` : ""}${r.done} ripubblicati, ${r.error} falliti, ${r.verify} da verificare${r.interrupted ? `, ${r.interrupted} interrotti` : ""}.`, {}, ora);
   await scriviCoda(coda);
   await scriviPasso(null);
 
@@ -507,12 +583,13 @@ async function chiudiCoda(coda, motivo) {
   if (!coda.items?.length) return;
   await archiviaCoda(coda);
 
-  const problemi = r.error + r.verify;
+  const problemi = r.error + r.verify + r.interrupted;
   const testo =
     (motivo ? `${motivo} ` : "") +
     `${r.done} ripubblicati` +
     (r.error ? `, ${r.error} falliti` : "") +
     (r.verify ? `, ${r.verify} da verificare` : "") +
+    (r.interrupted ? `, ${r.interrupted} interrotti prima dell'invio` : "") +
     (r.skipped ? `, ${r.skipped} saltati` : "") +
     (r.cancelled ? `, ${r.cancelled} annullati` : "") +
     (r.removed ? `, ${r.removed} rimossi` : "") + ".";
@@ -582,23 +659,29 @@ async function passoCoda(coda) {
 
   coda.waited = 0;
   C.avviaArticolo(coda, prossimo.id);
+  // La scheda che lavora l'articolo: e' a lei che si chiede come va e si chiede
+  // di annullare (prima si chiedeva alla prima scheda Vinted, forse un'altra).
+  C.assegnaScheda(coda, prossimo.id, tab.id);
   coda.state = "working";
   coda.nextAt = null;
   await scriviCoda(coda);
   await scriviPasso({ itemId: prossimo.id, step: "Avvio…", fase: "preparazione", at: Date.now() });
+  chrome.alarms.create(ALARM_WATCHDOG, { delayInMinutes: WATCHDOG_MIN });
 
   try {
     await chrome.tabs.sendMessage(tab.id, {
       type: "vr:relistOne",
       itemId: prossimo.id,
-      overrides: coda.overrides || {},
+      avviatoAt: prossimo.startedAt,
+      sessione: coda.startedAt,
+      // le regole della SUA batch, non quelle della coda o dell'ultima aggiunta
+      overrides: C.overridesDi(coda, prossimo.id),
     });
-    chrome.alarms.create(ALARM_WATCHDOG, { delayInMinutes: WATCHDOG_MIN });
   } catch {
     // Content script non pronto: niente e' partito, l'articolo torna in attesa
     // al suo posto e si riprova fra un minuto.
-    prossimo.status = "pending";
-    prossimo.startedAt = null;
+    chrome.alarms.clear(ALARM_WATCHDOG);
+    Object.assign(prossimo, { status: "pending", startedAt: null, fase: null, scheda: null, regole: null });
     coda.state = "waiting";
     await scriviPasso(null);
     return programmaProssimo(coda, 1);
@@ -606,19 +689,79 @@ async function passoCoda(coda) {
 }
 
 /** Esito di un articolo: lo registra e decide cosa viene dopo. */
+/** Campi di un esito arrivato con un messaggio: dato non attendibile. */
+function esitoDa(msg) {
+  return {
+    ok: Boolean(msg.ok),
+    outcome: ["error", "uncertain", "partial", "skipped", "cancelled", "interrupted"].includes(msg.outcome) ? msg.outcome : undefined,
+    error: msg.error != null ? String(msg.error).slice(0, 400) : undefined,
+    categoria: msg.categoria != null ? String(msg.categoria).slice(0, 30) : undefined,
+    sicuro: ["si", "no", "dopo-correzione"].includes(msg.sicuro) ? msg.sicuro : undefined,
+    motivoSalto: msg.motivoSalto != null ? String(msg.motivoSalto).slice(0, 30) : undefined,
+    nuovoId: /^\d{1,20}$/.test(String(msg.nuovoId ?? "")) ? String(msg.nuovoId) : undefined,
+    verificato: msg.verificato ? String(msg.verificato).slice(0, 40) : undefined,
+    avviatoAt: msg.avviatoAt != null ? Number(msg.avviatoAt) : undefined,
+  };
+}
+
+const oraBreve = (t) => (t ? new Date(t).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }) : "?");
+
+/** Evento per il centro notifiche, uguale per ogni esito che chiede attenzione. */
+async function eventoEsito(coda, c, stato) {
+  if (stato === "verify") {
+    await registraEvento({
+      kind: "uncertain",
+      title: `Da verificare: ${c.title}`,
+      text: `Avviato alle ${oraBreve(c.startedAt)}. ${c.error} Cosa fare: apri la coda e premi «Verifica pubblicazione», oppure guarda l'armadio.`,
+      itemId: c.id,
+      queue: coda.startedAt,
+    });
+  } else if (stato === "error") {
+    await registraEvento({ kind: "error", title: `Non riuscito: ${c.title}`, text: c.error, itemId: c.id, queue: coda.startedAt });
+  } else if (stato === "interrupted") {
+    await registraEvento({ kind: "warn", title: `Interrotto: ${c.title}`, text: `${c.error} Riprovare è sicuro.`, itemId: c.id, queue: coda.startedAt });
+  } else if (stato === "done" && c.verificato) {
+    await registraEvento({ kind: "ok", title: `Verificato: ${c.title}`, text: "Pubblicato: il risultato è stato confermato su Vinted.", itemId: c.id, queue: coda.startedAt });
+  }
+}
+
+/**
+ * Un esito che non riguarda l'articolo in lavorazione: quasi sempre l'esito
+ * vero di un articolo che un controllo aveva gia' messo «da verificare». Vale
+ * per la coda salvata (anche conclusa) e per la sua copia in archivio.
+ */
+async function esitoFuoriTempo(coda, msg) {
+  const id = String(msg.itemId);
+  const e = esitoDa(msg);
+  let articolo = null;
+  if (coda && C.trova(coda, id)) {
+    const r = C.esitoTardivo(coda, id, e);
+    if (r.ok) { await scriviCoda(coda); articolo = r.articolo; }
+  }
+  const { vrQueueArchive = [] } = await chrome.storage.local.get("vrQueueArchive");
+  let cambiato = false;
+  for (const s of vrQueueArchive) {
+    if (C.trova(s, id) && C.esitoTardivo(s, id, e).ok) { cambiato = true; articolo = articolo || C.trova(s, id); }
+  }
+  if (cambiato) await chrome.storage.local.set({ vrQueueArchive });
+  if (articolo) {
+    await togliGiornale(id);
+    await eventoEsito(coda || {}, articolo, articolo.status);
+  }
+}
+
 async function esitoCoda(coda, msg) {
-  if (!coda?.running) return;
+  if (!coda) return;
   const c = C.corrente(coda);
-  if (!c || c.id !== String(msg.itemId)) return;                   // esito fuori tempo
+  const stesso = c && c.id === String(msg.itemId) && (msg.avviatoAt == null || Number(msg.avviatoAt) === c.startedAt);
+  if (!coda.running || !stesso) return esitoFuoriTempo(coda, msg);
   chrome.alarms.clear(ALARM_WATCHDOG);
   await scriviPasso(null);
 
   // Un blocco non e' colpa dell'articolo: non lo consumiamo, rallentiamo.
   // Continuare a bussare dopo un 429 e' il modo migliore per peggiorare.
   if (msg.blocked) {
-    c.status = "pending";
-    c.startedAt = null;
-    c.annullaRichiesto = false;
+    Object.assign(c, { status: "pending", startedAt: null, annullaRichiesto: false, fase: null, scheda: null, invioAt: null });
     const gradino = coda.backoff || 0;
     if (gradino >= RALLENTA.length || coda.stopDopoCorrente) {
       return chiudiCoda(coda, coda.stopDopoCorrente ? "Interrotta." : `Interrotta: Vinted continua a bloccare. ${msg.error || ""}`.trim());
@@ -629,26 +772,19 @@ async function esitoCoda(coda, msg) {
     return programmaProssimo(coda, RALLENTA[gradino], true);
   }
 
-  const r = C.concludiArticolo(coda, c.id, {
-    ok: Boolean(msg.ok),
-    outcome: msg.outcome,
-    error: msg.error,
-    categoria: msg.categoria,
-    sicuro: msg.sicuro,
-    motivoSalto: msg.motivoSalto,
-  });
+  const e = esitoDa(msg);
+  if (e.nuovoId) C.annotaTraccia(coda, c.id, { nuovoId: e.nuovoId });
+  const r = C.concludiArticolo(coda, c.id, e);
   coda.backoff = 0;
   coda.note = null;
+  await togliGiornale(c.id);
 
-  if (r.stato === "error" || r.stato === "verify") {
-    await registraEvento({
-      kind: r.stato === "verify" ? "uncertain" : "error",
-      title: r.stato === "verify" ? `Da verificare: ${c.title}` : `Non riuscito: ${c.title}`,
-      text: c.error,
-      itemId: c.id,
-      queue: coda.startedAt,
-    });
-  }
+  await eventoEsito(coda, c, r.stato);
+  // Pubblicazione partita senza conferma: si prova a verificarla su Vinted da soli.
+  if (r.stato === "verify") pianificaVerifica(1);
+  // Interrotto prima dell'invio (prova certa: il permesso non era stato dato):
+  // torna in cima una volta, da solo. Una seconda interruzione aspetta te.
+  if (r.stato === "interrupted") C.rimettiDopoInterruzione(coda, c.id);
 
   if (coda.stopDopoCorrente) return chiudiCoda(coda, "Interrotta.");
   if (C.daChiudere(coda)) return chiudiCoda(coda);
@@ -671,7 +807,8 @@ async function esitoCoda(coda, msg) {
     return mettiInPausa(coda, { minuti: coda.pausaMinuti || null, restante: coda.intervalMin * 60_000 });
   }
 
-  return programmaProssimo(coda, coda.intervalMin);
+  // Dopo un'interruzione non e' stato pubblicato niente: non serve l'intervallo intero.
+  return programmaProssimo(coda, r.stato === "interrupted" ? 1 : coda.intervalMin);
 }
 
 async function mettiInPausa(coda, { minuti = null, restante = null } = {}) {
@@ -751,7 +888,7 @@ async function interrompiCoda(coda) {
   C.annullaCorrente(coda);
   C.registra(coda, "annullamento", "Sessione in chiusura: si aspetta l'esito dell'articolo in corso.");
   await scriviCoda(coda);
-  await chiediAnnullamento(c.id);
+  await chiediAnnullamento(c.id, c.scheda);
   return { ok: true, inChiusura: true };
 }
 
@@ -771,22 +908,32 @@ async function saltaProssimo(coda) {
   return { ok: true };
 }
 
-async function chiediAnnullamento(itemId) {
+async function chiediAnnullamento(itemId, tabId = null) {
   try {
-    const tab = await schedaVinted();
-    if (!tab) return { ok: false };
-    return (await chrome.tabs.sendMessage(tab.id, { type: "vr:relistCancel", itemId })) || { ok: false };
+    const id = Number.isInteger(tabId) ? tabId : (await schedaVinted())?.id;
+    if (id == null) return { ok: false };
+    return (await conTimeout(chrome.tabs.sendMessage(id, { type: "vr:relistCancel", itemId }), 10_000)) || { ok: false };
   } catch {
     return { ok: false };
   }
 }
 
+const conTimeout = (promessa, ms) => Promise.race([
+  promessa,
+  new Promise((_, no) => setTimeout(() => no(new Error("timeout")), ms)),
+]);
+
 async function annullaOperazione(coda) {
   if (!coda?.running) return { ok: false, motivo: "Nessuna coda attiva." };
+  const c = C.corrente(coda);
+  if (c?.fase === "invio") {
+    return { ok: true, troppoTardi: true, motivo: "La richiesta a Vinted era già partita: non si può annullare, si aspetta l'esito." };
+  }
   const r = C.annullaCorrente(coda);
   if (!r.ok) return r;
   await scriviCoda(coda);
-  const risposta = await chiediAnnullamento(r.id);
+  // Anche se il messaggio non arriva, il permesso di inviare ora viene negato.
+  const risposta = await chiediAnnullamento(r.id, c?.scheda);
   if (risposta?.troppoTardi) {
     const c = C.corrente(coda);
     if (c) {
@@ -822,24 +969,45 @@ async function recupera(coda) {
 
   const ora = Date.now();
   const c = C.corrente(coda);
+  // Con un articolo in lavorazione conta solo il controllo: se la sua sveglia
+  // c'e', ci pensa lei (anche dopo 30 minuti di lavoro legittimo).
   const rotta = c
-    ? ora - (c.startedAt || 0) > (WATCHDOG_MIN + 2) * 60_000 || !(await chrome.alarms.get(ALARM_WATCHDOG))
+    ? !(await chrome.alarms.get(ALARM_WATCHDOG))
     : coda.nextAt > ora + 5_000 || ora - (coda.nextAt || 0) > MARGINE_RECUPERO_MS;
   if (!rotta) return;
 
-  // L'articolo in lavorazione potrebbe essere gia' stato pubblicato prima
-  // dell'interruzione: rifarlo alla cieca creerebbe un doppione. Va controllato.
+  let testo = "Sessione interrotta: si aspetta una tua decisione.";
   if (c) {
-    c.status = "verify";
-    c.finishedAt = ora;
-    c.error = "Interrotto durante la pubblicazione: controlla nell'armadio se è uscito.";
-    c.categoria = "incerto";
-    c.sicuro = "no";
+    const giornale = await leggiGiornale(c.id, c.startedAt);
+    if (giornale?.esito) {
+      // La pagina aveva finito: l'esito c'e', era solo il messaggio a mancare.
+      C.concludiArticolo(coda, c.id, { ...esitoDa(giornale.esito), avviatoAt: c.startedAt }, ora);
+      testo = `Sessione interrotta dopo: ${c.title} (esito recuperato).`;
+    } else if (c.fase !== "preparazione") {
+      // Potrebbe essere gia' stato pubblicato prima dell'interruzione: rifarlo
+      // alla cieca creerebbe un doppione. Si verifica, e intanto e' da verificare.
+      // Vale anche per un articolo partito con una versione precedente, che
+      // non registrava la fase: senza prova, mai "interrotto".
+      if (giornale?.nuovoId) C.annotaTraccia(coda, c.id, { nuovoId: giornale.nuovoId });
+      C.concludiArticolo(coda, c.id, { ok: false, outcome: "uncertain", categoria: "incerto", sicuro: "no",
+        error: c.fase === "invio"
+          ? `Il browser o l'estensione si sono fermati dopo l'invio della richiesta a Vinted (alle ${oraBreve(c.invioAt)}): potrebbe essere già pubblicato. Non riprovare prima della verifica.`
+          : "Il browser o l'estensione si sono fermati durante la pubblicazione: potrebbe essere già pubblicato. Controlla nell'armadio prima di riprovare." }, ora);
+      testo = `Sessione interrotta durante: ${c.title} (da verificare).`;
+      pianificaVerifica(1);
+    } else {
+      // Il permesso di inviare non era stato dato: niente e' arrivato a Vinted.
+      C.concludiArticolo(coda, c.id, { ok: false, outcome: "interrupted", categoria: "interrotto", sicuro: "si",
+        error: "Il browser o l'estensione si sono fermati prima dell'invio: nessun annuncio creato o eliminato." }, ora);
+      C.rimettiDopoInterruzione(coda, c.id, ora);
+      testo = `Sessione interrotta durante la preparazione di: ${c.title} (rimesso in cima, niente era stato inviato).`;
+    }
+    await togliGiornale(c.id);
   }
   coda.state = "recovering";
   coda.nextAt = null;
   coda.note = null;
-  C.registra(coda, "recupero", c ? `Sessione interrotta durante: ${c.title} (da verificare).` : "Sessione interrotta: si aspetta una tua decisione.", c ? { id: c.id } : {});
+  C.registra(coda, "recupero", testo, c ? { id: c.id } : {});
   await scriviCoda(coda);
   await scriviPasso(null);
   chrome.alarms.clear(ALARM_WATCHDOG);
@@ -853,6 +1021,209 @@ async function riprendiDaRecupero(coda) {
   C.registra(coda, "ripresa", "Ripresa dopo l'interruzione.");
   await passoCoda(coda);
   return { ok: true };
+}
+
+// ------------------------------------------- controllo dell'articolo in corso
+
+/**
+ * Giornale di un tentativo: lo scrive la pagina che lavora l'articolo (fase,
+ * id del nuovo annuncio appena Vinted lo restituisce, esito prima di mandarlo).
+ * Sono prove, non stato della coda: se il messaggio con l'esito si perde, o la
+ * pagina muore dopo aver creato l'annuncio, il service worker le trova qui.
+ */
+async function leggiGiornale(itemId, avviatoAt = null) {
+  const chiave = GIORNALE + String(itemId);
+  const g = (await chrome.storage.local.get(chiave))[chiave] || null;
+  if (!g) return null;
+  if (avviatoAt != null && g.avviatoAt != null && Number(g.avviatoAt) !== Number(avviatoAt)) return null;
+  return g;
+}
+const togliGiornale = (itemId) => chrome.storage.local.remove(GIORNALE + String(itemId)).catch(() => {});
+
+/** Giornali piu' vecchi di 14 giorni: l'articolo e' stato risolto o non lo sara' piu'. */
+async function potaGiornali() {
+  const tutto = await chrome.storage.local.get(null);
+  const limite = Date.now() - 14 * 86400000;
+  const vecchi = Object.keys(tutto).filter((k) => k.startsWith(GIORNALE) && !((tutto[k]?.at || 0) > limite));
+  if (vecchi.length) await chrome.storage.local.remove(vecchi);
+}
+
+/**
+ * Chiede alla scheda che lavora l'articolo se ci sta ancora lavorando.
+ *   in-corso: si', con il passo attuale → si aspetta
+ *   morto: scheda chiusa, scaricata, ricaricata o cambiata → il lavoro si e' fermato
+ *   ignoto: la scheda c'e' ma non risponde (congelata, occupata) → si aspetta
+ */
+async function sondaScheda(tabId, itemId, avviatoAt) {
+  if (!Number.isInteger(tabId)) return { stato: "ignoto", motivo: "non so quale scheda lo stesse lavorando" };
+  let tab;
+  try {
+    tab = await chrome.tabs.get(tabId);
+  } catch {
+    return { stato: "morto", motivo: "la scheda di Vinted è stata chiusa" };
+  }
+  if (tab?.discarded) return { stato: "morto", motivo: "il browser ha scaricato la scheda per liberare memoria" };
+  try {
+    const r = await conTimeout(chrome.tabs.sendMessage(tabId, { type: "vr:relistStatus", itemId: String(itemId), avviatoAt }), 10_000);
+    if (r?.inCorso) return { stato: "in-corso", passo: String(r.passo || "").slice(0, 80), fase: r.fase, passoAt: Number(r.passoAt) || null };
+    return { stato: "morto", motivo: "la pagina di Vinted è stata ricaricata o cambiata: il lavoro si è fermato" };
+  } catch (e) {
+    if (/Receiving end does not exist|Could not establish connection/i.test(String(e?.message))) {
+      return { stato: "morto", motivo: "la pagina di Vinted è stata ricaricata o chiusa: il lavoro si è fermato" };
+    }
+    return { stato: "ignoto", motivo: "la scheda di Vinted non risponde" };
+  }
+}
+
+/** Cosa fare quando il controllo scatta: mai un verdetto senza guardare. */
+async function controllaLavoro() {
+  const coda = C.migra(await leggiCoda());
+  const c = C.corrente(coda);
+  if (!coda?.running || !c) return;
+  const avviatoAt = c.startedAt;
+
+  // 1. La pagina aveva gia' scritto l'esito: si era perso solo il messaggio.
+  const giornale = await leggiGiornale(c.id, avviatoAt);
+  if (giornale?.esito) {
+    return conCoda((q) => esitoCoda(q, { ...giornale.esito, itemId: c.id, avviatoAt }));
+  }
+
+  // 2. La scheda ci sta ancora lavorando? Allora si aspetta, fino al limite.
+  const sonda = await sondaScheda(c.scheda, c.id, avviatoAt);
+  const durata = Date.now() - (avviatoAt || Date.now());
+  if (sonda.stato !== "morto" && durata < MAX_LAVORO_MIN * 60_000) {
+    chrome.alarms.create(ALARM_WATCHDOG, { delayInMinutes: sonda.stato === "in-corso" ? WATCHDOG_MIN : 2 });
+    return conCoda(async (q) => {
+      const x = C.corrente(q);
+      if (!x || x.id !== c.id || x.startedAt !== avviatoAt) return;
+      x.controlli = (x.controlli || 0) + 1;
+      if (x.controlli === 1 || sonda.stato === "ignoto") {
+        C.registra(q, "controllo", sonda.stato === "in-corso"
+          ? `Nessun esito dopo ${Math.round(durata / 60000)} min, ma la scheda sta ancora lavorando (${sonda.passo || "in corso"}): si aspetta.`
+          : `Nessun esito dopo ${Math.round(durata / 60000)} min e ${sonda.motivo}: si riprova a chiedere tra poco.`, { id: x.id });
+      }
+      await scriviCoda(q);
+    });
+  }
+  // Oltre il limite, ancora in preparazione: si chiede di fermarsi. Anche se
+  // la richiesta non arrivasse, da qui il permesso di inviare verra' negato.
+  if (sonda.stato !== "morto" && c.fase === "preparazione") await chiediAnnullamento(c.id, c.scheda);
+
+  // 3. Il lavoro si e' fermato (o e' fuori tempo massimo): si decide con le prove.
+  const motivo = sonda.stato === "morto" ? sonda.motivo : `nessun esito dopo ${MAX_LAVORO_MIN} minuti (${sonda.motivo || "la scheda lavora ancora"})`;
+  return conCoda(async (q) => {
+    const x = C.corrente(q);
+    if (!x || x.id !== c.id || x.startedAt !== avviatoAt) return;      // nel frattempo e' arrivato l'esito
+    const g = await leggiGiornale(x.id, avviatoAt);
+    if (g?.esito) return esitoCoda(q, { ...g.esito, itemId: x.id, avviatoAt });
+    if (g?.nuovoId) C.annotaTraccia(q, x.id, { nuovoId: g.nuovoId, fase: "creato" });
+    if (x.fase === "preparazione") {
+      return esitoCoda(q, { itemId: x.id, avviatoAt, ok: false, outcome: "interrupted", categoria: "interrotto", sicuro: "si",
+        error: `${motivo[0].toUpperCase()}${motivo.slice(1)} prima dell'invio: nessun annuncio creato o eliminato.` });
+    }
+    return esitoCoda(q, { itemId: x.id, avviatoAt, ok: false, outcome: "uncertain", categoria: "incerto", sicuro: "no",
+      error: (x.invioAt ? `Richiesta di pubblicazione inviata a Vinted alle ${oraBreve(x.invioAt)}, poi ${motivo}: nessuna conferma ricevuta. ` : `Avviato alle ${oraBreve(avviatoAt)}, poi ${motivo}: nessuna conferma ricevuta. `) +
+        (g?.nuovoId || x.traccia?.nuovoId ? `Vinted aveva già restituito il nuovo annuncio (${g?.nuovoId || x.traccia.nuovoId}). ` : "Potrebbe essere già pubblicato. ") +
+        "Non riprovare prima della verifica." });
+  });
+}
+
+/** Verifica automatica degli incerti, qualche tentativo distanziato. */
+function pianificaVerifica(minuti = VERIFICA_MIN) {
+  chrome.alarms.create(ALARM_VERIFICA, { delayInMinutes: Math.max(0.5, minuti) });
+}
+
+/**
+ * Verifica un articolo «da verificare» guardando Vinted (dalla pagina, che ha
+ * la sessione): il vecchio annuncio esiste ancora? quello nuovo, se se ne
+ * conosce l'id, esiste? c'e' nel tuo armadio un annuncio con le stesse foto
+ * caricate in quel tentativo? Cambia lo stato solo con una prova
+ * (C.valutaVerifica); altrimenti dice cosa manca.
+ */
+async function verificaArticolo(codaId, itemId, { automatica = false } = {}) {
+  const id = String(itemId);
+  const { vrQueue, vrQueueArchive = [] } = await chrome.storage.local.get({ vrQueue: null, vrQueueArchive: [] });
+  const corrente = C.migra(vrQueue);
+  const sessione = codaId == null || corrente?.startedAt === Number(codaId)
+    ? corrente
+    : vrQueueArchive.find((q) => q.startedAt === Number(codaId)) || null;
+  const a = C.trova(sessione, id);
+  if (!a) return { ok: false, motivo: "Articolo non trovato nella sessione." };
+  if (a.status !== "verify") return { ok: false, motivo: `È «${C.ETICHETTE[a.status]}»: non c'è niente da verificare.` };
+
+  const giornale = await leggiGiornale(id, a.startedAt);
+  const traccia = { ...(a.traccia || {}), ...(giornale || {}), nuovoId: giornale?.nuovoId || a.traccia?.nuovoId || a.nuovoId || null };
+  let v;
+  if (giornale?.esito) {
+    v = C.valutaVerifica({ giornale });
+  } else {
+    const tab = await schedaVinted();
+    if (!tab) {
+      v = { verdetto: "sconosciuto", mancano: ["nessuna scheda di Vinted aperta da cui controllare"], riprova: true };
+    } else {
+      try {
+        const oss = await conTimeout(chrome.tabs.sendMessage(tab.id, {
+          type: "vr:verifyRelist", itemId: id, nuovoId: traccia.nuovoId, fotoIds: traccia.fotoIds || [],
+        }), 45_000);
+        v = C.valutaVerifica({
+          giornale: traccia, faseCoda: a.fase, vecchio: oss?.vecchio, nuovo: oss?.nuovo, trovato: oss?.trovato || null,
+          eliminaVecchio: traccia.eliminaVecchio !== false,
+        });
+        if (oss?.limiti?.length) v.mancano = [...(v.mancano || []), ...oss.limiti];
+        if (v.verdetto === "sconosciuto") v.riprova = true;
+      } catch {
+        v = { verdetto: "sconosciuto", mancano: ["la scheda di Vinted non ha risposto alla verifica (ricaricala)"], riprova: true };
+      }
+    }
+  }
+
+  // Si applica sotto il lock, alla coda e alla sua copia in archivio.
+  const esito = await conCoda(async (q) => {
+    let r = null;
+    if (q && q.startedAt === sessione.startedAt && C.trova(q, id)) {
+      r = C.applicaVerifica(q, id, v);
+      const x = C.trova(q, id);
+      if (automatica && x) x.verificheAuto = (x.verificheAuto || 0) + 1;
+      await scriviCoda(q);
+    }
+    const { vrQueueArchive: arch = [] } = await chrome.storage.local.get("vrQueueArchive");
+    let cambiato = false;
+    for (const s of arch) {
+      if (s.startedAt !== sessione.startedAt || !C.trova(s, id)) continue;
+      const ra = C.applicaVerifica(s, id, v);
+      r = r || ra;
+      cambiato = true;
+    }
+    if (cambiato) await chrome.storage.local.set({ vrQueueArchive: arch });
+    return r;
+  });
+
+  const risolto = Boolean(esito?.ok && !esito.invariato);
+  if (risolto) {
+    await togliGiornale(id);
+    // Il valore dell'armadio segue solo le pubblicazioni verificate.
+    if (v.verdetto === "pubblicato" && v.nuovoId) {
+      await sostituisciInInventario({ oldId: id, newId: v.nuovoId, nuovo: { title: a.title, price: traccia.prezzo ?? null } });
+    } else if ((v.verdetto === "parziale" || v.verdetto === "parziale-incerto") && v.nuovoId) {
+      await annotaInventario({ [v.nuovoId]: { title: a.title, price: traccia.prezzo ?? null } });
+    }
+    await eventoEsito(sessione, { ...a, ...esito.articolo }, esito.stato);
+  } else if (automatica && v.riprova && (a.verificheAuto || 0) + 1 < MAX_VERIFICHE_AUTO) {
+    pianificaVerifica();
+  }
+  return {
+    ok: risolto,
+    stato: esito?.stato || a.status,
+    verdetto: v.verdetto,
+    motivo: risolto ? (v.prova || "") : (v.mancano || []).join("; ") || esito?.motivo || "nessuna prova sufficiente",
+  };
+}
+
+/** Sveglia delle verifiche automatiche: gli incerti della coda salvata, pochi alla volta. */
+async function verificheAutomatiche() {
+  const coda = C.migra(await leggiCoda());
+  const da = (coda?.items || []).filter((a) => a.status === "verify" && a.attendeEsito && (a.verificheAuto || 0) < MAX_VERIFICHE_AUTO).slice(0, 3);
+  for (const a of da) await verificaArticolo(coda.startedAt, a.id, { automatica: true });
 }
 
 // ------------------------------------------------- avvio, modifiche, verifica
@@ -874,6 +1245,7 @@ async function avviaCoda(coda, message) {
     items: message.items || [],
     intervalMin: message.intervalMin,
     overrides: message.overrides || null,
+    campi: message.campi || null,
     startAt: message.startAt,
     modello: message.modello || null,
     auto: Boolean(message.auto),
@@ -899,12 +1271,61 @@ async function avviaCoda(coda, message) {
   return { ok: true, count: nuova.items.length, saltati };
 }
 
+/**
+ * Aggiunta a una coda in corso, senza fermarla e senza toccare le batch che ci
+ * sono: gli articoli formano una batch nuova con le regole scelte nel Centro
+ * di modifica (message.batch), oppure si uniscono a una batch esistente
+ * (message.batchId).
+ */
 async function aggiungiAllaCoda(coda, message) {
   if (!coda?.running) return { ok: false, error: "Nessuna coda attiva: avviane una nuova." };
   if (coda.stopDopoCorrente) return { ok: false, error: "La coda si sta chiudendo: avviane una nuova quando ha finito." };
-  const r = C.aggiungi(coda, (message.items || []).slice(0, MAX_ID_PER_MESSAGGIO), { dove: message.dove === "cima" ? "cima" : "fondo" });
+  const batch = message.batch && typeof message.batch === "object"
+    ? { overrides: message.batch.overrides || null, campi: message.batch.campi || null, modello: message.batch.modello || null }
+    : null;
+  const r = C.aggiungi(coda, (message.items || []).slice(0, MAX_ID_PER_MESSAGGIO), {
+    dove: message.dove === "cima" ? "cima" : "fondo",
+    batch,
+    batchId: message.batchId != null ? String(message.batchId) : null,
+  });
   if (r.aggiunti.length || r.riattivati.length) await scriviCoda(coda);
-  return { ok: r.ok, aggiunti: r.aggiunti, riattivati: r.riattivati, rifiutati: r.rifiutati };
+  return { ok: r.ok, aggiunti: r.aggiunti, riattivati: r.riattivati, rifiutati: r.rifiutati, batch: r.batch, error: r.ok ? undefined : r.motivo };
+}
+
+/** Nuove regole per gli articoli in attesa di una batch. */
+async function modificaBatchCoda(coda, message) {
+  if (!coda?.running) return { ok: false, motivo: "Nessuna coda attiva." };
+  if (coda.stopDopoCorrente) return { ok: false, motivo: "La sessione si sta chiudendo." };
+  const r = C.modificaBatch(coda, String(message.batchId || ""), { overrides: message.overrides || null, campi: message.campi || null, modello: message.modello || null });
+  if (r.ok) await scriviCoda(coda);
+  return r;
+}
+
+/**
+ * «Ripubblica ora»: l'articolo diventa il prossimo. Quello in elaborazione non
+ * si tocca; in pausa o programmata resta tutto com'e' (sara' il primo alla
+ * ripresa). In attesa tra un articolo e l'altro, parte appena possibile: almeno
+ * un minuto dopo la pubblicazione precedente, per non farne due di fila.
+ */
+async function ripubblicaOraCoda(coda, message) {
+  if (!coda?.running) return { ok: false, motivo: "Nessuna coda attiva." };
+  if (coda.stopDopoCorrente) return { ok: false, motivo: "La sessione si sta chiudendo." };
+  const [id] = idDa([message.id]);
+  if (!id) return { ok: false, motivo: "Articolo non valido." };
+  const r = C.ripubblicaOra(coda, id);
+  if (!r.ok) return r;
+  let partenza = null;
+  if (coda.state === "waiting" && !C.corrente(coda)) {
+    const ultimo = Math.max(0, ...coda.items.map((a) => (["done", "error", "verify"].includes(a.status) ? a.finishedAt || 0 : 0)));
+    const quando = Math.max(Date.now() + 5_000, ultimo + STACCO_MIN_MS);
+    if (!coda.nextAt || quando < coda.nextAt) {
+      coda.nextAt = quando;
+      chrome.alarms.create(ALARM_NEXT, { when: quando });
+    }
+    partenza = coda.nextAt;
+  }
+  await scriviCoda(coda);
+  return { ...r, partenza, stato: coda.state };
 }
 
 async function rimuoviDallaCoda(coda, message) {
@@ -941,7 +1362,7 @@ async function riprovaArticoli(coda, message) {
   const ids = message.ids ? idDa(message.ids) : null;
 
   if (coda?.running && (codaId == null || coda.startedAt === codaId)) {
-    const scelti = ids || coda.items.filter((i) => i.status === "error").map((i) => i.id);
+    const scelti = ids || coda.items.filter((i) => i.status === "error" || i.status === "interrupted").map((i) => i.id);
     const r = C.riprova(coda, scelti);
     if (r.ok) await scriviCoda(coda);
     return { ok: r.ok, rimessi: r.rimessi, rifiutati: r.rifiutati, error: r.ok ? null : "Nessun articolo da riprovare." };
@@ -952,15 +1373,37 @@ async function riprovaArticoli(coda, message) {
     const { vrQueueArchive = [] } = await chrome.storage.local.get("vrQueueArchive");
     origine = vrQueueArchive.find((q) => q.startedAt === codaId) || null;
   }
-  const falliti = (origine?.items || []).filter((i) => i.status === "error" && i.sicuro !== "no" && (!ids || ids.includes(String(i.id))));
+  const falliti = (origine?.items || []).filter((i) => (i.status === "interrupted" || (i.status === "error" && i.sicuro !== "no")) && (!ids || ids.includes(String(i.id))));
   if (!falliti.length) return { ok: false, error: "Nessun articolo fallito da riprovare." };
-  const voci = falliti.map(({ id, title, thumb, price }) => ({ id, title, thumb, price }));
+  return rimettiPerBatch(coda, origine, falliti, { aggiuntaAllaCodaInCorso: Boolean(coda?.running) });
+}
 
-  if (coda?.running) {
-    const r = await aggiungiAllaCoda(coda, { items: voci, dove: "fondo" });
-    return { ...r, aggiuntaAllaCodaInCorso: true };
+/**
+ * Articoli di una sessione passata rimessi in coda CON LE REGOLE DELLA LORO
+ * BATCH: un gruppo per batch d'origine. Fino alla 2.1 prendevano quelle della
+ * coda in corso.
+ */
+async function rimettiPerBatch(coda, origine, articoli, extra = {}) {
+  const gruppi = new Map();
+  for (const a of articoli) {
+    const b = C.batchDi(origine, a);
+    const k = b?.id || "_";
+    if (!gruppi.has(k)) gruppi.set(k, { b, voci: [] });
+    gruppi.get(k).voci.push({ id: a.id, title: a.title, thumb: a.thumb, price: a.price });
   }
-  return avviaCoda(coda, { items: voci, intervalMin: origine.intervalMin, overrides: origine.overrides ?? null, modello: origine.modello });
+  const regole = (b) => ({ overrides: b?.overrides ?? origine.overrides ?? null, campi: b?.campi || null, modello: b?.modello ?? origine.modello ?? null });
+  let risultato = null;
+  for (const { b, voci } of gruppi.values()) {
+    const attiva = coda?.running ? coda : null;
+    const r = attiva
+      ? await aggiungiAllaCoda(attiva, { items: voci, dove: "fondo", batch: regole(b) })
+      : await avviaCoda(coda, { items: voci, intervalMin: origine.intervalMin, ...regole(b) });
+    if (!attiva && r.ok) coda = C.migra(await leggiCoda());
+    risultato = risultato
+      ? { ...risultato, ok: risultato.ok || r.ok, aggiunti: [...(risultato.aggiunti || []), ...(r.aggiunti || [])], rifiutati: [...(risultato.rifiutati || []), ...(r.rifiutati || [])] }
+      : r;
+  }
+  return { ...risultato, ...extra };
 }
 
 /** Riprende una sessione passata: solo cio' che non e' stato fatto, mai i completati. */
@@ -971,10 +1414,7 @@ async function riprendiSessione(coda, message) {
   if (!sessione) return { ok: false, error: "Sessione non più in archivio." };
   const { riprendibili, esclusi } = C.daRiprendere(sessione);
   if (!riprendibili.length) return { ok: false, error: "In questa sessione non c'è niente da riprendere.", esclusi };
-  const voci = riprendibili.map(({ id, title, thumb, price }) => ({ id, title, thumb, price }));
-  const r = coda?.running
-    ? await aggiungiAllaCoda(coda, { items: voci, dove: "fondo" })
-    : await avviaCoda(coda, { items: voci, intervalMin: sessione.intervalMin, overrides: sessione.overrides ?? null, modello: sessione.modello });
+  const r = await rimettiPerBatch(coda, sessione, riprendibili);
   return { ...r, esclusi };
 }
 
@@ -1061,6 +1501,7 @@ programmaScansione();
 function recuperaCoda() { return conCoda(recupera); }
 chrome.runtime.onStartup.addListener(recuperaCoda);
 chrome.runtime.onInstalled.addListener(recuperaCoda);
+chrome.runtime.onStartup.addListener(() => potaGiornali().catch(() => {}));
 recuperaCoda();
 
 chrome.alarms.onAlarm.addListener((alarm) => {
@@ -1069,20 +1510,11 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_RIPRESA) {
     return conCoda((coda) => (coda?.state === "paused" && coda.riprendiAlle ? riprendiCoda(coda) : null));
   }
-  if (alarm.name === ALARM_WATCHDOG) {
-    return conCoda((coda) => {
-      const c = C.corrente(coda);
-      if (!coda?.running || !c) return null;
-      return esitoCoda(coda, {
-        itemId: c.id,
-        ok: false,
-        outcome: "uncertain",
-        categoria: "incerto",
-        sicuro: "no",
-        error: `Nessuna risposta dalla scheda in ${WATCHDOG_MIN} minuti: potrebbe essere stato pubblicato, controlla l'armadio.`,
-      });
-    });
-  }
+  // Il controllo dell'articolo in corso: chiede, guarda le prove, poi decide.
+  // La parte che aspetta la scheda sta fuori dal lock: popup e dashboard non
+  // devono restare fermi per i secondi della sonda.
+  if (alarm.name === ALARM_WATCHDOG) return controllaLavoro().catch((e) => console.warn("[Relist] controllo:", e));
+  if (alarm.name === ALARM_VERIFICA) return verificheAutomatiche().catch((e) => console.warn("[Relist] verifica:", e));
   return null;
 });
 
@@ -1090,6 +1522,19 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 const MESSAGGI_CODA = {
   "vr:queueStart": (coda, m) => avviaCoda(coda, m),
   "vr:queueAdd": (coda, m) => aggiungiAllaCoda(coda, m),
+  "vr:queueNow": (coda, m) => ripubblicaOraCoda(coda, m),
+  "vr:queueBatchEdit": (coda, m) => modificaBatchCoda(coda, m),
+  // La pagina chiede il permesso SUBITO PRIMA della prima richiesta che cambia
+  // qualcosa su Vinted. Un no ferma il tentativo senza danni (vedi C.confermaInvio).
+  "vr:relistConfirm": async (coda, m) => {
+    const r = C.confermaInvio(coda, String(m.itemId), m.avviatoAt);
+    if (r.ok && !r.gia) {
+      C.annotaTraccia(coda, String(m.itemId), { ...(m.traccia || {}), fase: "invio" });
+      await scriviCoda(coda);
+      await scriviPasso({ itemId: String(m.itemId), step: "Pubblico…", fase: "invio", at: Date.now() });
+    }
+    return r;
+  },
   "vr:queueRemove": (coda, m) => rimuoviDallaCoda(coda, m),
   "vr:queueMove": (coda, m) => spostaNellaCoda(coda, m),
   "vr:queueReorder": (coda, m) => riordinaCoda(coda, m),
@@ -1109,6 +1554,15 @@ const MESSAGGI_CODA = {
   },
   "vr:relistDone": (coda, m) => esitoCoda(coda, m).then(() => ({ ok: true })),
 };
+
+// La verifica aspetta la pagina e Vinted: fuori dal lock, che prende solo per scrivere.
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type !== "vr:queueVerify") return false;
+  verificaArticolo(message.queue ?? null, message.itemId)
+    .then(sendResponse)
+    .catch((error) => sendResponse({ ok: false, motivo: String(error?.message || error) }));
+  return true;
+});
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   const gestore = MESSAGGI_CODA[message?.type];

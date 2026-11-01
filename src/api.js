@@ -122,7 +122,7 @@
       if (retryOn403) {
         cachedCsrf = null;                        // token scaduto: uno e un solo retry
         await getCsrf(true);
-        return request(method, path, { body, formData, referrer, retryOn403: false });
+        return request(method, path, { body, formData, referrer, retryOn403: false, timeoutMs });
       }
       // gia' riprovato con un token nuovo: non e' la sessione, e' l'antibot
       throw bloccato(new Error("Vinted ha rifiutato la richiesta (403): probabile antibot."));
@@ -393,16 +393,47 @@
       }
     },
 
+    /**
+     * Esiste ancora questo annuncio tuo? "presente" | "assente" | "ignoto".
+     * Solo lettura. Un errore che non sia un 404 non dice niente: "ignoto".
+     */
+    async stato(itemId) {
+      try {
+        const payload = await request("GET", `/item_upload/items/${itemId}`, { timeoutMs: 20000 });
+        return payload?.item ? "presente" : "ignoto";
+      } catch (errore) {
+        return errore.status === 404 ? "assente" : "ignoto";
+      }
+    },
+
+    /**
+     * Gli annunci piu' recenti del tuo armadio, per riconoscere quello creato da
+     * un tentativo senza conferma (stesse foto caricate). Endpoint di lettura
+     * dell'armadio usato dal sito; se Vinted lo cambia, la verifica lo dice e
+     * resta "da verificare" invece di indovinare.
+     */
+    async armadioRecenti(userId, quanti = 20) {
+      const payload = await request("GET", `/wardrobe/${userId}/items?page=1&per_page=${quanti}&order=newest_first`, { timeoutMs: 20000 });
+      const items = payload?.items;
+      if (!Array.isArray(items)) throw new Error("risposta dell'armadio non riconosciuta");
+      return items;
+    },
+
     /** Scarica una foto. Prima direttamente, poi dal service worker se il CORS blocca. */
     async downloadPhoto(url) {
+      // Senza limite di tempo una foto bloccata fermava la pubblicazione per sempre.
+      const controllo = new AbortController();
+      const scadenza = setTimeout(() => controllo.abort(), 60000);
       try {
-        const response = await fetch(url, { credentials: "omit" });
+        const response = await fetch(url, { credentials: "omit", signal: controllo.signal });
         if (response.ok) {
           const blob = await response.blob();
           if (blob.size > 1024) return blob;
         }
       } catch {
         // CORS o rete: ci pensa il service worker.
+      } finally {
+        clearTimeout(scadenza);
       }
 
       const response = await chrome.runtime.sendMessage({ type: "vr:fetchImage", url });

@@ -3,7 +3,7 @@
 Estensione per **Brave e Chrome** che ripubblica i tuoi annunci Vinted in un clic, uno alla volta
 o in coda, per riportarli in cima ai risultati senza rifarli a mano.
 
-**Versione 2.1.0** · [Novità](CHANGELOG.md) · [Community su Discord](https://discord.gg/EPsbQCuAkx) ·
+**Versione 2.2.0** · [Novità](CHANGELOG.md) · [Community su Discord](https://discord.gg/EPsbQCuAkx) ·
 [Segnala un problema](https://github.com/MashaUP/Vinted_Relist/issues/new?template=segnalazione-bug.yml) ·
 [Supporta lo sviluppo su Ko-fi](https://ko-fi.com/mashaup)
 
@@ -24,14 +24,14 @@ un intervallo tra uno e l'altro.
 |---|---|
 | Distribuzione | zip su GitHub, da caricare come estensione non pacchettizzata. **Non è sul Chrome Web Store** (vedi [perché](docs/SVILUPPO.md#11-chrome-web-store-rischi)) |
 | Verificato su Vinted reale | la ripubblicazione, nelle versioni precedenti usate dall'autore |
-| Verificato solo nei test | le novità della 2.1 (code dinamiche, annullamento, link): oltre 750 controlli automatici e prove in Chromium con l'estensione caricata, senza pubblicazioni vere |
+| Verificato solo nei test | le novità della 2.1 e della 2.2 (code dinamiche, esiti incerti, batch, «Ripubblica ora», valore dell'armadio): oltre 600 controlli automatici e prove in Chromium con l'estensione caricata su un Vinted finto, senza pubblicazioni vere |
 | Dipendenze | nessuna libreria, nessun passaggio di build |
 
 Prima di usarla su tanti articoli, provala su uno a cui tieni poco.
 
 ## Installazione
 
-1. Scarica dal repository lo zip **`Vinted_Relist-2.1.0.zip`** (nella radice).
+1. Scarica dal repository lo zip **`Vinted_Relist-2.2.0.zip`** (nella radice).
 2. Estrailo **in una cartella stabile** (non nella cartella temporanea che Windows apre con il
    doppio clic): ottieni la cartella `Vinted_Relist`.
 3. Apri `brave://extensions` (o `chrome://extensions`) e attiva **Modalità sviluppatore**.
@@ -77,6 +77,22 @@ li divide in pronti, con avvisi e bloccati › **Avvia**.
   note) e punteggio di completezza; anteprima di cosa cambia; bozza salvata da sola.
 - **Scarica le foto** originali, nella qualità più alta, in Download › Vinted Relist.
 
+### Novità 2.2
+- **Esiti certi:** dopo 6 minuti senza risposta la coda chiede alla scheda se sta ancora
+  lavorando e, se sì, aspetta. Se la pagina è stata chiusa o ricaricata decide con le prove:
+  **Interrotto** se non era stato inviato niente a Vinted (riprovarlo è sicuro), **Da verificare**
+  se la richiesta era partita. Un esito che arriva in ritardo vale ancora.
+- **«Verifica pubblicazione»** (dashboard e popup, e da sola dopo un esito incerto): guarda su
+  Vinted, senza pubblicare niente, se il nuovo annuncio c'è e se il vecchio è stato eliminato.
+- **Batch:** con una coda in corso, «Aggiungi alla coda» apre il **Centro di modifica** per i nuovi
+  articoli. Diventano una batch con regole proprie (prezzo, descrizione, dati mancanti); quelle già
+  in coda non cambiano e la coda non si ferma. Nella dashboard ogni batch mostra stato, regole e
+  conteggi, e le sue regole si possono cambiare per gli articoli ancora in attesa.
+- **«Ripubblica ora»:** l'articolo scelto diventa il prossimo, con le regole della sua batch, senza
+  interrompere quello in corso.
+- **Valore dell'armadio** aggiornato a ogni pubblicazione confermata, anche nel popup, senza
+  doppioni e senza contare gli esiti incerti.
+
 ### Coda (novità 2.1)
 - **Dinamica:** aggiungi, rimuovi e riordina gli articoli anche mentre la coda lavora o è in pausa;
   alla ripresa vale l'elenco aggiornato.
@@ -107,7 +123,8 @@ li divide in pronti, con avvisi e bloccati › **Avvia**.
 - **Automazione facoltativa:** fasce orarie di picco, ripubblicazione degli articoli fermi da N
   giorni, ritmo irregolare e passi solo quando sei al computer.
 - **Protezioni:** un articolo alla volta; davanti a un 429/403 rallenta (5, 15, 45 minuti) e poi si
-  ferma; dopo un'interruzione del browser l'articolo a metà diventa «da verificare».
+  ferma; dopo un'interruzione del browser l'articolo a metà diventa «Interrotto» se non aveva
+  ancora inviato niente, «da verificare» se sì. Un «da verificare» non viene mai ripubblicato da solo.
 
 ### Popup e dashboard
 - **Popup:** Home con la coda e l'attività, Notifiche, Salute (controlli, diagnostica da copiare,
@@ -125,6 +142,7 @@ li divide in pronti, con avvisi e bloccati › **Avvia**.
 | `P` | pausa / riprendi |
 | `A` | apri l'articolo in corso |
 | `F` | mostra solo i problemi |
+| `R` | sull'articolo selezionato: ripubblica ora (diventa il prossimo) |
 | `S` | seleziona tutti gli articoli in attesa |
 | `Canc` | rimuovi dalla coda i selezionati |
 | `H` | apri la cronologia |
@@ -278,13 +296,14 @@ Servono Node 18+ e, per i test dell'interfaccia, jsdom (lo installa `npm install
 ```
 manifest.json            permessi e registrazione degli script
 LICENSE                  licenza MIT
-background.js            service worker: token, formati, coda (unico scrittore), archivio, notifiche, download
+background.js            service worker: token, formati, coda e inventario (unico scrittore), controllo e verifica degli esiti, archivio, notifiche, download
 links.json               link del progetto (GitHub, Discord, Ko-fi…): predefiniti e remoti, vedi docs/LINK.md
 version.json             (solo nel repository) versione pubblicata, letta da «Cerca aggiornamento»
 CHANGELOG.md             novità per versione, mostrate anche nel popup
 docs/SVILUPPO.md         architettura, flussi, decisioni, debito tecnico, registro proposte
 docs/LINK.md             link centralizzati e configurazione remota
-src/coda-logica.js       modello della coda: stati, transizioni, stime, salute, errori (funzioni pure)
+src/coda-logica.js       modello della coda: stati, batch, transizioni, verifica degli esiti, stime, salute, errori (funzioni pure)
+src/armadio-logica.js    inventario dell'armadio: letture delle card e ripubblicazioni (funzioni pure, le applica il service worker)
 src/relist.js            clonazione, foto, campi, controllo preventivo, annullamento
 src/api.js               tutte le chiamate a Vinted
 src/editor*.js           editor dell'annuncio e i suoi controlli

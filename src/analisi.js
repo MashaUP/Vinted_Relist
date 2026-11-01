@@ -50,6 +50,24 @@
     return { totale: Math.round(totale * 100) / 100, conPrezzo };
   }
 
+  /**
+   * Il valore dell'armadio con il suo stato: la definizione non cambia (somma
+   * dei prezzi degli articoli dell'inventario), ma si dice quando un numero e'
+   * provvisorio. Un articolo in pubblicazione o «da verificare» conta ancora con
+   * il suo annuncio di prima: il totale si aggiorna quando l'esito e' certo,
+   * non prima (niente prezzi aggiunti su un esito incerto, niente doppioni).
+   */
+  function statoValore(inventory, coda = null) {
+    const v = valoreTotale(inventory || {});
+    const items = coda?.items || [];
+    const inCorso = items.filter((a) => a.status === "working").length;
+    const daVerificare = items.filter((a) => a.status === "verify").length;
+    const note = [];
+    if (inCorso) note.push(`${inCorso} in pubblicazione adesso`);
+    if (daVerificare) note.push(`${daVerificare} da verificare: ${daVerificare === 1 ? "il suo prezzo si aggiorna" : "i loro prezzi si aggiornano"} quando l'esito è certo`);
+    return { ...v, inCorso, daVerificare, provvisorio: Boolean(inCorso || daVerificare), nota: note.join(" · ") };
+  }
+
   // ------------------------------------------------------------- duplicati
 
   function normalizza(titolo) {
@@ -233,7 +251,7 @@
 
   const api = {
     classifica,
-    valoreTotale,
+    valoreTotale, statoValore,
     duplicati,
     normalizza,
     misure,

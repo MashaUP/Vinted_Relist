@@ -175,10 +175,25 @@
 
   // ------------------------------------------------------- finestra opzioni
 
-  async function apriOpzioni({ eAvvia = false } = {}) {
+  /** Il nome che avra' la prossima batch della coda in corso. */
+  function nomeProssimaBatch() {
+    const c = CL().migra(coda);
+    return `Batch ${Math.max(c?.batchSeq || 0, c?.batches?.length || 0) + 1}`;
+  }
+
+  /**
+   * perBatch: Centro di modifica per gli articoli da AGGIUNGERE alla coda in
+   * corso. Stesse regole di sempre (prezzo, testo, dati mancanti), niente
+   * pianificazione (intervallo e avvio sono della sessione). Risolve con
+   * { overrides, campi, modello } oppure null se chiudi.
+   */
+  async function apriOpzioni({ eAvvia = false, perBatch = false } = {}) {
     // Il toast in basso copriva i controlli: si chiude, l'evento resta nel registro.
     VR.toast.chiudiTutti();
     const h2 = VR.h;
+    let risolviBatch = null;
+    const promessa = perBatch ? new Promise((r) => { risolviBatch = r; }) : null;
+    const sessione = perBatch ? CL().migra(coda) : null;
     const formaDi = (o) => ({ ...soloCampi(conIntervallo(o)), quando: String(o.quando || "") });
     let f = formaDi(opzioni);
     const salvate = JSON.stringify(formaDi(opzioni));
@@ -210,6 +225,8 @@
 
     modo.value = f.modo; valore.value = f.valore; aggiunta.value = f.aggiunta; cerca.value = f.cerca;
     con.value = f.con; colore.value = f.colore || ""; quando.value = f.quando; intervallo.value = f.intervallo;
+    // L'intervallo e' della sessione: per una batch non si sceglie, ma serve valido per la validazione.
+    if (perBatch) { quando.value = ""; intervallo.value = String(sessione?.intervalMin || 20); }
 
     const cValore = campo("Valore", h2("span", { class: "vr-input-unit" }, valore, unita), "valore");
     const cAggiunta = campo("Aggiungi in fondo alla descrizione", aggiunta, "aggiunta");
@@ -322,6 +339,22 @@
     riempiModelli();
     const bSalva = h2("button", { class: "vr-btn vr-btn--ghost", type: "button" }, "Salva");
     const bAvvia = h2("button", { class: "vr-btn vr-btn--primary", type: "button" }, "Salva e avvia");
+    const bContinua = h2("button", { class: "vr-btn vr-btn--primary", type: "button" }, "Continua al riepilogo");
+
+    // Partire dalle regole di una batch gia' in coda (copiate: quella non cambia).
+    const copiaDa = perBatch
+      ? (sessione?.batches || []).filter((b) => b.campi).map((b) =>
+        h2("button", {
+          class: "vr-btn vr-btn--ghost vr-btn--sm", type: "button", title: descriviOverrides(b.overrides || {}),
+          onclick: () => {
+            const o = b.campi;
+            modo.value = o.modo || ""; valore.value = o.valore || ""; aggiunta.value = o.aggiunta || "";
+            cerca.value = o.cerca || ""; con.value = o.con || ""; colore.value = o.colore || "";
+            modelloApplicato = b.modello || "";
+            aggiorna();
+          },
+        }, `Copia da ${b.nome}`))
+      : [];
 
     // prezzo di esempio: il primo articolo selezionato di cui conosciamo il prezzo
     const { inventory = {} } = await chrome.storage.local.get("inventory");
@@ -363,6 +396,7 @@
       statoBozza.classList.toggle("is-dirty", modificato);
       bSalva.disabled = !v.ok;
       bAvvia.disabled = !v.ok;
+      bContinua.disabled = !v.ok;
       return v;
     }
 
@@ -376,13 +410,16 @@
 
     const card = h2("div", { class: "vr-card vr-card--wide vr-options", role: "dialog", "aria-modal": "true", "aria-labelledby": "vr-opt-title" },
       h2("div", { class: "vr-editor__head" },
-        h2("h2", { class: "vr-card__title", id: "vr-opt-title" }, "Opzioni della coda"),
-        statoBozza,
+        h2("h2", { class: "vr-card__title", id: "vr-opt-title" }, perBatch ? `Centro di modifica · ${nomeProssimaBatch()}` : "Opzioni della coda"),
+        perBatch ? null : statoBozza,
         h2("button", { class: "vr-close", type: "button", "aria-label": "Chiudi senza salvare", title: "Chiudi senza salvare", onclick: () => chiudi() }, "×")),
-      h2("p", { class: "vr-note" }, `Valgono per ${selezionati.size} ${selezionati.size === 1 ? "articolo selezionato" : "articoli selezionati"}. Foto, titolo intero e taglia si cambiano dal singolo articolo con Modifica.`),
-      coda?.running
-        ? h2("p", { class: "vr-note vr-note--warn" }, "C'è una coda in corso: queste opzioni valgono per la prossima coda. Gli articoli che aggiungi a quella in corso usano le opzioni con cui è partita.")
+      h2("p", { class: "vr-note" }, perBatch
+        ? `Regole per i ${selezionati.size} ${selezionati.size === 1 ? "articolo" : "articoli"} da aggiungere alla coda in corso, che diventano «${nomeProssimaBatch()}». La coda non si ferma e le batch già in coda tengono le loro regole.`
+        : `Valgono per ${selezionati.size} ${selezionati.size === 1 ? "articolo selezionato" : "articoli selezionati"}. Foto, titolo intero e taglia si cambiano dal singolo articolo con Modifica.`),
+      coda?.running && !perBatch
+        ? h2("p", { class: "vr-note vr-note--warn" }, "C'è una coda in corso: queste opzioni valgono per la prossima coda. Per aggiungere articoli a quella in corso usa «Aggiungi alla coda»: potrai scegliere regole diverse per loro.")
         : null,
+      copiaDa.length ? h2("div", { class: "vr-templates" }, h2("span", { class: "vr-field__label" }, "Parti da"), ...copiaDa) : null,
       h2("div", { class: "vr-templates" },
         h2("label", { class: "vr-templates__pick" }, h2("span", { class: "vr-field__label" }, "Modello"), sceltaModello),
         bApplica, bElimina, h2("span", { class: "vr-templates__spacer" }), bSalvaModello),
@@ -402,22 +439,32 @@
           (VR.settings.canary !== false
             ? "Prima di avviare, ogni articolo viene letto (senza pubblicare) e ti dico cosa manca."
             : "Il controllo prima di avviare è spento nelle impostazioni."))),
-      sezione("Pianificazione",
-        h2("div", { class: "vr-row" }, cQuando.nodo, cIntervallo.nodo)),
+      perBatch
+        ? h2("p", { class: "vr-field__help" }, `Intervallo tra gli articoli: quello della sessione (${sessione?.intervalMin || "?"} min).`)
+        : sezione("Pianificazione", h2("div", { class: "vr-row" }, cQuando.nodo, cIntervallo.nodo)),
       h2("div", { class: "vr-actions vr-actions--split" },
         h2("button", {
           class: "vr-btn vr-btn--quiet", type: "button",
           onclick: () => {
             modo.value = ""; valore.value = ""; aggiunta.value = ""; cerca.value = ""; con.value = "";
-            colore.value = ""; quando.value = ""; intervallo.value = "20";
+            colore.value = ""; quando.value = ""; intervallo.value = perBatch ? String(sessione?.intervalMin || 20) : "20";
             modelloApplicato = "";
             aggiorna();
           },
-        }, "Ripristina predefiniti"),
+        }, perBatch ? "Nessuna modifica" : "Ripristina predefiniti"),
         h2("span", { class: "vr-actions__group" },
           h2("button", { class: "vr-btn vr-btn--ghost", type: "button", onclick: () => chiudi() }, "Annulla"),
-          bSalva, bAvvia))
+          ...(perBatch ? [bContinua] : [bSalva, bAvvia])))
     );
+
+    bContinua.addEventListener("click", async () => {
+      const v = aggiorna();
+      if (!v.ok) return;
+      // Le regole scelte diventano anche le ultime usate; intervallo e avvio salvati restano i tuoi.
+      await salvaOpzioni({ ...opzioni, ...soloCampi(f), intervallo: opzioni.intervallo, quando: "", modello: modelloApplicato });
+      risolviBatch({ overrides: v.overrides || null, campi: Object.fromEntries(["modo", "valore", "aggiunta", "cerca", "con", "colore"].map((k) => [k, f[k] || ""])), modello: modelloApplicato || null });
+      chiudi();
+    });
 
     bSalva.addEventListener("click", async () => {
       if (!aggiorna().ok) return;
@@ -434,8 +481,9 @@
     });
 
     aggiorna();
-    const chiudi = VR.openOverlay(card);
-    (eAvvia ? bAvvia : modo).focus();
+    const chiudi = VR.openOverlay(card, perBatch ? { onClose: () => risolviBatch(null) } : undefined);
+    (perBatch ? modo : eAvvia ? bAvvia : modo).focus();
+    return promessa;
   }
 
   // ------------------------------------------------------ controllo preventivo
@@ -523,7 +571,7 @@
 
       const card = h2("div", { class: "vr-card vr-card--wide", role: "dialog", "aria-modal": "true", "aria-labelledby": "vr-riep-title" },
         h2("h2", { class: "vr-card__title", id: "vr-riep-title" }, attiva ? "Aggiungi alla coda in corso" : "Prima di avviare"),
-        h2("p", { class: "vr-note" }, attiva ? `Useranno le opzioni della coda in corso: ${descrizione}.` : `Opzioni: ${descrizione}.`),
+        h2("p", { class: "vr-note" }, attiva ? `Nuova ${descrizione}. La coda non si ferma e le batch già in coda non cambiano.` : `Opzioni: ${descrizione}.`),
         sessione
           ? h2("p", { class: "vr-note vr-note--error" }, `Non riesco a leggere gli articoli: ${sessione.problemi[0]}. Ricarica Vinted e controlla di essere entrato.`)
           : null,
@@ -576,7 +624,17 @@
       price: typeof inventory[id]?.price === "number" ? inventory[id].price : null,
     }));
     if (!tutti.length) return;
-    const overrides = attiva ? coda.overrides || {} : v.overrides || {};
+
+    // Coda in corso: i nuovi articoli sono una batch nuova, con regole scelte
+    // adesso nel Centro di modifica. Quella che lavora non si ferma.
+    let regole = null;
+    let nomeBatch = null;
+    if (attiva) {
+      nomeBatch = nomeProssimaBatch();
+      regole = await apriOpzioni({ perBatch: true });
+      if (!regole) return;
+    }
+    const overrides = attiva ? regole.overrides || {} : v.overrides || {};
 
     // Con una coda in corso: chi non puo' entrare (gia' in coda, completato,
     // da verificare) lo dice la stessa regola che usa il service worker.
@@ -605,17 +663,17 @@
 
     const scelta = await mostraRiepilogo({
       voci, controllati, rifiutati, attiva, overrides, totale: daControllare.length,
-      descrizione: attiva ? descriviOverrides(coda.overrides, { intervalMin: coda.intervalMin }) : descriviOpzioni(),
+      descrizione: attiva ? `${nomeBatch}: ${descriviOverrides(regole.overrides || {}, { modello: regole.modello })}` : descriviOpzioni(),
     });
     if (!scelta) return;
     const items = scelta.items.map(({ id, title, thumb, price }) => ({ id, title, thumb, price }));
 
     if (attiva) {
-      const r = await chrome.runtime.sendMessage({ type: "vr:queueAdd", items, dove: scelta.dove });
+      const r = await chrome.runtime.sendMessage({ type: "vr:queueAdd", items, dove: scelta.dove, batch: regole });
       if (r?.ok) {
         const n = (r.aggiunti?.length || 0) + (r.riattivati?.length || 0);
         const fuori = r.rifiutati?.length || 0;
-        VR.toast(`${n} ${n === 1 ? "articolo aggiunto" : "articoli aggiunti"} alla coda${fuori ? `; ${fuori} non aggiunti (${r.rifiutati[0].motivo})` : ""}.`,
+        VR.toast(`${n} ${n === 1 ? "articolo aggiunto" : "articoli aggiunti"} alla coda come ${nomeBatch}${fuori ? `; ${fuori} non aggiunti (${r.rifiutati[0].motivo})` : ""}.`,
           fuori ? "warn" : "ok", { chiave: "aggiunta-coda" });
         VR.selection.nessuno();
       } else {
@@ -629,6 +687,7 @@
       items,
       intervalMin: v.intervalMin,
       overrides: v.overrides,
+      campi: Object.fromEntries(["modo", "valore", "aggiunta", "cerca", "con", "colore"].map((k) => [k, String(opzioni[k] || "")])),
       startAt: v.startAt,
       modello: opzioni.modello || null,
     });
@@ -755,19 +814,20 @@
 
     if (conclusa && !quanti) {
       const r = CL().conta(coda);
-      const daGuardare = r.error + r.verify;
+      const daGuardare = r.error + r.verify + r.interrupted;
       titolo.textContent = daGuardare
         ? `Finita: ${r.done} ripubblicati, ${daGuardare} da guardare`
         : `Finita: ${r.done} ripubblicati`;
       sotto.textContent = coda.note || [
         r.error ? `${r.error} falliti` : "",
         r.verify ? `${r.verify} da verificare` : "",
+        r.interrupted ? `${r.interrupted} interrotti` : "",
         r.cancelled ? `${r.cancelled} annullati` : "",
         r.removed ? `${r.removed} rimossi` : "",
       ].filter(Boolean).join(" · ");
 
       controlli.append(bottone("Dettagli", "ghost", comando("vr:openPage", { pagina: `src/dashboard.html#coda-${coda.startedAt}` })));
-      if (r.error) controlli.append(bottone(`Riprova i falliti (${r.error})`, "ghost", comando("vr:queueRetry", { queue: coda.startedAt })));
+      if (r.error + r.interrupted) controlli.append(bottone(`Riprova i falliti (${r.error + r.interrupted})`, "ghost", comando("vr:queueRetry", { queue: coda.startedAt })));
       controlli.append(bottone("Chiudi", "ghost", comando("vr:queueClear")));
       return;
     }
@@ -789,10 +849,47 @@
   // ---------------------------------------------------------------- esecuzione
 
   /**
-   * Annullamenti in sospeso per gli articoli che QUESTA scheda sta lavorando.
-   * oltre = la richiesta che cambia qualcosa su Vinted e' gia' partita.
+   * Gli articoli che QUESTA scheda sta lavorando: annullamento chiesto, punto di
+   * non ritorno passato, passo attuale. E' quello che risponde alla sonda del
+   * service worker ("ci stai ancora lavorando?").
    */
   const lavorazioni = new Map();
+
+  /**
+   * Giornale del tentativo in storage (vrOp:<id>): fase, id del nuovo annuncio,
+   * esito. Se il messaggio con l'esito si perde o la pagina muore, il service
+   * worker trova qui le prove. Una chiave per articolo: un solo scrittore.
+   */
+  const chiaveGiornale = (id) => `vrOp:${id}`;
+  async function scriviGiornale(id, base, patch) {
+    Object.assign(base, patch, { at: Date.now() });
+    await chrome.storage.local.set({ [chiaveGiornale(id)]: { ...base } });
+  }
+
+  /** Errore che ferma il tentativo PRIMA di inviare qualcosa a Vinted. */
+  function fermato(motivo) {
+    const e = new Error(`Fermato prima dell'invio a Vinted: ${motivo}. Nessun annuncio creato o eliminato.`);
+    e.annullato = true;
+    return e;
+  }
+
+  /**
+   * L'esito si manda finche' il service worker non conferma di averlo ricevuto:
+   * fino alla 2.1 partiva una volta sola e, se si perdeva, dopo 6 minuti
+   * l'articolo diventava «da verificare» anche se era stato pubblicato.
+   */
+  async function consegnaEsito(messaggio) {
+    for (const attesa of [0, 2000, 5000, 15000, 30000, 60000]) {
+      if (attesa) await VR.sleep(attesa);
+      try {
+        const r = await chrome.runtime.sendMessage(messaggio);
+        if (r?.ok) return true;
+      } catch {
+        // service worker in riavvio o estensione ricaricata: si riprova
+      }
+    }
+    return false;
+  }
 
   /**
    * Il service worker chiede di ripubblicare un articolo: rispondo subito e
@@ -804,15 +901,23 @@
     sendResponse({ accepted: true });
 
     const id = String(message.itemId);
+    const avviatoAt = Number(message.avviatoAt) || null;
     const barra = VR.bars.get(id);
-    const stato = { richiesto: false, oltre: false };
+    const stato = { richiesto: false, oltre: false, passo: "Avvio…", passoAt: Date.now(), avviatoAt, fase: "preparazione" };
     lavorazioni.set(id, stato);
-    const riferisci = (esito) =>
-      chrome.runtime.sendMessage({ type: "vr:relistDone", itemId: id, ...esito }).catch(() => {});
+    const giornale = { id, avviatoAt, sessione: Number(message.sessione) || null, fase: "preparazione" };
+
+    const riferisci = async (esito) => {
+      // prima la prova in storage, poi il messaggio: se questo si perde, quella resta
+      await scriviGiornale(id, giornale, { fase: "concluso", esito }).catch(() => {});
+      await consegnaEsito({ type: "vr:relistDone", itemId: id, avviatoAt, ...esito });
+    };
 
     let ultimoPasso = 0;
     const passo = (testo) => {
       passoLocale = { id, testo };
+      stato.passo = testo;
+      stato.passoAt = Date.now();
       barra?.stato(testo);
       const sotto = pannello?.querySelector(".vr-queue__sub");
       if (sotto) sotto.textContent = testo;
@@ -823,14 +928,36 @@
       }
     };
 
-    barra?.occupato(true);
-    VR.esclusivo(id, () => VR.relist(id, message.overrides || {}, passo, {
+    const segnale = {
       annullato: () => stato.richiesto,
-      oltre: () => { stato.oltre = true; },
-    }))
-      .then(() => {
+      // Il permesso di passare il punto di non ritorno lo da' il service worker:
+      // se nel frattempo ha dato il tentativo per interrotto, o hai annullato,
+      // risponde no e qui ci si ferma senza aver inviato niente.
+      oltre: async (info) => {
+        let r = null;
+        try {
+          r = await chrome.runtime.sendMessage({ type: "vr:relistConfirm", itemId: id, avviatoAt, traccia: info });
+        } catch {
+          throw fermato("il service worker non risponde");
+        }
+        if (!r?.ok) throw fermato(r?.motivo || "permesso negato");
+        stato.oltre = true;
+        stato.fase = "invio";
+        await scriviGiornale(id, giornale, { fase: "invio", fotoIds: info?.fotoIds || [], prezzo: info?.prezzo ?? null,
+          ordine: info?.ordine, eliminaVecchio: info?.eliminaVecchio });
+      },
+      creato: async (nuovoId) => {
+        stato.fase = "creato";
+        await scriviGiornale(id, giornale, { fase: "creato", nuovoId: String(nuovoId) });
+      },
+    };
+
+    barra?.occupato(true);
+    scriviGiornale(id, giornale, {})
+      .then(() => VR.esclusivo(id, () => VR.relist(id, message.overrides || {}, passo, segnale)))
+      .then((creato) => {
         barra?.segnaFatto();
-        riferisci({ ok: true });
+        return riferisci({ ok: true, nuovoId: creato?.id != null ? String(creato.id) : undefined });
       })
       .catch((e) => {
         if (e?.duplicato) return riferisci({ ok: false, outcome: "skipped", motivoSalto: "in-uso", error: "già in ripubblicazione a mano" });
@@ -839,9 +966,9 @@
         barra?.stato(e?.message || String(e), outcome === "error" ? "error" : "warn");
         if (outcome === "partial") barra?.segnaFatto();
         else barra?.occupato(false);
-        riferisci({
+        return riferisci({
           ok: false, outcome, error: e?.message || String(e), blocked: Boolean(e?.blocked),
-          categoria: k.categoria, sicuro: k.sicuroRiprovare,
+          categoria: k.categoria, sicuro: k.sicuroRiprovare, nuovoId: e?.nuovoId,
         });
       })
       .finally(() => {
@@ -850,6 +977,30 @@
       });
 
     return false;
+  });
+
+  /** La sonda del service worker: questa scheda sta ancora lavorando l'articolo? */
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type !== "vr:relistStatus") return false;
+    const s = lavorazioni.get(String(message.itemId));
+    const stesso = s && (message.avviatoAt == null || s.avviatoAt == null || Number(message.avviatoAt) === s.avviatoAt);
+    sendResponse(stesso ? { inCorso: true, fase: s.fase, passo: s.passo, passoAt: s.passoAt } : { inCorso: false });
+    return false;
+  });
+
+  /** Verifica di un tentativo senza esito: solo letture su Vinted, il verdetto lo da' il service worker. */
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type !== "vr:verifyRelist") return false;
+    const id = String(message.itemId || "");
+    if (!/^\d{1,20}$/.test(id)) { sendResponse({ vecchio: "ignoto", nuovo: "ignoto", limiti: ["id non valido"] }); return false; }
+    VR.verificaPubblicazione({
+      itemId: id,
+      nuovoId: /^\d{1,20}$/.test(String(message.nuovoId || "")) ? String(message.nuovoId) : null,
+      fotoIds: Array.isArray(message.fotoIds) ? message.fotoIds.slice(0, 30) : [],
+    })
+      .then(sendResponse)
+      .catch((e) => sendResponse({ vecchio: "ignoto", nuovo: "ignoto", limiti: [e?.message || String(e)] }));
+    return true;
   });
 
   /** «Annulla operazione»: rispettato solo se la richiesta a Vinted non e' ancora partita. */

@@ -259,18 +259,28 @@ function disegnaCoda() {
       h("span", { class: `state-chip ${daGuardare ? "warn" : ""}` }, daGuardare ? "Da controllare" : "Completata"))),
     contatori(r));
 
-  const problemi = coda.items.filter((v) => v.status === "error" || v.status === "verify");
+  const problemi = coda.items.filter((v) => v.status === "error" || v.status === "verify" || v.status === "interrupted");
   if (problemi.length) {
     const lista = h("ul", { class: "problems" });
     for (const v of problemi.slice(0, 8)) {
       const li = h("li", {},
-        h("span", { class: `tag ${v.status}` }, v.status === "error" ? "fallito" : "da verificare"),
+        h("span", { class: `tag ${v.status === "interrupted" ? "error" : v.status}` }, v.status === "error" ? "fallito" : v.status === "interrupted" ? "interrotto" : "da verificare"),
         h("a", { href: linkArticolo(v.id), target: "_blank", rel: "noopener" }, v.title || `Articolo ${v.id}`),
         h("span", { class: "why" }, v.error || ""));
       if (v.status === "verify") {
+        const esitoVerifica = h("p", { class: "desc", role: "status" });
         li.append(h("div", { class: "btn-row" },
+          // Controllo su Vinted, senza pubblicare niente: cambia lo stato solo con una prova.
+          bottone("Verifica pubblicazione", "btn-primary", async (e) => {
+            const pulsante = e.currentTarget;
+            pulsante.disabled = true;
+            esitoVerifica.textContent = "Verifico su Vinted…";
+            const r = await chrome.runtime.sendMessage({ type: "vr:queueVerify", itemId: v.id, queue: coda.startedAt }).catch((x) => ({ ok: false, motivo: x.message }));
+            esitoVerifica.textContent = r?.ok ? "Verificato." : `Non ancora verificabile: ${r?.motivo || "nessuna risposta"}. Non riprovarlo.`;
+            pulsante.disabled = false;
+          }),
           bottone("È stato pubblicato", "", () => comando("vr:queueResolve", { itemId: v.id, pubblicato: true, queue: coda.startedAt })),
-          bottone("Non è uscito", "", () => comando("vr:queueResolve", { itemId: v.id, pubblicato: false, queue: coda.startedAt }))));
+          bottone("Non è uscito", "", () => comando("vr:queueResolve", { itemId: v.id, pubblicato: false, queue: coda.startedAt }))), esitoVerifica);
       }
       lista.append(li);
     }
@@ -279,7 +289,7 @@ function disegnaCoda() {
   }
 
   const azioni = h("div", { class: "queue-actions" });
-  const riprovabili = coda.items.filter((v) => v.status === "error" && v.sicuro !== "no").length;
+  const riprovabili = coda.items.filter((v) => v.status === "interrupted" || (v.status === "error" && v.sicuro !== "no")).length;
   if (riprovabili) azioni.append(bottone(`Riprova i falliti (${riprovabili})`, "btn-primary", async () => {
     const esito = await comando("vr:queueRetry", { queue: coda.startedAt });
     if (esito && esito.ok === false) card.append(h("p", { class: "desc error" }, esito.error || "Non sono riuscito a riavviare la coda."));
@@ -745,6 +755,20 @@ chrome.storage.local.get(null).then((tutto) => {
 
 // ------------------------------------------------------------------- avvio
 
+/**
+ * Valore dell'armadio, lo stesso della dashboard (Analisi.statoValore): si
+ * aggiorna a ogni pubblicazione confermata, e dice quando e' provvisorio.
+ */
+let inventario = {};
+function disegnaValore() {
+  const nodo = el("statValue");
+  if (!nodo || !window.Analisi) return;
+  const v = window.Analisi.statoValore(inventario, coda);
+  nodo.hidden = !v.conPrezzo;
+  nodo.textContent = "";
+  nodo.append(h("b", {}, `Valore in vendita: ${euro(v.totale)}`), v.provvisorio ? ` · in aggiornamento (${v.nota})` : "");
+}
+
 chrome.storage.local.get(["userId", "vintedOrigin", "vrQueue", "vrHistory", "vrEvents", "inventory"]).then((d) => {
   if (d.vintedOrigin && /^https:\/\/www\.vinted\.[a-z.]+$/.test(d.vintedOrigin)) origine = d.vintedOrigin;
   userId = d.userId || null;
@@ -754,6 +778,8 @@ chrome.storage.local.get(["userId", "vintedOrigin", "vrQueue", "vrHistory", "vrE
   disegnaAttivita(d.vrHistory || []);
   aggiornaBadgeNotifiche();
   disegnaStatoGenerale();
+  inventario = d.inventory || {};
+  disegnaValore();
   const quanti = Object.keys(d.inventory || {}).length;
   el("autoRuleHint").textContent = quanti
     ? `${quanti} articoli conosciuti, raccolti aprendo il tuo armadio.`
@@ -788,8 +814,13 @@ chrome.storage.onChanged.addListener((modifiche, area) => {
     disegnaStatoGenerale();
   }
   if (modifiche.vintedOrigin?.newValue) origine = modifiche.vintedOrigin.newValue;
+  if (modifiche.inventory) {
+    inventario = modifiche.inventory.newValue || {};
+    disegnaValore();
+  }
   if (modifiche.vrQueue) {
     coda = CL.migra(modifiche.vrQueue.newValue || null);
+    disegnaValore();
     disegnaCoda();
     disegnaStatoGenerale();
     if (vista === "salute") avvisoRicarica();

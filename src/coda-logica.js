@@ -7,9 +7,14 @@
  * Forma della coda (v: 3):
  *   { v, startedAt, finishedAt, running, state, nextAt, intervalMin, overrides,
  *     modello, backoff, erroriDiFila, motivoPausa, pausaAuto, riprendiAlle,
- *     pausaDopoCorrente, note, auto, items: [Articolo], log: [Evento] }
+ *     pausaDopoCorrente, note, auto, batches: [Batch], batchSeq, items: [Articolo], log: [Evento] }
  *   Articolo: { id, title, thumb, price, status, error, categoria, sicuro,
- *     motivoSalto, tentativi, addedAt, startedAt, finishedAt, annullaRichiesto }
+ *     motivoSalto, tentativi, addedAt, startedAt, finishedAt, annullaRichiesto,
+ *     batch, regole: {batch, rev}, scheda, fase, invioAt, traccia, attendeEsito, nuovoId }
+ *   Batch (2.2.0): { id: "b1", n, nome, overrides, campi, modello, creataAt, rev, storico }
+ *     Le regole (overrides) stanno sulla batch, non sulla coda: ogni articolo
+ *     usa quelle della SUA batch. coda.overrides resta, per compatibilita', uguale
+ *     a quelle della prima batch.
  *
  * Invarianti:
  *   - ogni id Vinted compare UNA volta per sessione: e' l'identificatore stabile
@@ -29,9 +34,10 @@
     skipped: "Saltato",
     cancelled: "Annullato",
     removed: "Rimosso",
+    interrupted: "Interrotto",
   };
-  const ICONE = { pending: "◷", working: "▶", done: "✓", error: "✕", verify: "?", skipped: "↷", cancelled: "⊘", removed: "–" };
-  const TERMINALI = new Set(["done", "error", "verify", "skipped", "cancelled", "removed"]);
+  const ICONE = { pending: "◷", working: "▶", done: "✓", error: "✕", verify: "?", skipped: "↷", cancelled: "⊘", removed: "–", interrupted: "⏸" };
+  const TERMINALI = new Set(["done", "error", "verify", "skipped", "cancelled", "removed", "interrupted"]);
 
   const MAX_ARTICOLI = 500;
   const MAX_REGISTRO = 300;
@@ -42,6 +48,9 @@
   const CDN = /^https:\/\/[a-z0-9.-]*vinted\.(net|com)\//i;
 
   const clona = (x) => JSON.parse(JSON.stringify(x));
+
+  /** Tracce dell'ultimo tentativo: un articolo rimesso in attesa riparte pulito. */
+  const AZZERA_LAVORO = { annullaRichiesto: false, scheda: null, fase: null, invioAt: null, attendeEsito: false, controlli: 0 };
 
   /** Un articolo che arriva da fuori (pagina, dashboard) e' un dato non attendibile. */
   function pulisciArticolo(item, ora) {
@@ -65,6 +74,112 @@
     };
   }
 
+  // -------------------------------------------------------------------- batch
+
+  /**
+   * Regole di una batch: le stesse che produce validaOpzioniCoda (editor-logica),
+   * niente di nuovo. Arrivano da un messaggio, quindi si tengono solo le chiavi
+   * note con il tipo giusto: un campo estraneo non deve arrivare al payload.
+   */
+  function pulisciOverrides(o) {
+    if (!o || typeof o !== "object") return null;
+    const r = {};
+    const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+    if (num(o.price) != null && o.price > 0) r.price = o.price;
+    if (num(o.pricePercent) != null && o.pricePercent !== 0) r.pricePercent = o.pricePercent;
+    if (num(o.priceDelta) != null && o.priceDelta !== 0) r.priceDelta = o.priceDelta;
+    if (typeof o.descriptionAppend === "string" && o.descriptionAppend.trim()) r.descriptionAppend = o.descriptionAppend.slice(0, 500);
+    if (o.replace && typeof o.replace.find === "string" && o.replace.find) {
+      r.replace = { find: o.replace.find.slice(0, 100), with: String(o.replace.with ?? "").slice(0, 100) };
+    }
+    if (o.autoFill === true) r.autoFill = true;
+    if (Array.isArray(o.colorIds)) {
+      const ids = o.colorIds.map(Number).filter((x) => Number.isInteger(x) && x > 0).slice(0, 2);
+      if (ids.length) r.colorIds = ids;
+    }
+    return Object.keys(r).length ? r : null;
+  }
+
+  /** I campi del modulo come li hai scritti: servono a riaprire il Centro di modifica uguale. */
+  const CAMPI_REGOLE = ["modo", "valore", "aggiunta", "cerca", "con", "colore"];
+  function pulisciCampi(f) {
+    if (!f || typeof f !== "object") return null;
+    return Object.fromEntries(CAMPI_REGOLE.map((k) => [k, String(f[k] ?? "").slice(0, 500)]));
+  }
+
+  const MAX_BATCH = 50;
+  const MAX_STORICO_BATCH = 10;
+
+  function creaBatch(coda, { overrides = null, campi = null, modello = null, nome = null } = {}, ora = Date.now()) {
+    coda.batches = coda.batches || [];
+    const n = Math.max(coda.batchSeq || 0, coda.batches.length) + 1;
+    coda.batchSeq = n;
+    const b = {
+      id: `b${n}`,
+      n,
+      nome: nome ? String(nome).slice(0, 40) : `Batch ${n}`,
+      overrides: pulisciOverrides(overrides),
+      campi: pulisciCampi(campi),
+      modello: modello ? String(modello).slice(0, 60) : null,
+      creataAt: ora,
+      rev: 1,
+      storico: [],
+    };
+    coda.batches.push(b);
+    return b;
+  }
+
+  const trovaBatch = (coda, id) => (coda?.batches || []).find((b) => b.id === String(id)) || null;
+  const batchDi = (coda, a) => trovaBatch(coda, a?.batch) || coda?.batches?.[0] || null;
+
+  /**
+   * Le regole con cui va pubblicato QUESTO articolo: quelle della sua batch.
+   * Mai quelle della batch in corso o dell'ultima aggiunta.
+   */
+  function overridesDi(coda, id) {
+    const a = trova(coda, id);
+    const b = batchDi(coda, a);
+    const o = b ? b.overrides : coda?.overrides;
+    return o ? clona(o) : {};
+  }
+
+  /** Stato di ogni batch, per l'elenco raggruppato e il riepilogo. */
+  function riepilogoBatch(coda) {
+    return (coda?.batches || []).map((b) => {
+      const r = { pending: 0, working: 0, done: 0, error: 0, verify: 0, skipped: 0, cancelled: 0, removed: 0, interrupted: 0 };
+      for (const a of coda.items || []) if (batchDi(coda, a)?.id === b.id) r[a.status] = (r[a.status] || 0) + 1;
+      const totale = Object.values(r).reduce((x, y) => x + y, 0) - r.removed;
+      const problemi = r.error + r.verify + r.interrupted;
+      const stato = r.working ? "in corso"
+        : r.pending ? (problemi ? "in attesa, con problemi" : "in attesa")
+        : !totale ? "vuota"
+        : problemi ? "conclusa, con problemi" : "conclusa";
+      return { id: b.id, n: b.n, nome: b.nome, overrides: b.overrides, campi: b.campi, modello: b.modello, rev: b.rev, creataAt: b.creataAt, conteggi: r, totale, problemi, stato };
+    });
+  }
+
+  /**
+   * Nuove regole per una batch esistente. Valgono SOLO per i suoi articoli in
+   * attesa: quello in elaborazione ha gia' ricevuto le sue, i conclusi restano
+   * registrati con la revisione che hanno usato (a.regole).
+   */
+  function modificaBatch(coda, batchId, { overrides = null, campi = null, modello = null } = {}, ora = Date.now()) {
+    const b = trovaBatch(coda, batchId);
+    if (!b) return { ok: false, motivo: "Batch non trovata in questa coda." };
+    const suoi = (coda.items || []).filter((a) => batchDi(coda, a)?.id === b.id);
+    const inAttesaB = suoi.filter((a) => a.status === "pending");
+    if (!inAttesaB.length) return { ok: false, motivo: "Questa batch non ha articoli in attesa: le regole nuove non avrebbero niente a cui applicarsi." };
+    b.storico = [...(b.storico || []), { rev: b.rev, overrides: b.overrides, campi: b.campi, modello: b.modello, finoA: ora }].slice(-MAX_STORICO_BATCH);
+    b.overrides = pulisciOverrides(overrides);
+    b.campi = pulisciCampi(campi);
+    b.modello = modello ? String(modello).slice(0, 60) : null;
+    b.rev = (b.rev || 1) + 1;
+    if (coda.batches[0] === b) coda.overrides = b.overrides;
+    const esclusi = suoi.filter((a) => a.status !== "pending" && a.status !== "removed");
+    registra(coda, "configurazione", `${b.nome}: regole aggiornate (revisione ${b.rev}) per ${inAttesaB.length} ${inAttesaB.length === 1 ? "articolo in attesa" : "articoli in attesa"}.`, { batch: b.id }, ora);
+    return { ok: true, batch: b.id, rev: b.rev, applicati: inAttesaB.map((a) => a.id), esclusi: esclusi.map((a) => ({ id: a.id, stato: a.status })) };
+  }
+
   // ------------------------------------------------------------------ registro
 
   /**
@@ -78,6 +193,7 @@
     avviata: "sistema", pausa: "sistema", ripresa: "sistema", prudenza: "sistema", rallenta: "sistema",
     recupero: "sistema", conclusa: "sistema", inizio: "sistema",
     completato: "vinted", fallito: "vinted", incerto: "vinted", saltato: "sistema", annullato: "sistema",
+    priorita: "locale", interrotto: "sistema", controllo: "sistema", verifica: "vinted", tardivo: "vinted",
   };
 
   function registra(coda, tipo, testo, extra = {}, ora = Date.now()) {
@@ -100,11 +216,11 @@
   }
 
   function conta(coda) {
-    const r = { pending: 0, working: 0, done: 0, error: 0, verify: 0, skipped: 0, cancelled: 0, removed: 0 };
+    const r = { pending: 0, working: 0, done: 0, error: 0, verify: 0, skipped: 0, cancelled: 0, removed: 0, interrupted: 0 };
     for (const v of coda?.items || []) r[v.status] = (r[v.status] || 0) + 1;
     r.totale = (coda?.items || []).length - r.removed;           // i rimossi non sono "della sessione"
     r.rimanenti = r.pending + r.working;
-    r.trattati = r.done + r.error + r.verify + r.skipped + r.cancelled;
+    r.trattati = r.done + r.error + r.verify + r.skipped + r.cancelled + r.interrupted;
     return r;
   }
 
@@ -113,7 +229,7 @@
 
   // ---------------------------------------------------------------- creazione
 
-  function nuova({ items = [], intervalMin = 20, overrides = null, startAt = 0, ora = Date.now(), auto = false, note = null, modello = null } = {}) {
+  function nuova({ items = [], intervalMin = 20, overrides = null, campi = null, startAt = 0, ora = Date.now(), auto = false, note = null, modello = null } = {}) {
     const visti = new Set();
     const articoli = [];
     const saltati = [];
@@ -134,7 +250,7 @@
       state: programmata ? "scheduled" : "waiting",
       nextAt: programmata ? Number(startAt) : ora,
       intervalMin: Math.max(1, Math.min(240, Math.round(Number(intervalMin) || 20))),
-      overrides: overrides || null,
+      overrides: pulisciOverrides(overrides),
       modello: modello ? String(modello).slice(0, 60) : null,
       backoff: 0,
       erroriDiFila: 0,
@@ -144,16 +260,34 @@
       pausaDopoCorrente: false,
       note,
       auto: Boolean(auto),
+      batches: [],
+      batchSeq: 0,
       items: articoli,
       log: [],
     };
-    registra(coda, "creata", `Coda creata con ${articoli.length} articoli${modello ? ` (modello «${coda.modello}»)` : ""}.`, {}, ora);
+    const b = creaBatch(coda, { overrides, campi, modello }, ora);
+    for (const a of articoli) a.batch = b.id;
+    registra(coda, "creata", `Coda creata con ${articoli.length} articoli${modello ? ` (modello «${coda.modello}»)` : ""}.`, { batch: b.id }, ora);
     return { coda, saltati };
   }
 
-  /** Coda salvata da una versione precedente (con l'indice): la porto al modello per id. */
+  /**
+   * Una coda della 2.1 non ha batch: tutti i suoi articoli diventano la Batch 1,
+   * con le regole con cui era partita. Nessun articolo cambia stato.
+   */
+  function conBatch(c) {
+    if (Array.isArray(c.batches) && c.batches.length) return c;
+    c.batches = [];
+    c.batchSeq = 0;
+    const b = creaBatch(c, { overrides: c.overrides || null, modello: c.modello || null }, c.startedAt || Date.now());
+    for (const a of c.items || []) if (!a.batch) a.batch = b.id;
+    return c;
+  }
+
+  /** Coda salvata da una versione precedente (con l'indice o senza batch): la porto al modello attuale. */
   function migra(coda) {
-    if (!coda || coda.v === 3) return coda;
+    if (!coda) return coda;
+    if (coda.v === 3) return Array.isArray(coda.batches) && coda.batches.length ? coda : conBatch(clona(coda));
     const c = clona(coda);
     const indice = Number.isInteger(c.index) ? c.index : 0;
     c.items = (c.items || []).map((v, i) => {
@@ -174,7 +308,7 @@
     c.pausaDopoCorrente = Boolean(c.pauseRequested);
     delete c.pauseRequested;
     c.log = c.log || [];
-    return c;
+    return conBatch(c);
   }
 
   // ------------------------------------------------------ aggiunta e rimozione
@@ -209,6 +343,7 @@
           return esistente.sicuro === "no"
             ? { id, esito: "rifiuta", motivo: `riprovare non serve: ${esistente.error || "errore definitivo"}` }
             : { id, esito: "riattiva", motivo: "era fallito: viene riprovato" };
+        case "interrupted": return { id, esito: "riattiva", motivo: "era stato interrotto prima dell'invio: viene riprovato" };
         default: return { id, esito: "riattiva", motivo: esistente.status === "removed" ? "era stato rimosso" : "era stato annullato" };
       }
     });
@@ -227,8 +362,18 @@
     }
   }
 
-  function aggiungi(coda, items, { dove = "fondo" } = {}, ora = Date.now()) {
+  /**
+   * batch: { overrides, campi, modello, nome } → gli articoli formano una batch
+   *   NUOVA con queste regole (il caso normale: le hai appena scelte nel Centro
+   *   di modifica). batchId: si uniscono a una batch esistente, con le sue regole.
+   *   Nessuno dei due (messaggi della 2.1): nuova batch con le regole della prima,
+   *   cioe' le "opzioni con cui e' partita la coda" come prima.
+   * Le batch gia' presenti non vengono mai toccate.
+   */
+  function aggiungi(coda, items, { dove = "fondo", batch = null, batchId = null } = {}, ora = Date.now()) {
     if (!coda?.running) return { ok: false, motivo: "Nessuna coda attiva: avviane una nuova.", aggiunti: [], riattivati: [], rifiutati: [] };
+    conBatch(coda);
+    if (batchId != null && !trovaBatch(coda, batchId)) return { ok: false, motivo: "Batch non trovata in questa coda.", aggiunti: [], riattivati: [], rifiutati: [] };
     const valutati = valutaAggiunta(coda, items);
     const perId = new Map((items || []).map((x) => [String(x?.id ?? "").trim(), x]));
     const nuovi = [];
@@ -245,18 +390,34 @@
       } else {
         const a = trova(coda, v.id);
         const precedente = a.status;
-        if (precedente === "error") a.tentativi = (a.tentativi || 0) + 1;
-        Object.assign(a, { status: "pending", error: null, categoria: null, sicuro: null, motivoSalto: null, startedAt: null, finishedAt: null, annullaRichiesto: false });
+        if (precedente === "error" || precedente === "interrupted") a.tentativi = (a.tentativi || 0) + 1;
+        Object.assign(a, { status: "pending", error: null, categoria: null, sicuro: null, motivoSalto: null, startedAt: null, finishedAt: null, ...AZZERA_LAVORO });
         riattivati.push({ articolo: a, precedente });
       }
     }
 
     const daCollocare = [...nuovi, ...riattivati.map((r) => r.articolo)];
-    if (daCollocare.length) collocaInAttesa(coda, daCollocare, dove);
-    for (const a of nuovi) registra(coda, "aggiunto", `Aggiunto ${dove === "cima" ? "in cima" : "in fondo"}: ${a.title}`, { id: a.id }, ora);
-    for (const r of riattivati) registra(coda, "aggiunto", `Rimesso in coda (era «${ETICHETTE[r.precedente]}»): ${r.articolo.title}`, { id: r.articolo.id }, ora);
+    let destinazione = null;
+    if (daCollocare.length) {
+      if (batchId != null) destinazione = trovaBatch(coda, batchId);
+      else if (coda.batches.length >= MAX_BATCH) destinazione = coda.batches[coda.batches.length - 1];
+      else {
+        const prima = coda.batches[0];
+        destinazione = creaBatch(coda, batch || { overrides: prima?.overrides, campi: prima?.campi, modello: prima?.modello }, ora);
+      }
+      for (const a of nuovi) a.batch = destinazione.id;
+      // Un articolo rimesso in coda con regole scelte adesso usa quelle: e' un tentativo nuovo.
+      for (const r of riattivati) {
+        if (r.articolo.batch !== destinazione.id) r.articolo.batchPrecedente = r.articolo.batch || null;
+        r.articolo.batch = destinazione.id;
+      }
+      collocaInAttesa(coda, daCollocare, dove);
+    }
+    const etichetta = destinazione ? ` (${destinazione.nome})` : "";
+    for (const a of nuovi) registra(coda, "aggiunto", `Aggiunto ${dove === "cima" ? "in cima" : "in fondo"}${etichetta}: ${a.title}`, { id: a.id, batch: a.batch }, ora);
+    for (const r of riattivati) registra(coda, "aggiunto", `Rimesso in coda (era «${ETICHETTE[r.precedente]}»)${etichetta}: ${r.articolo.title}`, { id: r.articolo.id, batch: r.articolo.batch }, ora);
 
-    return { ok: true, aggiunti: nuovi.map((a) => a.id), riattivati: riattivati.map((r) => r.articolo.id), rifiutati };
+    return { ok: true, aggiunti: nuovi.map((a) => a.id), riattivati: riattivati.map((r) => r.articolo.id), rifiutati, batch: destinazione?.id || null };
   }
 
   /**
@@ -351,6 +512,58 @@
     return { ok: true, cambiato: true };
   }
 
+  /**
+   * «Ripubblica ora»: l'articolo diventa il PROSSIMO, senza toccare quello in
+   * elaborazione. Vale per gli articoli in attesa e per quelli che si possono
+   * riprovare in sicurezza (falliti riprovabili, interrotti prima dell'invio).
+   * Mai per i «da verificare»: potrebbero essere gia' online.
+   * La batch non cambia: si pubblica con le SUE regole.
+   */
+  function ripubblicaOra(coda, id, ora = Date.now()) {
+    const a = trova(coda, id);
+    if (!a) return { ok: false, motivo: "Non è in questa coda." };
+    const no = {
+      working: "È già in elaborazione: non viene interrotto.",
+      done: "Già ripubblicato in questa sessione: quell'annuncio non esiste più.",
+      verify: "Esito da verificare: potrebbe essere già online. Usa prima «Verifica pubblicazione».",
+      removed: "Rimosso dalla coda: aggiungilo di nuovo se vuoi pubblicarlo.",
+      cancelled: "Annullato: aggiungilo di nuovo se vuoi pubblicarlo.",
+      skipped: "Saltato: aggiungilo di nuovo se vuoi pubblicarlo.",
+    }[a.status];
+    if (no) return { ok: false, motivo: no };
+    if (a.status === "error" && a.sicuro === "no") return { ok: false, motivo: `Riprovare non serve: ${a.error || "errore definitivo"}` };
+
+    let riattivato = null;
+    if (a.status === "error" || a.status === "interrupted") {
+      riattivato = a.status;
+      a.tentativi = (a.tentativi || 0) + 1;
+      a.ultimoErrore = a.error;
+      Object.assign(a, { status: "pending", error: null, categoria: null, sicuro: null, startedAt: null, finishedAt: null, ...AZZERA_LAVORO });
+    }
+    const primo = prossimo(coda);
+    if (primo?.id !== a.id) scriviOrdine(coda, [a, ...inAttesa(coda).filter((x) => x.id !== a.id)]);
+    a.prioritaAt = ora;
+    const b = batchDi(coda, a);
+    registra(coda, "priorita", `Ripubblica ora: ${a.title} è il prossimo${b ? ` (regole di ${b.nome})` : ""}${riattivato ? `, rimesso in coda (era «${ETICHETTE[riattivato]}»)` : ""}.`, { id: a.id, batch: b?.id || null }, ora);
+    return { ok: true, id: a.id, riattivato, dopoCorrente: Boolean(corrente(coda)), batch: b?.id || null };
+  }
+
+  /**
+   * Interrotto prima dell'invio (scheda chiusa o ricaricata, browser fermato):
+   * niente e' arrivato a Vinted, quindi torna in cima da solo. Una volta sola:
+   * se si interrompe di nuovo, resta «Interrotto» e decidi tu.
+   */
+  function rimettiDopoInterruzione(coda, id, ora = Date.now()) {
+    const a = trova(coda, id);
+    if (!a || a.status !== "interrupted" || a.ripresoDaSolo) return { ok: false };
+    a.ultimoErrore = a.error;
+    Object.assign(a, { status: "pending", error: null, categoria: null, sicuro: null, startedAt: null, finishedAt: null, ...AZZERA_LAVORO });
+    a.ripresoDaSolo = true;
+    scriviOrdine(coda, [a, ...inAttesa(coda).filter((x) => x.id !== a.id)]);
+    registra(coda, "riprova", `Rimesso in cima da solo: ${a.title} (niente era stato inviato a Vinted).`, { id: a.id }, ora);
+    return { ok: true };
+  }
+
   // ------------------------------------------------------- esiti e verifiche
 
   /** Solo i falliti con un errore per cui riprovare ha senso. Mai i "da verificare". */
@@ -361,7 +574,7 @@
       const a = trova(coda, id);
       if (!a) { rifiutati.push({ id, motivo: "non è in questa coda" }); continue; }
       if (a.status === "verify") { rifiutati.push({ id, motivo: "esito incerto: conferma prima se è stato pubblicato" }); continue; }
-      if (a.status !== "error") { rifiutati.push({ id, motivo: `è «${ETICHETTE[a.status]}»` }); continue; }
+      if (a.status !== "error" && a.status !== "interrupted") { rifiutati.push({ id, motivo: `è «${ETICHETTE[a.status]}»` }); continue; }
       if (a.sicuro === "no") { rifiutati.push({ id, motivo: `riprovare non serve: ${a.error || "errore definitivo"}` }); continue; }
       rimessi.push(a);
     }
@@ -369,7 +582,7 @@
     for (const a of rimessi) {
       a.tentativi = (a.tentativi || 0) + 1;
       a.ultimoErrore = a.error;
-      Object.assign(a, { status: "pending", error: null, categoria: null, sicuro: null, startedAt: null, finishedAt: null, annullaRichiesto: false });
+      Object.assign(a, { status: "pending", error: null, categoria: null, sicuro: null, startedAt: null, finishedAt: null, ...AZZERA_LAVORO });
       registra(coda, "riprova", `Rimesso in coda per un nuovo tentativo (${a.tentativi}°): ${a.title}`, { id: a.id }, ora);
     }
     collocaInAttesa(coda, rimessi, "fondo");
@@ -384,6 +597,7 @@
     a.categoria = pubblicato ? null : "verificato";
     a.sicuro = pubblicato ? null : "si";
     a.resolvedAt = ora;
+    a.attendeEsito = false;
     registra(coda, "verificato", `${pubblicato ? "Confermato pubblicato" : "Confermato non uscito"}: ${a.title}`, { id: a.id, esito: pubblicato ? "done" : "error" }, ora);
     return { ok: true };
   }
@@ -393,9 +607,56 @@
     if (!a || a.status !== "pending" || corrente(coda)) return { ok: false };
     a.status = "working";
     a.startedAt = ora;
-    a.annullaRichiesto = false;
-    registra(coda, "inizio", `In elaborazione: ${a.title}`, { id: a.id }, ora);
+    Object.assign(a, AZZERA_LAVORO, { fase: "preparazione" });
+    // Con quali regole e' partito: se poi la batch cambia, questo resta vero.
+    const b = batchDi(coda, a);
+    a.regole = b ? { batch: b.id, rev: b.rev || 1 } : null;
+    registra(coda, "inizio", `In elaborazione: ${a.title}${b && (coda.batches || []).length > 1 ? ` (${b.nome})` : ""}`, { id: a.id }, ora);
     return { ok: true, articolo: a };
+  }
+
+  /**
+   * Il permesso di passare il punto di non ritorno. La pagina lo chiede SUBITO
+   * PRIMA della prima richiesta che cambia qualcosa su Vinted, e va avanti solo
+   * con un si'. Un no arriva se l'articolo non e' piu' quello in lavorazione
+   * (un controllo l'ha gia' dato per interrotto, la sessione e' finita), se
+   * l'avvio non coincide (e' un tentativo vecchio) o se hai chiesto di annullare.
+   * Cosi' "interrotto prima dell'invio" e' una certezza, non una stima: dopo
+   * averlo scritto, quel tentativo non puo' piu' pubblicare niente.
+   */
+  function confermaInvio(coda, id, avviatoAt, ora = Date.now()) {
+    const a = corrente(coda);
+    if (!coda?.running || !a || a.id !== String(id)) return { ok: false, motivo: "l'articolo non è più quello in lavorazione" };
+    if (avviatoAt != null && Number(avviatoAt) !== a.startedAt) return { ok: false, motivo: "tentativo non più valido" };
+    if (a.annullaRichiesto) return { ok: false, motivo: "annullamento richiesto", annullato: true };
+    if (a.fase === "invio") return { ok: true, gia: true };
+    a.fase = "invio";
+    a.invioAt = ora;
+    registra(coda, "controllo", `Richiesta di pubblicazione autorizzata: ${a.title}`, { id: a.id }, ora);
+    return { ok: true };
+  }
+
+  /** Il tentativo e' stato preso in carico da questa scheda. */
+  function assegnaScheda(coda, id, tabId) {
+    const a = trova(coda, id);
+    if (a && Number.isInteger(tabId)) a.scheda = tabId;
+  }
+
+  /**
+   * Prove raccolte su un tentativo (dal giornale della pagina o dalla verifica):
+   * solo identificatori e fatti, mai testi dell'annuncio oltre al prezzo.
+   */
+  function annotaTraccia(coda, id, traccia = {}) {
+    const a = trova(coda, id);
+    if (!a) return;
+    const t = { ...(a.traccia || {}) };
+    if (traccia.nuovoId && ID.test(String(traccia.nuovoId))) t.nuovoId = String(traccia.nuovoId);
+    if (Array.isArray(traccia.fotoIds)) t.fotoIds = traccia.fotoIds.map(String).filter((x) => ID.test(x)).slice(0, 30);
+    if (typeof traccia.prezzo === "number" && Number.isFinite(traccia.prezzo)) t.prezzo = traccia.prezzo;
+    if (traccia.ordine === "safe" || traccia.ordine === "clean") t.ordine = traccia.ordine;
+    if (typeof traccia.eliminaVecchio === "boolean") t.eliminaVecchio = traccia.eliminaVecchio;
+    if (["preparazione", "invio", "creato", "concluso"].includes(traccia.fase)) t.fase = traccia.fase;
+    a.traccia = t;
   }
 
   /**
@@ -407,40 +668,158 @@
     const a = trova(coda, id);
     if (!a || a.status !== "working") return { ok: false, ignorato: true };
 
-    const stato = esito.ok ? "done"
-      : esito.outcome === "uncertain" || esito.outcome === "partial" ? "verify"
-      : esito.outcome === "skipped" ? "skipped"
-      : esito.outcome === "cancelled" ? "cancelled"
-      : "error";
-
-    a.status = stato;
-    a.finishedAt = ora;
-    a.error = esito.ok ? null : String(esito.error || (stato === "cancelled" ? "annullato prima dell'invio a Vinted" : "errore sconosciuto")).slice(0, 300);
-    a.categoria = esito.ok ? null : esito.categoria || (stato === "verify" ? "incerto" : null);
-    a.sicuro = esito.ok ? null : esito.sicuro || (stato === "verify" ? "no" : null);
-    a.motivoSalto = stato === "skipped" ? esito.motivoSalto || "manuale" : null;
-    a.annullaRichiesto = false;
+    const stato = scriviEsito(a, esito, ora);
 
     // Modalita' prudente: falliti e incerti di fila. Un successo azzera.
+    // Un'interruzione (scheda chiusa o ricaricata) non dice niente sull'articolo.
     if (stato === "done") coda.erroriDiFila = 0;
     else if (stato === "error" || stato === "verify") coda.erroriDiFila = (coda.erroriDiFila || 0) + 1;
 
-    const tipo = { done: "completato", error: "fallito", verify: "incerto", skipped: "saltato", cancelled: "annullato" }[stato];
+    registraEsito(coda, a, stato, ora, esito.tardivo ? "tardivo" : null);
+    const prudenza = (stato === "error" || stato === "verify") && coda.erroriDiFila >= SOGLIA_PRUDENZA;
+    return { ok: true, stato, articolo: a, prudenza };
+  }
+
+  function statoDaEsito(esito) {
+    return esito.ok ? "done"
+      : esito.outcome === "uncertain" || esito.outcome === "partial" ? "verify"
+      : esito.outcome === "skipped" ? "skipped"
+      : esito.outcome === "cancelled" ? "cancelled"
+      : esito.outcome === "interrupted" ? "interrupted"
+      : "error";
+  }
+
+  function scriviEsito(a, esito, ora) {
+    const stato = statoDaEsito(esito);
+    a.status = stato;
+    a.finishedAt = ora;
+    a.error = esito.ok ? null : String(esito.error || (stato === "cancelled" ? "annullato prima dell'invio a Vinted" : "errore sconosciuto")).slice(0, 400);
+    a.categoria = esito.ok ? null : esito.categoria || (stato === "verify" ? "incerto" : stato === "interrupted" ? "interrotto" : null);
+    a.sicuro = esito.ok ? null : esito.sicuro || (stato === "verify" ? "no" : stato === "interrupted" ? "si" : null);
+    a.motivoSalto = stato === "skipped" ? esito.motivoSalto || "manuale" : null;
+    a.annullaRichiesto = false;
+    a.attendeEsito = stato === "verify";      // un esito vero arrivato dopo vale ancora
+    if (esito.nuovoId && ID.test(String(esito.nuovoId))) a.nuovoId = String(esito.nuovoId);
+    if (esito.verificato) a.verificato = esito.verificato;
+    return stato;
+  }
+
+  function registraEsito(coda, a, stato, ora, tipoForzato = null) {
+    const tipo = tipoForzato || { done: "completato", error: "fallito", verify: "incerto", skipped: "saltato", cancelled: "annullato", interrupted: "interrotto" }[stato];
     const testi = {
-      done: `Ripubblicato: ${a.title}`,
+      done: `Ripubblicato: ${a.title}${a.verificato ? ` (${a.verificato})` : ""}`,
       error: `Non riuscito: ${a.title} — ${a.error}`,
       verify: `Esito incerto: ${a.title} — ${a.error}`,
       skipped: `Saltato: ${a.title}${a.error ? ` — ${a.error}` : ""}`,
       cancelled: `Annullato prima dell'invio: ${a.title}`,
+      interrupted: `Interrotto prima dell'invio: ${a.title} — ${a.error}`,
     };
     const azioni = {
       error: a.sicuro === "no" ? "riprovare non serve" : a.sicuro === "dopo-correzione" ? "correggi con Modifica, poi riprova" : "puoi riprovarlo",
-      verify: "controlla nell'armadio, poi conferma l'esito",
+      verify: "non riprovare: usa «Verifica pubblicazione» o controlla l'armadio",
+      interrupted: "riprovare è sicuro: niente è stato inviato a Vinted",
     };
-    registra(coda, tipo, testi[stato], { id: a.id, esito: stato, ...(azioni[stato] ? { azione: azioni[stato] } : {}) }, ora);
+    const prefisso = tipoForzato === "tardivo" ? "Esito arrivato in ritardo — " : "";
+    registra(coda, tipo, `${prefisso}${testi[stato]}`, { id: a.id, esito: stato, ...(azioni[stato] ? { azione: azioni[stato] } : {}) }, ora);
+  }
 
-    const prudenza = (stato === "error" || stato === "verify") && coda.erroriDiFila >= SOGLIA_PRUDENZA;
-    return { ok: true, stato, articolo: a, prudenza };
+  /**
+   * Esito vero arrivato DOPO che un controllo aveva gia' messo l'articolo «da
+   * verificare» (pagina lenta, messaggio ritrasmesso). Fino alla 2.1 veniva
+   * scartato come "fuori tempo": un annuncio pubblicato restava da verificare.
+   * Vale solo per lo stesso tentativo (avviatoAt) e solo da «da verificare»:
+   * un esito non cambia mai un articolo gia' concluso con certezza.
+   */
+  function esitoTardivo(coda, id, esito = {}, ora = Date.now()) {
+    const a = trova(coda, id);
+    if (!a || a.status !== "verify" || !a.attendeEsito) return { ok: false, ignorato: true };
+    if (esito.avviatoAt != null && a.startedAt != null && Number(esito.avviatoAt) !== a.startedAt) return { ok: false, ignorato: true };
+    if (!esito.ok && esito.outcome === "uncertain") return { ok: false, ignorato: true };   // nessuna notizia nuova
+    const stato = scriviEsito(a, { ...esito, tardivo: true }, ora);
+    registraEsito(coda, a, stato, ora, "tardivo");
+    return { ok: true, stato, articolo: a };
+  }
+
+  /**
+   * Da quello che si sa di un tentativo senza esito, che cosa si puo' dire.
+   *   giornale: quello che la pagina ha scritto (fase, nuovoId, fotoIds, esito)
+   *   faseCoda: la fase registrata dal service worker ("invio" = permesso dato)
+   *   vecchio / nuovo: "presente" | "assente" | "ignoto" (letti da Vinted)
+   *   trovato: id di un annuncio del tuo armadio con le STESSE foto caricate
+   * Verdetti: esito (c'e' l'esito vero), interrotto (niente inviato: certo),
+   *   pubblicato, parziale (pubblicato, vecchio ancora online), sconosciuto.
+   * Mai "non pubblicato" da un'assenza: un elenco puo' essere in ritardo.
+   * Mai titolo o prezzo come prova.
+   */
+  function valutaVerifica({ giornale = null, faseCoda = null, vecchio = "ignoto", nuovo = "ignoto", trovato = null, eliminaVecchio = true } = {}) {
+    if (giornale?.esito) return { verdetto: "esito", esito: giornale.esito, prova: "esito scritto dalla scheda prima di perdere il contatto" };
+    const inviato = faseCoda === "invio" || ["invio", "creato", "concluso"].includes(giornale?.fase);
+    if (!inviato) {
+      // Solo con la fase registrata (2.2+) l'assenza del permesso e' una prova.
+      if (faseCoda === "preparazione" || giornale?.fase === "preparazione") {
+        return { verdetto: "interrotto", prova: "il permesso di inviare a Vinted non era stato dato: niente creato, niente eliminato" };
+      }
+      return { verdetto: "sconosciuto", mancano: ["non so a che punto era il tentativo (iniziato con una versione precedente)"] };
+    }
+    const nuovoId = giornale?.nuovoId || trovato || null;
+    if (!nuovoId) {
+      const mancano = ["Vinted non ha confermato la creazione"];
+      if (vecchio === "ignoto") mancano.push("non riesco a leggere il vecchio annuncio");
+      mancano.push("nel tuo armadio non trovo un annuncio con le foto caricate per questo tentativo");
+      return { verdetto: "sconosciuto", mancano };
+    }
+    const prova = giornale?.nuovoId ? `Vinted ha restituito l'id del nuovo annuncio (${nuovoId})` : `annuncio ${nuovoId} con le stesse foto caricate in questo tentativo`;
+    if (nuovo === "assente") return { verdetto: "sconosciuto", nuovoId, mancano: [`l'annuncio ${nuovoId} risultava creato ma ora non si trova`] };
+    if (!eliminaVecchio) return { verdetto: "pubblicato", nuovoId, prova };
+    if (vecchio === "presente") return { verdetto: "parziale", nuovoId, prova };
+    if (vecchio === "ignoto") return { verdetto: "parziale-incerto", nuovoId, prova };
+    return { verdetto: "pubblicato", nuovoId, prova };
+  }
+
+  /** Testi del verdetto, uguali ovunque: cosa e' successo e cosa fare. */
+  function esitoDaVerdetto(v) {
+    switch (v.verdetto) {
+      case "pubblicato":
+        return { ok: true, nuovoId: v.nuovoId, verificato: "verificato" };
+      case "parziale":
+        return { ok: false, outcome: "partial", nuovoId: v.nuovoId, categoria: "incerto", sicuro: "no",
+          error: `Pubblicato (verificato: ${v.prova}), ma il vecchio annuncio è ancora online: eliminalo a mano dall'armadio.` };
+      case "parziale-incerto":
+        return { ok: false, outcome: "partial", nuovoId: v.nuovoId, categoria: "incerto", sicuro: "no",
+          error: `Pubblicato (verificato: ${v.prova}). Non riesco a controllare se il vecchio annuncio è stato eliminato: guarda l'armadio.` };
+      case "interrotto":
+        return { ok: false, outcome: "interrupted", categoria: "interrotto", sicuro: "si",
+          error: "La scheda di Vinted ha smesso di rispondere prima dell'invio: nessun annuncio creato o eliminato." };
+      default:
+        return { ok: false, outcome: "uncertain", categoria: "incerto", sicuro: "no", nuovoId: v.nuovoId || null,
+          error: `Nessuna conferma da Vinted: potrebbe essere già pubblicato. Non riprovare prima di aver controllato. Manca: ${(v.mancano || []).join("; ")}.` };
+    }
+  }
+
+  /**
+   * Applica una verifica a un articolo «da verificare» (della coda in corso o di
+   * una sessione in archivio). Solo i verdetti con una prova cambiano lo stato.
+   */
+  function applicaVerifica(coda, id, v, ora = Date.now()) {
+    const a = trova(coda, id);
+    if (!a || a.status !== "verify") return { ok: false, motivo: "Non è da verificare." };
+    if (v.verdetto === "esito") return esitoTardivo(coda, id, { ...v.esito, avviatoAt: null }, ora);
+    if (v.verdetto === "pubblicato" || v.verdetto === "parziale" || v.verdetto === "parziale-incerto") {
+      const e = esitoDaVerdetto(v);
+      if (v.verdetto !== "pubblicato" && a.error === e.error) return { ok: true, stato: "verify", invariato: true };
+      scriviEsito(a, e, ora);
+      a.resolvedAt = ora;
+      registra(coda, "verifica", `${v.verdetto === "pubblicato" ? "Verificato: pubblicato" : "Verificato: pubblicato, vecchio da controllare"} — ${a.title} (${v.prova})`, { id: a.id, esito: a.status }, ora);
+      return { ok: true, stato: a.status, articolo: a };
+    }
+    if (v.verdetto === "interrotto") {
+      scriviEsito(a, esitoDaVerdetto(v), ora);
+      a.resolvedAt = ora;
+      registra(coda, "verifica", `Verificato: niente inviato a Vinted — ${a.title}. Riprovare è sicuro.`, { id: a.id, esito: a.status }, ora);
+      return { ok: true, stato: a.status, articolo: a };
+    }
+    a.ultimaVerifica = { at: ora, mancano: v.mancano || [] };
+    return { ok: false, stato: "verify", motivo: (v.mancano || []).join("; ") || "nessuna prova sufficiente" };
   }
 
   // ------------------------------------------------------------ classificazione
@@ -480,6 +859,7 @@
   const ETICHETTE_CATEGORIA = {
     temporaneo: "Temporaneo", dati: "Dati mancanti o rifiutati", sessione: "Sessione", "non-consentito": "Non consentito",
     rete: "Rete", interno: "Interno", incerto: "Esito incerto", annullato: "Annullato", "in-uso": "Già in lavorazione", verificato: "Verificato a mano",
+    interrotto: "Interrotto prima dell'invio",
   };
 
   // -------------------------------------------------------- stima e salute
@@ -544,6 +924,9 @@
     if (coda.running && coda.state === "paused") {
       return { livello: "pausa", titolo: "In pausa", perche: coda.riprendiAlle ? "Pausa a tempo." : "Messa in pausa da te.", azione: "Riprendi quando vuoi; puoi modificare la coda intanto." };
     }
+    if (r.interrupted && !r.verify && !r.error) {
+      return { livello: "attenzione", titolo: "Attenzione richiesta", perche: `${r.interrupted} ${r.interrupted === 1 ? "articolo interrotto" : "articoli interrotti"} prima dell'invio (scheda chiusa o ricaricata).`, azione: "Niente è stato pubblicato: puoi riprovarli." };
+    }
     if (r.verify) return { livello: "verificare", titolo: "Risultati da verificare", perche: `${r.verify} ${r.verify === 1 ? "esito incerto" : "esiti incerti"}.`, azione: "Apri gli articoli, guarda l'armadio e conferma l'esito." };
     if (r.error) return { livello: "attenzione", titolo: "Attenzione richiesta", perche: `${r.error} ${r.error === 1 ? "articolo fallito" : "articoli falliti"}.`, azione: "Leggi il motivo; riprova quelli per cui è sicuro." };
     if (coda.running) return { livello: "ok", titolo: "Tutto regolare", perche: "Nessun errore finora.", azione: "Niente da fare." };
@@ -564,11 +947,14 @@
       modello: coda.modello || null,
       intervalMin: coda.intervalMin,
       overrides: coda.overrides || null,
+      batches: (coda.batches || []).map(({ id, n, nome, overrides, campi, modello, creataAt, rev, storico }) => ({ id, n, nome, overrides, campi, modello, creataAt, rev, storico: storico || [] })),
       conteggi: r,
-      items: (coda.items || []).map(({ id, title, status, error, thumb, price, categoria, sicuro, motivoSalto, tentativi, addedAt, startedAt, finishedAt }) =>
+      items: (coda.items || []).map(({ id, title, status, error, thumb, price, categoria, sicuro, motivoSalto, tentativi, addedAt, startedAt, finishedAt, batch, regole, fase, invioAt, traccia, attendeEsito, nuovoId, verificato }) =>
         ({ id: String(id), title: title || null, status, error: error || null, thumb: thumb || null, price: price ?? null,
           categoria: categoria || null, sicuro: sicuro || null, motivoSalto: motivoSalto || null, tentativi: tentativi || 0,
-          addedAt: addedAt || null, startedAt: startedAt || null, finishedAt: finishedAt || null })),
+          addedAt: addedAt || null, startedAt: startedAt || null, finishedAt: finishedAt || null,
+          batch: batch || null, regole: regole || null, fase: fase || null, invioAt: invioAt || null, traccia: traccia || null,
+          attendeEsito: Boolean(attendeEsito), nuovoId: nuovoId || null, verificato: verificato || null })),
       log: (coda.log || []).slice(-MAX_REGISTRO_ARCHIVIO),
     };
   }
@@ -578,7 +964,7 @@
     const riprendibili = [];
     const esclusi = [];
     for (const a of sessione?.items || []) {
-      if (a.status === "cancelled" || (a.status === "error" && a.sicuro !== "no")) riprendibili.push(a);
+      if (a.status === "cancelled" || a.status === "interrupted" || (a.status === "error" && a.sicuro !== "no")) riprendibili.push(a);
       else if (a.status === "pending" || a.status === "working") riprendibili.push(a);
       else esclusi.push({ id: a.id, title: a.title, motivo: {
         done: "già ripubblicato", verify: "esito da verificare", removed: "rimosso da te", skipped: "saltato", error: "riprovare non serve",
@@ -598,9 +984,9 @@
   }
 
   function esportaCSV(sessione) {
-    const intestazione = ["sessione", "ordine", "id", "titolo", "stato", "categoria_errore", "errore", "riprovare", "tentativi", "aggiunto", "iniziato", "finito", "durata_s"];
+    const intestazione = ["sessione", "ordine", "id", "titolo", "batch", "stato", "categoria_errore", "errore", "riprovare", "tentativi", "aggiunto", "iniziato", "finito", "durata_s"];
     const righe = (sessione?.items || []).map((a, i) => [
-      iso(sessione.startedAt), i + 1, a.id, a.title, ETICHETTE[a.status] || a.status, ETICHETTE_CATEGORIA[a.categoria] || a.categoria || "",
+      iso(sessione.startedAt), i + 1, a.id, a.title, batchDi(sessione, a)?.nome || "", ETICHETTE[a.status] || a.status, ETICHETTE_CATEGORIA[a.categoria] || a.categoria || "",
       a.error || "", a.sicuro || "", a.tentativi || 0, iso(a.addedAt), iso(a.startedAt), iso(a.finishedAt), durata(a) ?? "",
     ]);
     return [intestazione, ...righe].map((r) => r.map(cella).join(",")).join("\r\n");
@@ -614,9 +1000,10 @@
         inizio: iso(sessione?.startedAt), fine: iso(sessione?.finishedAt), stato: sessione?.running ? sessione.state : "conclusa",
         intervalloMin: sessione?.intervalMin ?? null, modello: sessione?.modello || null, automatica: Boolean(sessione?.auto), note: sessione?.note || null,
         conteggi: conta(sessione),
+        batch: (sessione?.batches || []).map((b) => ({ id: b.id, nome: b.nome, regole: b.overrides || null, revisione: b.rev || 1, modello: b.modello || null })),
       },
       articoli: (sessione?.items || []).map((a, i) => ({
-        ordine: i + 1, id: a.id, titolo: a.title, stato: a.status, errore: a.error || null, categoria: a.categoria || null,
+        ordine: i + 1, id: a.id, titolo: a.title, batch: a.batch || null, stato: a.status, nuovoId: a.nuovoId || null, errore: a.error || null, categoria: a.categoria || null,
         riprovare: a.sicuro || null, tentativi: a.tentativi || 0, aggiunto: iso(a.addedAt) || null, iniziato: iso(a.startedAt) || null,
         finito: iso(a.finishedAt) || null, durataSecondi: durata(a),
       })),
@@ -633,22 +1020,25 @@
     const righe = [
       `Sessione del ${iso(sessione?.startedAt)} — ${sessione?.running ? `in corso (${sessione.state})` : "conclusa"}`,
       `Stato: ${sal.titolo}. ${sal.perche}`,
-      `Articoli: ${r.totale} · completati ${r.done} · falliti ${r.error} · da verificare ${r.verify} · in attesa ${r.pending} · in corso ${r.working} · saltati ${r.skipped} · annullati ${r.cancelled} · rimossi ${r.removed}`,
+      `Articoli: ${r.totale} · completati ${r.done} · falliti ${r.error} · da verificare ${r.verify} · interrotti ${r.interrupted} · in attesa ${r.pending} · in corso ${r.working} · saltati ${r.skipped} · annullati ${r.cancelled} · rimossi ${r.removed}`,
+      `Batch: ${(sessione?.batches || []).length || 1}`,
       `Tempo trascorso: ${minuti(s.trascorsoMs)}${sessione?.running ? ` · rimanente stimato: ${minuti(s.rimanenteMs)}` : ""}`,
       "",
       "Problemi:",
     ];
-    const problemi = (sessione?.items || []).filter((a) => ["error", "verify"].includes(a.status));
+    const problemi = (sessione?.items || []).filter((a) => ["error", "verify", "interrupted"].includes(a.status));
     if (!problemi.length) righe.push("  nessuno");
     for (const a of problemi) righe.push(`  ${a.id} — ${ETICHETTE[a.status]} · ${ETICHETTE_CATEGORIA[a.categoria] || a.categoria || "?"} · riprovare: ${a.sicuro || "?"} · ${String(a.error || "").replace(/https?:\/\/\S+/g, "[url]").slice(0, 160)}`);
     return righe.join("\n");
   }
 
   const api = {
-    ETICHETTE, ICONE, TERMINALI, ETICHETTE_CATEGORIA, MAX_ARTICOLI, SOGLIA_PRUDENZA,
+    ETICHETTE, ICONE, TERMINALI, ETICHETTE_CATEGORIA, MAX_ARTICOLI, SOGLIA_PRUDENZA, MAX_BATCH,
     nuova, migra, registra, trova, corrente, prossimo, inAttesa, posizione, conta, daChiudere,
     valutaAggiunta, aggiungi, rimuovi, annullaCorrente, sposta, riordina, riprova, risolvi,
     avviaArticolo, concludiArticolo, classificaErrore, stima, salute,
+    pulisciOverrides, pulisciCampi, trovaBatch, batchDi, overridesDi, riepilogoBatch, modificaBatch,
+    ripubblicaOra, rimettiDopoInterruzione, confermaInvio, assegnaScheda, annotaTraccia, esitoTardivo, valutaVerifica, esitoDaVerdetto, applicaVerifica,
     perArchivio, daRiprendere, esportaCSV, esportaJSON, resoconto,
   };
 

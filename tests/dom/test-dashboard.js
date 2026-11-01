@@ -196,10 +196,15 @@ async function apri({ hash = '', store = {}, risposte = {}, sessione = {}, linkR
   p.d.getElementById('addToQueue').click(); await tick(20);
   const box = p.d.getElementById('addConfirm');
   ok('   conferma: chi entra, chi no e perché', !box.hidden && /Libro nuovo/.test(box.textContent) && /Zaino rosso/.test(box.querySelector('.fuori').textContent) && /posizione 1/.test(box.textContent));
-  ok('   usa le opzioni della coda in corso', /-10% sul prezzo/.test(box.textContent));
+  // 2.2.0: i nuovi diventano una batch con le regole scelte qui (Centro di modifica)
+  ok('   propone il Centro di modifica per la nuova batch', /Centro di modifica per Batch 2/.test(box.textContent) && box.querySelector('.rules-form select'));
+  box.querySelector('.rules-form select').value = 'percent';
+  box.querySelector('.rules-form select').dispatchEvent(new p.w.Event('change'));
+  const valoreRegola = box.querySelector('.rules-form input[inputmode=decimal]');
+  valoreRegola.value = '-20'; valoreRegola.dispatchEvent(new p.w.Event('input'));
   box.querySelector('input[value="cima"]').click();
-  p.btn('Aggiungi 1 alla coda', box).click(); await tick(20);
-  ok('   aggiunta inviata: solo il nuovo, in cima', JSON.stringify(p.ultimo('vr:queueAdd').items.map((i) => i.id)) === '["9"]' && p.ultimo('vr:queueAdd').dove === 'cima');
+  p.btn('Aggiungi 1 come Batch 2', box).click(); await tick(20);
+  ok('   aggiunta inviata: solo il nuovo, in cima, con le sue regole', JSON.stringify(p.ultimo('vr:queueAdd').items.map((i) => i.id)) === '["9"]' && p.ultimo('vr:queueAdd').dove === 'cima' && p.ultimo('vr:queueAdd').batch.overrides.pricePercent === -20);
   ok('   selezione dell\'inventario svuotata', /^Aggiungi alla coda$/.test(p.d.getElementById('addToQueue').textContent.trim()));
 
   // senza coda: dal menu parte una coda nuova con le opzioni salvate

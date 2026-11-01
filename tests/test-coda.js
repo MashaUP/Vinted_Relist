@@ -84,11 +84,17 @@ const attesa = () => new Promise((r) => setTimeout(r, 10));
   ok('riprova fra 1 minuto', Math.round((alarms['vr:queueNext'] - Date.now()) / 60000) === 1);
   tabs = [{ id: 1, status: 'complete' }];
 
-  // watchdog: la scheda non risponde mai
+  // watchdog (2.2): la scheda non ha piu' il lavoro (qui: chiusa) e il permesso di
+  // inviare non era stato chiesto → niente e' arrivato a Vinted: interrotto, non
+  // «da verificare». Fino alla 2.1 qui diventava «da verificare» alla cieca.
   await sveglia('vr:queueNext'); await attesa();
   await sveglia('vr:queueWatchdog'); await attesa();
   q = store.vrQueue;
-  ok('watchdog chiude l\u0027articolo appeso come «da verificare» (2.0)', q.items[2].status === 'verify');
+  ok('watchdog, scheda chiusa prima dell\u0027invio: rimesso in cima da solo, non «da verificare»', q.items[2].status === 'pending' && q.items[2].ripresoDaSolo && q.running);
+  await sveglia('vr:queueNext'); await attesa();
+  await sveglia('vr:queueWatchdog'); await attesa();
+  q = store.vrQueue;
+  ok('seconda interruzione: resta «Interrotto», riprovabile', q.items[2].status === 'interrupted' && q.items[2].sicuro === 'si');
   ok('coda conclusa a fine elenco', !q.running && q.state === 'done');
   ok('nessun alarm residuo', Object.keys(alarms).length === 0);
 

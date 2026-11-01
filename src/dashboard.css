@@ -385,3 +385,33 @@ kbd { font: 11px ui-monospace, Consolas, monospace; padding: 1px 5px; border: 1p
   .log time { grid-column: 2; }
 }
 @media (prefers-reduced-motion: reduce) { .queue-panel { transition: none; } }
+
+/* ------------------------------------------------------------- 2.2.0: batch */
+.value-note { display: block; font-size: 12px; color: var(--amber); max-width: 260px; text-align: right; }
+.value-note[hidden] { display: none; }
+.batches { display: grid; gap: 6px; margin-top: 10px; }
+.batches:empty { display: none; }
+.batch { border: 1px solid var(--border); border-radius: 10px; background: var(--sunken); }
+.batch > summary { list-style: none; cursor: pointer; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; padding: 8px 12px; }
+.batch > summary::-webkit-details-marker { display: none; }
+.batch > summary::before { content: "▸"; color: var(--muted); }
+.batch[open] > summary::before { content: "▾"; }
+.batch .b-name { font-weight: 600; }
+.batch .b-counts { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.batch .b-state { font-size: 12px; }
+.batch .b-state.warn { color: var(--amber); }
+.batch .b-state.ok { color: var(--green); }
+.batch .b-body { padding: 0 12px 10px 28px; display: grid; gap: 6px; }
+.batch .b-rules { margin: 0; }
+.batch .b-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.batch.is-filter { border-color: var(--teal); }
+.b-chip { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--teal-tint); color: var(--teal); margin-left: 6px; white-space: nowrap; }
+.q-group { list-style: none; padding: 10px 4px 4px; font-weight: 600; font-size: 13px; color: var(--muted); border-bottom: 1px solid var(--border); }
+.q-row.q-interrupted { opacity: 0.85; }
+.rules-form { display: grid; gap: 8px; flex-basis: 100%; padding: 10px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border); }
+.rules-form .row { display: flex; flex-wrap: wrap; gap: 8px; }
+.rules-form label { display: grid; gap: 2px; font-size: 13px; flex: 1 1 160px; }
+.rules-form input, .rules-form select, .rules-form textarea { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: inherit; }
+.rules-form .err { color: var(--red); font-size: 12px; min-height: 0; margin: 0; }
+.rules-form .err:empty { display: none; }
+.rules-form .copy { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 13px; }

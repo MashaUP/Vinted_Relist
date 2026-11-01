@@ -8,7 +8,9 @@ global.chrome = { storage: { local: {
   set: async (o) => Object.assign(store, o) } } };
 const VR = { uuid:()=>'u', settings:{}, log(){}, warn(){}, api:{} };
 VR.editorLogica = require(require('path').join(__dirname, '..', 'src/editor-logica.js'));
-const window = { VR }; global.window = window;
+// 2.2.0: l'inventario lo scrive il service worker con src/armadio-logica.js;
+// qui (niente service worker) la pagina usa le stesse regole come ripiego.
+const window = { VR, ArmadioLogica: require(require('path').join(__dirname, '..', 'src/armadio-logica.js')) }; global.window = window;
 new Function('window','chrome', body + '\n; window.__snap = registraSnapshot;')(window, global.chrome);
 
 const out=[]; const ok=(n,c)=>out.push(`  ${c?'OK  ':'FAIL'} ${n}`);

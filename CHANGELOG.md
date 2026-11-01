@@ -6,6 +6,59 @@ ultime tre leggendo questo file dall'estensione installata.
 Numerazione `x.y.z`: **x** quando cambia il modo di usarla o i dati salvati in modo non
 compatibile, **y** per funzioni nuove, **z** per sole correzioni.
 
+## 2.2.0 · Esiti certi, batch, «Ripubblica ora» (31 ottobre 2026)
+
+Minor: funzioni nuove retrocompatibili. Le code della 2.1 si convertono da sole: i loro articoli
+diventano la «Batch 1» con le regole con cui erano partite. Impostazioni, storico e inventario
+restano com'erano.
+
+### Corretto
+- **«Nessuna risposta dalla scheda in 6 minuti»**: dopo 6 minuti l'articolo diventava «da
+  verificare» senza guardare niente, e se l'esito arrivava dopo veniva scartato. Un articolo
+  pubblicato restava così da verificare per sempre. Ora a 6 minuti si **chiede alla scheda** se
+  sta ancora lavorando (foto lente, scheda in secondo piano): se sì si aspetta, fino a 30 minuti.
+  Se la pagina è stata chiusa o ricaricata si decide con le prove, e un esito che arriva tardi
+  vale ancora.
+- **Prova certa prima dell'invio:** la pagina chiede il permesso al service worker subito prima
+  della prima richiesta che cambia qualcosa su Vinted. Un tentativo dato per interrotto, o
+  annullato, non può più pubblicare: niente doppioni.
+- L'esito si ritrasmette finché il service worker non conferma di averlo ricevuto, e prima di
+  partire viene scritto in un giornale del tentativo (`vrOp:<id>`): se il messaggio si perde, il
+  risultato non si perde.
+- «Annulla operazione» e la sonda vanno alla **scheda che lavora l'articolo**, non alla prima
+  scheda Vinted aperta.
+- Valore dell'armadio: una card del vecchio annuncio rimasta a schermo dopo la ripubblicazione lo
+  rimetteva nell'inventario (contato due volte), e letture delle card e ripubblicazioni potevano
+  cancellarsi a vicenda. Ora l'inventario lo scrive solo il service worker, una modifica alla volta.
+- Il download di una foto bloccata non ferma più la pubblicazione per sempre (limite di 60 s).
+- Riprendere i falliti di una sessione passata usava le opzioni della coda in corso: ora ognuno
+  torna con le regole della sua batch.
+
+### Nuovo
+- **Stati distinti:** Completato, In elaborazione, Da verificare, Fallito e il nuovo
+  **Interrotto** (fermato prima dell'invio: niente creato o eliminato, riprovarlo è sicuro; la
+  prima volta torna in cima da solo).
+- **«Verifica pubblicazione»** (dashboard e popup) e verifica automatica: controlla su Vinted, solo
+  in lettura, se il vecchio annuncio esiste ancora e se c'è il nuovo, riconoscendolo dall'id
+  restituito da Vinted o dalle foto caricate in quel tentativo, mai da titolo o prezzo. Lo stato
+  cambia solo con una prova; altrimenti dice cosa manca.
+- Messaggi degli esiti incerti più chiari: quale articolo, a che ora è partito, che la conferma
+  non è arrivata, che potrebbe essere già online, di non riprovare e cosa fare.
+- **Batch con regole indipendenti:** con una coda in corso, «Aggiungi alla coda» apre il **Centro
+  di modifica** per i nuovi articoli (prezzo, descrizione, dati mancanti: le opzioni di sempre).
+  Diventano una nuova batch con le sue regole; la coda non si ferma e le batch già in coda non
+  cambiano. Si può partire copiando le regole di una batch esistente.
+- **Pannello delle batch** nella dashboard: articoli, stato, regole, completati, in attesa,
+  problemi; «Mostra solo questa», vista «Batch», chip della batch su ogni riga.
+- **Modifica regole** di una batch: valgono solo per i suoi articoli in attesa, con un riepilogo
+  di chi cambia e chi no; l'articolo in corso e i completati restano registrati con la revisione
+  che hanno usato.
+- **«Ripubblica ora»** su ogni articolo in attesa (anche tasto `R`): diventa il prossimo, con le
+  regole della sua batch, senza interrompere quello in corso; in pausa sarà il primo alla
+  ripresa. Mai su un «da verificare».
+- **Valore dell'armadio** anche nel popup, aggiornato a ogni pubblicazione confermata; se una
+  pubblicazione è in corso o da verificare lo dice invece di dare il numero per definitivo.
+
 ## 2.1.0 · Code dinamiche e link del progetto (23 ottobre 2026)
 
 Minor: funzioni nuove retrocompatibili. Le code della 2.0 si convertono da sole alla prima lettura;

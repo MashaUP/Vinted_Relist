@@ -137,45 +137,33 @@
     return { views: numero(VISITE), favs: numero(PREFERITI), price: prezzo, thumb };
   }
 
-  const MAX_PUNTI_SERIE = 40;
   const daAnnotare = new Map();
   let scrittura = null;
 
+  /**
+   * Le letture vanno al service worker, che e' l'unico a scrivere l'inventario
+   * (src/armadio-logica.js): una card vecchia rimasta a schermo dopo una
+   * ripubblicazione non rimette piu' dentro l'annuncio che non esiste.
+   */
   function annota(itemId, anchor, card) {
     const titolo = (anchor.getAttribute("title") || anchor.textContent || "").trim();
     daAnnotare.set(itemId, { title: titolo.slice(0, 80), ...leggiCard(card) });
 
     clearTimeout(scrittura);
     scrittura = setTimeout(async () => {
-      const { inventory = {} } = await chrome.storage.local.get("inventory");
-      const ora = Date.now();
-
-      for (const [id, letto] of daAnnotare) {
-        const prima = inventory[id] || {};
-        const serie = [...(prima.series || [])];
-
-        // Un punto nella serie quando le visite cambiano, o almeno ogni 12 ore:
-        // e' quello che serve per misurare cosa succede dopo una ripubblicazione.
-        if (letto.views != null) {
-          const ultimo = serie[serie.length - 1];
-          if (!ultimo || ultimo[1] !== letto.views || ora - ultimo[0] > 12 * 3600000) {
-            serie.push([ora, letto.views]);
-          }
-        }
-
-        inventory[id] = {
-          title: letto.title || prima.title || "",
-          price: letto.price ?? prima.price ?? null,
-          views: letto.views ?? prima.views ?? null,
-          favs: letto.favs ?? prima.favs ?? null,
-          thumb: letto.thumb || prima.thumb || null,
-          firstSeen: prima.firstSeen || ora,
-          lastSeen: ora,
-          series: serie.slice(-MAX_PUNTI_SERIE),
-        };
-      }
+      const voci = Object.fromEntries(daAnnotare);
       daAnnotare.clear();
-      await chrome.storage.local.set({ inventory });
+      try {
+        const r = await chrome.runtime.sendMessage({ type: "vr:inventarioAnnota", voci });
+        if (r?.ok) return;
+      } catch {
+        // service worker non raggiungibile: ripiego qui sotto
+      }
+      const A = window.ArmadioLogica;
+      if (!A) return;
+      const stato = await chrome.storage.local.get(["inventory", "vrInventoryReplaced"]);
+      const r = A.annota(stato, voci);
+      if (r.cambiati) await chrome.storage.local.set({ inventory: r.inventory });
     }, 1500);
   }
 

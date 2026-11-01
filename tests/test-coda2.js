@@ -121,10 +121,11 @@ const out = []; const ok = (n, c) => out.push(`  ${c ? 'OK  ' : 'FAIL'} ${n}`);
   await sveglia('vr:queueNext'); await pausa();
   ok('ripubblicato a mano nel frattempo: saltato', store.vrQueue.items[1].status === 'skipped' && !store.vrQueue.running);
 
-  // --- watchdog: incerto, non fallito
+  // --- watchdog dopo l'invio a Vinted: incerto, non fallito (2.2: solo se il permesso era stato dato)
   await invia({ type: 'vr:queueStart', items: items(1, 40), intervalMin: 20 }); await pausa();
+  await invia({ type: 'vr:relistConfirm', itemId: '41', avviatoAt: store.vrQueue.items[0].startedAt }); await pausa();
   await sveglia('vr:queueWatchdog'); await pausa();
-  ok('watchdog → da verificare', store.vrQueue.items[0].status === 'verify');
+  ok('watchdog dopo l\u0027invio → da verificare', store.vrQueue.items[0].status === 'verify');
 
   // --- eventi
   const prima2 = store.vrEvents.length;

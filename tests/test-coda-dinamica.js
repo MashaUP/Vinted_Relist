@@ -161,9 +161,12 @@ const out = []; const ok = (n, c) => out.push(`  ${c ? 'OK  ' : 'FAIL'} ${n}`);
   ok('    articolo in volo', st(24) === 'working');
   delete alarms['vr:queueWatchdog'];                          // estensione ricaricata: sveglie perse
   await recuperaCoda(); await calma();
-  ok('14. dopo il riavvio l\'articolo in volo è da verificare, la sessione aspetta te', st(24) === 'verify' && q().state === 'recovering');
-  await invia({ type: 'vr:relistDone', itemId: '24', ok: true }); await calma();
-  ok('    un esito tardivo dalla scheda vecchia non riscrive niente', st(24) === 'verify');
+  // 2.2: era ancora in preparazione (permesso di inviare mai chiesto): niente e' arrivato
+  // a Vinted, quindi torna in cima invece di restare «da verificare».
+  ok('14. dopo il riavvio l\'articolo in preparazione torna in cima, la sessione aspetta te', st(24) === 'pending' && attesa().startsWith('24') && q().state === 'recovering');
+  const vecchioAvvio = q().log.filter((e) => e.tipo === 'inizio' && e.id === '24').pop()?.at;
+  await invia({ type: 'vr:relistDone', itemId: '24', avviatoAt: vecchioAvvio, ok: true }); await calma();
+  ok('    un esito tardivo dalla scheda vecchia non riscrive niente', st(24) === 'pending');
 
   // interrompi con un articolo in volo
   azzera();

@@ -615,82 +615,54 @@
     return key;
   }
 
-  const MAX_SNAPSHOT = 60;
-  const ORE = 3600000;
-
-  /** Visite osservate piu' vicine alle 48 ore dopo la pubblicazione (tra 24 e 72). */
-  function visite48(serie, inizio) {
-    let migliore = null;
-    for (const [quando, visite] of serie || []) {
-      const dopo = quando - inizio;
-      if (dopo < 24 * ORE || dopo > 72 * ORE) continue;
-      const distanza = Math.abs(dopo - 48 * ORE);
-      if (!migliore || distanza < migliore.distanza) migliore = { visite, distanza };
-    }
-    return migliore ? migliore.visite : null;
-  }
-
   /**
-   * Fotografia di ogni ripubblicazione: com'era prima, com'e' dopo.
-   * Serve a ripristinare i dati vecchi e a misurare cosa ha reso ogni relist.
+   * Fotografia di ogni ripubblicazione: com'era prima, com'e' dopo, e
+   * l'inventario che segue l'articolo sul nuovo id (e con lui il valore
+   * dell'armadio, subito, articolo per articolo).
    *
-   * L'inventario segue l'articolo sul nuovo id. Prima di cancellare il vecchio,
-   * chiudiamo la misura della ripubblicazione precedente: dopo, la sua serie
-   * di visite non esisterebbe piu'.
+   * Dalla 2.2.0 lo scrive il service worker, unico scrittore dell'inventario
+   * (regole in src/armadio-logica.js). Se non risponde, la pagina applica le
+   * stesse regole da sola: meglio un aggiornamento locale che nessuno.
    */
   async function registraSnapshot(oldId, source, draft, created) {
     if (!created?.id) return;
-
-    const { vrSnapshots = [], inventory = {} } =
-      await chrome.storage.local.get(["vrSnapshots", "inventory"]);
-
-    const vecchio = inventory[oldId];
-    const precedente = vrSnapshots.findLast((x) => String(x.new.id) === String(oldId));
-    if (precedente && precedente.visite48 == null && vecchio) {
-      precedente.visite48 = visite48(vecchio.series, precedente.at);
-    }
-
-    const ora = Date.now();
-    vrSnapshots.push({
-      n: (vrSnapshots[vrSnapshots.length - 1]?.n || 0) + 1,
-      at: ora,
-      viewsBefore: vecchio?.views ?? null,
-      old: {
-        id: String(oldId),
-        title: source.title,
-        description: source.description,
-        price: Number(scalarAmount(source.price)),
-      },
-      new: { id: String(created.id), title: draft.title, description: draft.description, price: draft.price },
-    });
-
-    if (vecchio) delete inventory[oldId];
-    inventory[created.id] = {
-      title: draft.title,
-      price: draft.price,
-      views: 0,
-      favs: 0,
-      firstSeen: vecchio?.firstSeen || ora,
-      lastSeen: ora,
-      relistedAt: ora,
-      series: [[ora, 0]],
+    const dati = {
+      oldId: String(oldId),
+      newId: String(created.id),
+      vecchio: { title: source.title, description: source.description, price: Number(scalarAmount(source.price)) },
+      nuovo: { title: draft.title, description: draft.description, price: draft.price },
     };
-
-    await chrome.storage.local.set({ vrSnapshots: vrSnapshots.slice(-MAX_SNAPSHOT), inventory });
+    try {
+      const r = await chrome.runtime?.sendMessage?.({ type: "vr:inventarioSostituisci", ...dati });
+      if (r?.ok) return;
+    } catch {
+      // service worker non raggiungibile: ripiego qui sotto
+    }
+    const A = window.ArmadioLogica;
+    if (!A) return;
+    const stato = await chrome.storage.local.get(["inventory", "vrSnapshots", "vrInventoryReplaced"]);
+    const r = A.sostituisci(stato, dati);
+    if (r.cambiato) {
+      await chrome.storage.local.set({ inventory: r.inventory, vrSnapshots: r.vrSnapshots, vrInventoryReplaced: r.vrInventoryReplaced });
+    }
   }
 
-  VR.visite48 = visite48;
+  VR.visite48 = (...a) => window.ArmadioLogica?.visite48(...a) ?? null;
 
   /**
    * Ripubblica un articolo.
    * @param {string|number} itemId
    * @param {object} overrides  title / description / price / deleteOld
    * @param {(step:string)=>void} onProgress
-   * @param {{annullato?:()=>boolean, oltre?:()=>void}} segnale
+   * @param {{annullato?:()=>boolean, oltre?:(info)=>Promise|void, creato?:(id)=>Promise|void}} segnale
    *   annullato(): la coda chiede di fermarsi. Si rispetta solo PRIMA del punto
    *   di non ritorno (la prima chiamata che cambia qualcosa su Vinted: eliminare
    *   il vecchio con "elimina, poi pubblica", altrimenti creare il nuovo).
-   *   oltre(): avvisa che quel punto e' stato passato.
+   *   oltre(info): chiamato SUBITO PRIMA di quel punto, con le foto caricate e
+   *   il prezzo. In coda chiede il permesso al service worker: se lancia un
+   *   errore, niente e' stato inviato e ci si ferma.
+   *   creato(id): Vinted ha restituito l'id del nuovo annuncio (va annotato
+   *   prima di qualunque altra cosa: e' la prova che e' stato pubblicato).
    */
   async function relist(itemId, overrides = {}, onProgress = () => {}, segnale = {}) {
     const settings = VR.settings;
@@ -756,7 +728,17 @@
 
     // Ultimo controllo: da qui in poi la richiesta parte e non si torna indietro.
     await seAnnullato();
-    segnale.oltre?.();
+    try {
+      await segnale.oltre?.({
+        fotoIds: photoIds.map(String),
+        prezzo: typeof draft.price === "number" ? draft.price : null,
+        ordine: deleteFirst ? "clean" : "safe",
+        eliminaVecchio: Boolean(deleteOld),
+      });
+    } catch (errore) {
+      await chrome.storage.local.remove(`vrBackup:${itemId}`).catch(() => {});
+      throw errore;
+    }
 
     if (deleteOld && deleteFirst) {
       onProgress("Elimino il vecchio annuncio…");
@@ -784,6 +766,11 @@
     }
 
     // Da qui il nuovo annuncio esiste: qualunque cosa vada storta dopo, va registrato.
+    try {
+      await segnale.creato?.(String(created.id));
+    } catch (errore) {
+      VR.warn("annotazione del nuovo annuncio non riuscita", errore);
+    }
     let eliminazioneFallita = null;
     if (deleteOld && !deleteFirst) {
       await VR.sleep(settings.delayMs);
@@ -818,6 +805,42 @@
   }
 
   VR.relist = relist;
+
+  /**
+   * Osservazioni per verificare un tentativo senza esito: SOLO letture.
+   *   vecchio: il vecchio annuncio esiste ancora?
+   *   nuovo: l'annuncio che Vinted aveva restituito (se ne conosciamo l'id) esiste?
+   *   trovato: id di un annuncio recente del tuo armadio che ha una delle foto
+   *     caricate in quel tentativo (gli id foto sono unici: non e' un'omonimia
+   *     di titolo o di prezzo).
+   * Il verdetto lo da' CodaLogica.valutaVerifica, nel service worker.
+   */
+  VR.verificaPubblicazione = async ({ itemId, nuovoId = null, fotoIds = [] } = {}) => {
+    const limiti = [];
+    const vecchio = await VR.api.stato(itemId);
+    const nuovo = nuovoId ? await VR.api.stato(nuovoId) : "ignoto";
+    let trovato = null;
+
+    const cercate = new Set((fotoIds || []).map(String));
+    if (!nuovoId && cercate.size) {
+      const me = VR.settings.userId || null;
+      if (!me) {
+        limiti.push("non conosco il tuo id utente: apri il tuo armadio su Vinted");
+      } else {
+        try {
+          const recenti = await VR.api.armadioRecenti(me);
+          const fotoDi = (it) => [...(it.photos || []), it.photo].filter(Boolean).map((f) => String(f.id ?? ""));
+          trovato = recenti.find((it) => String(it.id) !== String(itemId) && fotoDi(it).some((id) => cercate.has(id)))?.id ?? null;
+          if (trovato != null) trovato = String(trovato);
+        } catch (errore) {
+          limiti.push(`non riesco a leggere gli ultimi annunci del tuo armadio (${errore.message})`);
+        }
+      }
+    } else if (!nuovoId) {
+      limiti.push("non ho le foto di quel tentativo per riconoscerlo");
+    }
+    return { vecchio, nuovo, trovato, limiti };
+  };
 
   /**
    * Prova a vuoto su un articolo: legge, costruisce il payload e scarica e
