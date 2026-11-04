@@ -33,6 +33,9 @@ for (const f of ['utils.js', 'api.js', 'editor-logica.js', 'relist.js', 'editor.
   window.eval(fs.readFileSync(SRC + f, 'utf8'));
 }
 const VR = window.VR;
+// 2.3: content.js (che sa se sei nel tuo armadio) qui non c'è: questi test simulano il tuo armadio.
+VR.nelMioArmadio = () => true;
+VR.puoAgireSu = () => true;
 VR.settings = { ...VR.DEFAULTS, colorMap: { 1: 'Nero' }, canary: true };
 VR.sleep = async () => {};
 const letti = [];

@@ -7,7 +7,7 @@
     deleteOld: true,          // eliminare il vecchio annuncio dopo aver creato il nuovo
     order: "safe",            // "safe" = crea poi elimina | "clean" = elimina poi crea
     delayMs: 1200,            // pausa tra le chiamate, per non farsi limitare
-    showOnOtherProfiles: false,
+    autoUpdateCheck: true,    // controlla da solo, ogni 12 ore, se c'è una versione nuova
     autoReload: false,
     queueIntervalMin: 20,     // minuti tra una ripubblicazione in coda e la successiva
     humanRhythm: true,        // intervalli irregolari e passi solo quando sei al computer
@@ -33,6 +33,9 @@
   };
 
   VR.settings = { ...VR.DEFAULTS };
+
+  /** Versione del codice della pagina: va con la richiesta di permesso e nella diagnostica. */
+  VR.BUILD = "2.3.1";
 
   /** itemId → comandi della sua barra, cosi' la coda puo' aggiornare le card. */
   VR.bars = new Map();

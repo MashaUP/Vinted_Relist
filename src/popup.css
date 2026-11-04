@@ -348,3 +348,11 @@ body.in-tab { margin: 24px auto; border: 1px solid var(--border); border-radius:
 .health-attenzione, .health-verificare { color: var(--amber); }
 .health-bloccata { color: var(--red); }
 .health-pausa { color: var(--teal); }
+
+/* 2.3: report di confronto */
+#reportCard .btn-row { display: flex; flex-wrap: wrap; gap: 6px; }
+#reportCard .details { margin-top: 8px; }
+#reportCard .details summary { cursor: pointer; font-size: 13px; }
+.compare { margin: 6px 0 0; padding-left: 16px; font: 11px/1.4 ui-monospace, Consolas, monospace; max-height: 220px; overflow: auto; }
+.compare li { margin-bottom: 4px; word-break: break-word; }
+.compare .uguale { list-style: none; margin-left: -16px; color: var(--ok, inherit); }

@@ -1,7 +1,7 @@
 # Vinted Relist — documentazione tecnica
 
 Documento vivo: va aggiornato a ogni versione insieme a `CHANGELOG.md`. Descrive com'è fatta
-l'estensione, perché è fatta così e cosa resta da verificare. Aggiornato alla **2.2.0**.
+l'estensione, perché è fatta così e cosa resta da verificare. Aggiornato alla **2.3.0**.
 I link del progetto e la configurazione remota hanno un documento a parte: [LINK.md](LINK.md).
 
 ## 1. Architettura
@@ -143,6 +143,40 @@ verificare». Ora:
 5. L'esito della pagina si ritrasmette (0, 2, 5, 15, 30, 60 s) finché il service worker non
    risponde `ok`.
 
+**Permesso di invio (2.3).** «Fermato prima dell'invio a Vinted: permesso negato» (2.2) nasceva
+in `queue.js`: `fermato(r?.motivo || "permesso negato")`. Il ripiego scattava quando la risposta a
+`vr:relistConfirm` non aveva motivo: o il gestore del service worker lanciava un'eccezione (il
+`catch` di `MESSAGGI_CODA` rispondeva `{ok:false, error}`, senza `motivo`), o la risposta era vuota.
+Riprodotto in Chromium sulla 2.2.0 con un salvataggio della coda rifiutato durante il permesso: esce
+esattamente la frase dello screenshot, l'articolo diventa «Annullato» e la coda passa al successivo.
+Ora: ogni no ha `codice` e `motivo` (`coda-chiusa`, `non-in-lavorazione`, `tentativo-scaduto`,
+`annullato`, `salvataggio`, `versione`, `interno`; lato pagina anche `sw-irraggiungibile`,
+`risposta-vuota`, `estensione-ricaricata`); `chiediPermesso` riprova (4 volte) le risposte vuote, le
+eccezioni di trasporto e i no `ritentabile`; un no tecnico produce `interrupted` con categoria
+`comunicazione` e `esitoCoda` mette la coda in pausa con il motivo. La pagina manda `VR.BUILD`, il
+service worker lo confronta con `BUILD`. Ogni no finisce in `vrErrori` (diagnostica).
+Il percorso singolo e quello in coda usano la stessa `VR.relist()`: l'unica differenza è il
+`segnale` (permesso e giornale) e le regole della batch.
+
+**Diagnostica di confronto (2.3).** `vr:diagnosi` (service worker) + quello che vede solo una pagina
+(versione completa del browser, Brave, tempo di andata e ritorno). `Versione.differenzeRapporti`
+confronta due report ignorando ore e durate. `vr:riparaCoda` = `C.riparaStruttura` (prudente:
+«in elaborazione» impossibile → «da verificare») + giornali orfani + sveglie, con copia in
+`vrQueuePrimaRiparazione`; la stessa riparazione gira all'avvio se `controllaStruttura` trova
+problemi oltre a schema/batch/registro.
+
+**Aggiornamenti periodici (2.3).** Sveglia `vr:updateCheck` (12 ore, `periodInMinutes`), fonte
+`version.json` del repository (la stessa di «Cerca aggiornamento»). `Versione.daNotificare`: solo
+se più recente dell'installata e dell'ultima notificata (`updateNotified`); prerelease solo a chi
+ne ha una. Una versione vista nel popup conta come notificata.
+
+**Solo il tuo armadio (2.3).** `VR.contesto()` in `content.js`: proprietario dall'indirizzo
+(`/member/<id>` senza sottopagine), tu dall'account (`userId` scritto **solo** dal service worker,
+dal cookie `v_uid` delle richieste di Vinted, per quel dominio). Non si deduce più l'id da link o
+dati della pagina. Senza certezza: niente. `VR.puoAgireSu(id)` si ricontrolla al clic;
+`VR.controllaProprieta` dentro `relist()` blocca un annuncio con proprietario diverso o letto dalla
+scheda pubblica senza proprietario verificabile.
+
 **Batch (2.2).** `coda.batches[]` con `{id, n, nome, overrides, campi, modello, rev, storico}`;
 ogni articolo ha `batch`. `passoCoda` manda `overridesDi(coda, id)`: le regole della batch
 dell'articolo, mai quelle della coda. `avviaArticolo` registra `regole: {batch, rev}`;
@@ -255,6 +289,10 @@ Due download alla volta; un errore su una foto non ferma le altre.
 | `itemFormats` | dalla 2.0.1: per ogni `catalog_id` (max 40) i nomi dei campi che Vinted manda e quali erano vuoti; nessun contenuto dell'annuncio |
 | `inventory` | articoli visti nell'armadio: titolo, prezzo, visite, preferiti, miniatura, serie storica. Dalla 2.2 lo scrive solo il service worker (`vr:inventarioAnnota`, `vr:inventarioSostituisci`, regole in `armadio-logica.js`); è la base del valore dell'armadio |
 | `vrInventoryReplaced` | dalla 2.2: id sostituiti da una ripubblicazione (max 500): una card vecchia a schermo non li rimette dentro |
+| `vrErrori` | dalla 2.3: ultimi 50 errori tecnici (dove, codice, messaggio ripulito, versione) |
+| `updateNotified` | dalla 2.3: ultima versione già notificata (o vista nel popup) |
+| `autoUpdateCheck` | dalla 2.3: controllo automatico degli aggiornamenti (predefinito sì) |
+| `vrQueuePrimaRiparazione` | dalla 2.3: copia della coda prima dell'ultima riparazione |
 | `vrOp:<id>` | dalla 2.2: giornale del tentativo in corso scritto dalla pagina (fase, id foto, id nuovo, esito); tolto quando l'esito è registrato, potato dopo 14 giorni |
 | `qualityScores` | completezza per articolo |
 | `vrSnapshots` | ultimi 60 relist con prima/dopo |
@@ -371,7 +409,7 @@ Non vengono mai scritti in `local`, nei log, negli eventi o nella diagnostica.
 | 8 | Archivio code e riepilogo in dashboard | media | media | **fatto 2.0.0** |
 | 9 | Ricerca, ordinamento, miniature, confronto in dashboard | media | media | **fatto 2.0.0** |
 | 10 | Backup/ripristino impostazioni | bassa | bassa | **fatto 2.0.0** |
-| 11 | Controllo aggiornamenti automatico una volta al giorno (opzionale, spento di default) | bassa | bassa | proposta |
+| 11 | Controllo aggiornamenti automatico | media | bassa | **fatto 2.3.0** (ogni 12 ore, acceso di default, una notifica per versione) |
 | 12 | Modulo unico per l'elenco dei domini | bassa | bassa | proposta |
 | 13 | Dividere `background.js` in moduli | media | media | proposta |
 | 14 | Esportazione CSV dell'inventario e dello storico | bassa | bassa | proposta |
@@ -391,14 +429,18 @@ Non vengono mai scritti in `local`, nei log, negli eventi o nella diagnostica.
 | 31 | «Ripubblica ora» | media | bassa | **fatto 2.2.0** |
 | 32 | Inventario con un solo scrittore e valore dell'armadio con stato provvisorio | media | media | **fatto 2.2.0** |
 | 33 | Timer della pagina non rallentati in secondo piano (pause via service worker) | bassa | media | da valutare dopo la prova reale: oggi la sonda distingue «lento» da «fermo» |
+| 34 | Motivo vero dei no al permesso, pausa su problema tecnico | alta | media | **fatto 2.3.0** (correzione di un bug reale) |
+| 35 | Report di confronto fra installazioni, registro errori, riparazione mirata | alta | media | **fatto 2.3.0** |
+| 36 | Interfaccia solo nel proprio armadio, controllo di proprietà | alta | media | **fatto 2.3.0** |
+| 37 | `unlimitedStorage` | bassa | bassa | da valutare solo se un report mostra lo spazio vicino al limite |
 | 16 | Controllo qualità e ritaglio automatico delle foto | — | alta | **escluso** dall'autore |
 | 17 | Finestra di annullamento dopo la pubblicazione | — | media | **escluso** dall'autore |
 | 18 | Micro-alterazioni delle foto per eludere i controlli di somiglianza | — | — | **rifiutato**: è elusione dei controlli di Vinted |
 
 ## 9. Roadmap
 
-- **2.2.x** — correzioni dalla prova reale (esiti incerti, verifica, batch).
-- **2.3** — proposte 26, 12, 14, 33 se servono.
+- **2.3.x** — correzioni dai report di confronto e dalla prova reale.
+- **2.4** — proposte 26, 12, 14, 33, 37 se servono.
 - **3.0** — solo se cambia il modo di distribuire (per esempio Chrome Web Store, vedi §11).
 
 ## 10. Test
@@ -426,6 +468,8 @@ cd tests && npm install && node run.js
 | `test-batch` | 2.2: batch nel modello e nel service worker: regole per batch, aggiunta in corsa, modifica, revisioni, persistenza, ripresa per batch, migrazione 2.1 |
 | `test-ripubblica-ora` | 2.2: priorità, corrente non interrotto, regole della batch, stati non compatibili, pausa, persistenza |
 | `test-armadio` | 2.2: valore progressivo, prezzo cambiato, card vecchie, doppioni, incerti, scritture simultanee (40 giri) |
+| `test-permesso` | 2.3: no con codice e motivo (salvataggio, versione, interno), compattazione e nuovo tentativo, pausa della coda su un problema tecnico, report diagnostico senza segreti, confronto, riparazione, aggiornamenti una volta per versione |
+| `test-proprietario` | 2.3: tuo armadio / altrui / sottopagine / annuncio / account non riconosciuto, barre costruite e tolte navigando, la pagina non scrive l'id, controllo di proprietà in `relist()` |
 | `test-link` | 2.1: `links.json` del pacchetto, validazione, protocolli e siti vietati, precedenza, cache, tempi, timeout |
 | `test-versione` | versioni, aggiornamenti, diagnostica, impostazioni |
 | `dom/test-ui` | editor in un DOM simulato: controlli, download foto, ritaglio, anteprima, pubblica |

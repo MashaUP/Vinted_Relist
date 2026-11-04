@@ -64,7 +64,7 @@
     queueIntervalMin: intero(1, 240, "Tra 1 e 240 minuti."),
     toastsEnabled: booleano,
     toastDuration: scelta("normal", "long"),
-    showOnOtherProfiles: booleano,
+    autoUpdateCheck: booleano,
     delayMs: intero(300, 10000, "Tra 300 e 10000 millisecondi: sotto i 300 Vinted rischia di limitarti."),
     consoleBridge: booleano,
     linksRemote: booleano,

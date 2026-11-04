@@ -27,6 +27,9 @@ for (const f of ['utils.js', 'api.js', 'editor-logica.js', 'relist.js', 'editor.
   window.eval(fs.readFileSync(SRC + f, 'utf8'));
 }
 const VR = window.VR;
+// 2.3: content.js (che sa se sei nel tuo armadio) qui non c'è: questi test simulano il tuo armadio.
+VR.nelMioArmadio = () => true;
+VR.puoAgireSu = () => true;
 VR.settings = { ...VR.DEFAULTS, deleteOld: true, colorMap: { 1: 'Nero', 3: 'Grigio' } };
 const sorgente = {
   id: 7, title: 'DVD Ghost Rider - Nicolas Cage', description: 'DVD originale in ottime condizioni, disco senza graffi, custodia integra.',

@@ -99,7 +99,7 @@ const out = []; const ok = (n, c) => out.push(`  ${c ? 'OK  ' : 'FAIL'} ${n}`);
   // 12: rimozione dell'ultimo in attesa → sessione chiusa, coerente
   r = await invia({ type: 'vr:queueRemove', ids: ['7'] }); await calma();
   ok('12. tolto l\'ultimo in attesa: sessione chiusa e archiviata', !q().running && q().state === 'done' && store.vrQueueArchive?.[0]?.startedAt === q().startedAt);
-  ok('    nessuna sveglia residua', !Object.keys(alarms).length);
+  ok('    nessuna sveglia residua della coda', !Object.keys(alarms).filter((n) => n !== 'vr:updateCheck').length);
 
   // 8-10: modifiche durante la pausa, ripresa con l'ordine nuovo
   azzera();

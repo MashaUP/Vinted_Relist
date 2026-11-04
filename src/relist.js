@@ -681,13 +681,16 @@
 
     onProgress("Lettura articolo…");
     let source;
+    let pubblica = false;
     try {
       source = await VR.api.getUploadDraft(itemId);
     } catch (error) {
       VR.warn("item_upload non disponibile, uso la scheda pubblica", error);
       source = await VR.api.getItem(itemId);
       if (!source) throw error;
+      pubblica = true;
     }
+    VR.controllaProprieta(source, { pubblica });
 
     // L'editor puo' riordinare, togliere, ruotare e ritagliare: arriva come elenco.
     // Senza editor, tutte le foto nell'ordine originale e senza modifiche.
@@ -805,6 +808,26 @@
   }
 
   VR.relist = relist;
+
+  /**
+   * Prima di qualunque operazione su un annuncio: e' tuo? La lettura per la
+   * pubblicazione (item_upload) Vinted la da' solo al proprietario; la scheda
+   * pubblica, usata come ripiego, la da' a tutti: li' il proprietario deve
+   * risultare, ed essere tu. Nel dubbio ci si ferma. Vale per il bottone, la
+   * coda e il ripristino, che passano tutti da relist().
+   */
+  VR.controllaProprieta = (source, { pubblica = false } = {}) => {
+    const me = VR.settings.userId != null ? String(VR.settings.userId) : null;
+    const proprietario = source?.user_id ?? source?.user?.id ?? null;
+    const diverso = proprietario != null && me && String(proprietario) !== me;
+    if (diverso || (pubblica && (!me || proprietario == null))) {
+      const e = new Error(diverso
+        ? "Non è un tuo annuncio: Vinted Relist lavora solo sugli annunci del tuo armadio."
+        : "Non riesco a confermare che l'annuncio sia tuo: per sicurezza non lo tocco. Ricarica il tuo armadio e riprova.");
+      e.nonTuo = true;
+      throw e;
+    }
+  };
 
   /**
    * Osservazioni per verificare un tentativo senza esito: SOLO letture.

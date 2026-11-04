@@ -3,7 +3,7 @@
 Estensione per **Brave e Chrome** che ripubblica i tuoi annunci Vinted in un clic, uno alla volta
 o in coda, per riportarli in cima ai risultati senza rifarli a mano.
 
-**Versione 2.2.0** · [Novità](CHANGELOG.md) · [Community su Discord](https://discord.gg/EPsbQCuAkx) ·
+**Versione 2.3.1** · [Novità](CHANGELOG.md) · [Community su Discord](https://discord.gg/EPsbQCuAkx) ·
 [Segnala un problema](https://github.com/MashaUP/Vinted_Relist/issues/new?template=segnalazione-bug.yml) ·
 [Supporta lo sviluppo su Ko-fi](https://ko-fi.com/mashaup)
 
@@ -31,7 +31,7 @@ Prima di usarla su tanti articoli, provala su uno a cui tieni poco.
 
 ## Installazione
 
-1. Scarica dal repository lo zip **`Vinted_Relist-2.2.0.zip`** (nella radice).
+1. Scarica dal repository lo zip **`Vinted_Relist-2.3.1.zip`** (nella radice).
 2. Estrailo **in una cartella stabile** (non nella cartella temporanea che Windows apre con il
    doppio clic): ottieni la cartella `Vinted_Relist`.
 3. Apri `brave://extensions` (o `chrome://extensions`) e attiva **Modalità sviluppatore**.
@@ -76,6 +76,18 @@ li divide in pronti, con avvisi e bloccati › **Avvia**.
 - Titolo con contatore, descrizione, prezzo, colore; controlli in tempo reale (errori, avvisi e
   note) e punteggio di completezza; anteprima di cosa cambia; bozza salvata da sola.
 - **Scarica le foto** originali, nella qualità più alta, in Download › Vinted Relist.
+
+### Novità 2.3
+- **Coda che non si ferma più in silenzio:** se il permesso di inviare a Vinted non arriva, il
+  motivo è quello vero (salvataggio, errore interno, versioni diverse, estensione ricaricata…), la
+  coda si mette in pausa e l'articolo torna in cima: niente «permesso negato» uguale per tutto.
+- **Report di confronto** in Salute, da generare su due installazioni e confrontare, e
+  **riparazione mirata** dei dati della coda.
+- **Aggiornamenti automatici:** ogni 12 ore controlla il `version.json` del progetto e ti avvisa
+  una volta per ogni versione nuova (si spegne in Impostazioni).
+- **Solo nel tuo armadio:** bottoni, caselle e pannello della coda compaiono solo lì (e sulla
+  pagina di un tuo annuncio), mai negli armadi degli altri; le azioni ricontrollano che l'annuncio
+  sia tuo.
 
 ### Novità 2.2
 - **Esiti certi:** dopo 6 minuti senza risposta la coda chiede alla scheda se sta ancora
@@ -249,8 +261,20 @@ Un libro, un manga e una giacca non hanno gli stessi campi. Le prove sono solo i
 Popup › **Salute** › **Prepara la diagnostica**: versione, impostazioni, stato della coda ed errori
 recenti, senza token, cookie, id o indirizzi. Lo vedi prima di copiarlo.
 
-- **I bottoni non compaiono.** In console cerca `[Relist] attivo su`; se il riconoscimento del
-  profilo sbaglia, attiva «Mostra i bottoni ovunque» nelle Avanzate.
+Se su un'installazione qualcosa non va e su un'altra sì: **Salute › Report di confronto** su
+tutte e due, poi incolla il report dell'altra in «Confronta»: escono solo le differenze (versioni dei
+componenti, permessi, spazio, struttura dei dati, schede raggiungibili, errori recenti).
+
+- **La coda si ferma con «Problema dell'estensione».** Il motivo è nella pausa e nel report. Di
+  solito basta ricaricare la scheda di Vinted (versioni diverse, estensione ricaricata); se riguarda
+  il salvataggio, guarda lo spazio nel report; se la struttura della coda non torna, «Ripara i dati
+  della coda». Niente era stato inviato a Vinted: poi Riprendi.
+- **«Token CSRF non trovato» o «ricarica questa pagina» dopo un aggiornamento.** Ricarica la
+  scheda di Vinted (F5): dopo ogni aggiornamento o ricaricamento dell'estensione le pagine già
+  aperte restano con il codice vecchio.
+- **I bottoni non compaiono.** Compaiono solo nel tuo armadio (`/member/<tuo id>`) e quando
+  l'estensione ha riconosciuto il tuo account: ricarica la pagina dopo aver navigato un po' su
+  Vinted da loggato. Il report dice se l'account è riconosciuto (`schede › utenteNoto`).
 - **«Apri armadio» porta alla home.** Apri una pagina qualsiasi di Vinted da loggato.
 - **Icona rotta, `ERR_FILE_NOT_FOUND`.** Il browser non trova più la cartella: estrai in una
   posizione stabile e ricarica l'estensione da lì.
@@ -313,7 +337,7 @@ src/popup.*              Home, Notifiche, Salute, Impostazioni
 src/dashboard*.{html,js,css}  armadio e gestione della coda
 src/link.js              validazione e precedenza dei link (funzioni pure, riusabile)
 src/link-chrome.js       lettura, cache e collegamento dei link nelle pagine dell'estensione
-src/versione.js          versioni, aggiornamenti, diagnostica (funzioni pure)
+src/versione.js          versioni (semver con prerelease), aggiornamenti, diagnostica e confronto dei report (funzioni pure)
 src/impostazioni.js      validazione, backup e ripristino delle impostazioni (funzioni pure)
 src/utils.js, styles.css impostazioni predefinite, avvisi, stile dentro Vinted
 src/page-bridge.js       strumenti di sola lettura nella console (facoltativi)

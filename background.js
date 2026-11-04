@@ -8,9 +8,39 @@
  */
 
 // Modello della coda: le stesse funzioni pure usate da popup, dashboard e pagina.
-importScripts("src/coda-logica.js", "src/armadio-logica.js");
+importScripts("src/coda-logica.js", "src/armadio-logica.js", "src/versione.js");
 const C = self.CodaLogica;
 const A = self.ArmadioLogica;
+const V = self.Versione;
+
+/**
+ * Versione del codice del service worker. La pagina manda la sua con la
+ * richiesta di permesso e la diagnostica le confronta: se il browser tiene in
+ * memoria file vecchi dopo un aggiornamento, si vede (e si dice) invece di
+ * fallire con un errore generico.
+ */
+const BUILD = "2.3.1";
+const AVVIO_SW = Date.now();
+
+// ------------------------------------------------------------ registro errori
+
+/**
+ * Gli errori tecnici dell'estensione (non gli esiti di Vinted): permessi
+ * negati e perche', salvataggi falliti, messaggi senza risposta. Servono alla
+ * diagnostica per dimostrare cosa succede su un'installazione e non su
+ * un'altra. Solo codici e messaggi ripuliti: niente titoli, id, token.
+ */
+const MAX_ERRORI = 50;
+async function registraErrore(dove, codice, messaggio) {
+  try {
+    const { vrErrori = [] } = await chrome.storage.local.get("vrErrori");
+    vrErrori.unshift({ at: Date.now(), dove: String(dove).slice(0, 40), codice: String(codice || "").slice(0, 40), messaggio: V.ripulisci(messaggio).replace(/\b\d{6,20}\b/g, "[id]"), build: BUILD });
+    await chrome.storage.local.set({ vrErrori: vrErrori.slice(0, MAX_ERRORI) });
+  } catch {
+    // se non si riesce a salvare nemmeno questo, lo dice la console
+    console.warn("[Relist] errore non registrato:", dove, codice, messaggio);
+  }
+}
 
 const TOKEN_KEY = "vrTokens";
 
@@ -669,15 +699,17 @@ async function passoCoda(coda) {
   chrome.alarms.create(ALARM_WATCHDOG, { delayInMinutes: WATCHDOG_MIN });
 
   try {
-    await chrome.tabs.sendMessage(tab.id, {
+    // Con un limite: una scheda che non risponde non deve tenere ferma la coda (e il suo lock).
+    await conTimeout(chrome.tabs.sendMessage(tab.id, {
       type: "vr:relistOne",
       itemId: prossimo.id,
       avviatoAt: prossimo.startedAt,
       sessione: coda.startedAt,
       // le regole della SUA batch, non quelle della coda o dell'ultima aggiunta
       overrides: C.overridesDi(coda, prossimo.id),
-    });
-  } catch {
+    }), 15_000);
+  } catch (errore) {
+    registraErrore("avvio-articolo", /timeout/.test(String(errore?.message)) ? "scheda-muta" : "scheda-irraggiungibile", errore?.message || errore);
     // Content script non pronto: niente e' partito, l'articolo torna in attesa
     // al suo posto e si riprova fra un minuto.
     chrome.alarms.clear(ALARM_WATCHDOG);
@@ -785,15 +817,24 @@ async function esitoCoda(coda, msg) {
   // Interrotto prima dell'invio (prova certa: il permesso non era stato dato):
   // torna in cima una volta, da solo. Una seconda interruzione aspetta te.
   if (r.stato === "interrupted") C.rimettiDopoInterruzione(coda, c.id);
+  // Il permesso di inviare non e' arrivato per un problema dell'estensione, non
+  // dell'articolo: continuare darebbe lo stesso esito a tutta la coda. Ci si
+  // ferma subito, con il motivo vero.
+  const tecnico = r.stato === "interrupted" && e.categoria === "comunicazione";
+  if (tecnico) {
+    registraErrore("permesso", "coda-in-pausa", c.ultimoErrore || c.error || "");
+  }
 
   if (coda.stopDopoCorrente) return chiudiCoda(coda, "Interrotta.");
   if (C.daChiudere(coda)) return chiudiCoda(coda);
 
-  // Modalita' prudente: troppi esiti negativi di fila. Ci si ferma e si chiede.
-  if (r.prudenza) {
+  // Modalita' prudente: troppi esiti negativi di fila, o un problema tecnico. Ci si ferma e si chiede.
+  if (r.prudenza || tecnico) {
     coda.state = "paused";
     coda.pausaAuto = true;
-    coda.motivoPausa = `${coda.erroriDiFila} esiti negativi di fila: controlla i motivi prima di continuare.`;
+    coda.motivoPausa = tecnico
+      ? `Problema dell'estensione, non dell'articolo: ${String(c.ultimoErrore || c.error || "").replace(/^Fermato prima dell'invio a Vinted: /, "").replace(/\. Nessun annuncio creato o eliminato\.$/, "")}. Niente è stato inviato a Vinted: risolvi, poi Riprendi (in Salute c'è il report diagnostico).`
+      : `${coda.erroriDiFila} esiti negativi di fila: controlla i motivi prima di continuare.`;
     coda.pausedRemainingMs = coda.intervalMin * 60_000;
     coda.nextAt = null;
     C.registra(coda, "prudenza", `Coda fermata da sola: ${coda.motivoPausa}`, { azione: "leggi gli errori, poi Riprendi" });
@@ -1498,7 +1539,27 @@ chrome.storage.onChanged.addListener((modifiche, area) => {
 
 programmaScansione();
 
-function recuperaCoda() { return conCoda(recupera); }
+/**
+ * All'avvio del service worker: se la coda salvata ha una struttura che il
+ * codice attuale non si aspetta (dati di versioni vecchie, scritture a meta'),
+ * si ripara in modo mirato prima di riprendere, lasciando traccia nel registro
+ * errori (la diagnostica lo mostra) e una copia di com'era.
+ */
+async function recuperaConRiparazione() {
+  const { vrQueue: grezza } = await chrome.storage.local.get("vrQueue");
+  const problemi = C.controllaStruttura(grezza).filter((p) => !["schema", "batch", "registro"].includes(p.codice));
+  if (problemi.length) {
+    await registraErrore("avvio", "struttura", problemi.map((p) => p.codice).join(","));
+    const { coda: riparata, correzioni } = C.riparaStruttura(grezza);
+    if (riparata && correzioni.length) {
+      await chrome.storage.local.set({ vrQueuePrimaRiparazione: { at: Date.now(), coda: grezza } });
+      await scriviCoda(riparata);
+    }
+  }
+  return recupera(C.migra(await leggiCoda()));
+}
+
+function recuperaCoda() { return conCoda(() => recuperaConRiparazione()); }
 chrome.runtime.onStartup.addListener(recuperaCoda);
 chrome.runtime.onInstalled.addListener(recuperaCoda);
 chrome.runtime.onStartup.addListener(() => potaGiornali().catch(() => {}));
@@ -1515,6 +1576,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   // devono restare fermi per i secondi della sonda.
   if (alarm.name === ALARM_WATCHDOG) return controllaLavoro().catch((e) => console.warn("[Relist] controllo:", e));
   if (alarm.name === ALARM_VERIFICA) return verificheAutomatiche().catch((e) => console.warn("[Relist] verifica:", e));
+  if (alarm.name === ALARM_AGGIORNAMENTI) return controllaAggiornamenti().catch((e) => registraErrore("aggiornamenti", "controllo", e?.message || e));
   return null;
 });
 
@@ -1526,13 +1588,36 @@ const MESSAGGI_CODA = {
   "vr:queueBatchEdit": (coda, m) => modificaBatchCoda(coda, m),
   // La pagina chiede il permesso SUBITO PRIMA della prima richiesta che cambia
   // qualcosa su Vinted. Un no ferma il tentativo senza danni (vedi C.confermaInvio).
+  //
+  // 2.3: ogni no ha un codice e un motivo. Fino alla 2.2 un errore interno
+  // (per esempio un salvataggio fallito) arrivava alla pagina senza motivo e
+  // diventava «permesso negato», uguale per cause diverse.
   "vr:relistConfirm": async (coda, m) => {
-    const r = C.confermaInvio(coda, String(m.itemId), m.avviatoAt);
-    if (r.ok && !r.gia) {
-      C.annotaTraccia(coda, String(m.itemId), { ...(m.traccia || {}), fase: "invio" });
-      await scriviCoda(coda);
-      await scriviPasso({ itemId: String(m.itemId), step: "Pubblico…", fase: "invio", at: Date.now() });
+    if (m.build && m.build !== BUILD) {
+      const r = { ok: false, codice: "versione", tecnico: true,
+        motivo: `la pagina di Vinted usa il codice ${String(m.build).slice(0, 20)} e il service worker il ${BUILD}: ricarica la scheda di Vinted (se non basta, ricarica l'estensione)` };
+      await registraErrore("permesso", r.codice, r.motivo);
+      return r;
     }
+    const r = C.confermaInvio(coda, String(m.itemId), m.avviatoAt);
+    if (!r.ok) {
+      await registraErrore("permesso", r.codice, r.motivo);
+      return r;
+    }
+    if (r.gia) return r;
+    C.annotaTraccia(coda, String(m.itemId), { ...(m.traccia || {}), fase: "invio" });
+    try {
+      await scriviCodaConRiserva(coda);
+    } catch (errore) {
+      // Senza salvare «invio» non si puo' dare il permesso: dopo un riavvio
+      // non si saprebbe che la richiesta era partita. Meglio fermarsi.
+      const uso = await usoArchivio().catch(() => null);
+      const motivo = `il service worker non riesce a salvare la coda (${V.ripulisci(errore?.message || errore)})` +
+        (uso ? `; spazio usato ${uso.testo}` : "");
+      await registraErrore("permesso", "salvataggio", motivo);
+      return { ok: false, codice: "salvataggio", tecnico: true, ritentabile: true, motivo };
+    }
+    await scriviPasso({ itemId: String(m.itemId), step: "Pubblico…", fase: "invio", at: Date.now() });
     return r;
   },
   "vr:queueRemove": (coda, m) => rimuoviDallaCoda(coda, m),
@@ -1569,9 +1654,260 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!gestore) return false;
   conCoda((coda) => gestore(coda, message))
     .then((r) => sendResponse(r ?? { ok: true }))
-    .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
+    .catch((error) => {
+      const testo = String(error?.message || error);
+      registraErrore(message.type, "interno", testo);
+      sendResponse({ ok: false, codice: "interno", tecnico: true, ritentabile: true, error: testo, motivo: `errore interno del service worker (${V.ripulisci(testo)})` });
+    });
   return true;
 });
+
+// ------------------------------------------------------ spazio di archiviazione
+
+/** Byte usati da chrome.storage.local, totale e per gruppo di chiavi (solo misure, mai contenuti). */
+async function usoArchivio() {
+  const quota = chrome.storage.local.QUOTA_BYTES || 10485760;
+  const tutto = await chrome.storage.local.get(null);
+  const totale = await chrome.storage.local.getBytesInUse(null);
+  const gruppi = {};
+  for (const k of Object.keys(tutto)) {
+    const g = k.startsWith("vrBackup:") ? "vrBackup:*" : k.startsWith("vrOp:") ? "vrOp:*" : k;
+    gruppi[g] = gruppi[g] || { chiavi: 0, byte: 0 };
+    gruppi[g].chiavi++;
+    gruppi[g].byte += new TextEncoder().encode(JSON.stringify(tutto[k]) || "").length + k.length;
+  }
+  const mb = (b) => `${(b / 1048576).toFixed(2)} MB`;
+  return { totale, quota, percento: Math.round((totale / quota) * 1000) / 10, gruppi, testo: `${mb(totale)} su ${mb(quota)}` };
+}
+
+/**
+ * Compattazione mirata, solo se lo spazio manca. Toglie quello che non serve
+ * piu' a niente: giornali di tentativi gia' chiusi, registri lunghi delle
+ * sessioni in archivio. Non tocca coda, esiti, inventario, statistiche,
+ * impostazioni ne' le copie di sicurezza degli annunci (vrBackup:*).
+ */
+async function compattaArchivio() {
+  const tutto = await chrome.storage.local.get(null);
+  const coda = C.migra(tutto.vrQueue || null);
+  const vivi = new Set((coda?.items || []).filter((a) => a.status === "working" || a.status === "verify").map((a) => a.id));
+  const orfani = Object.keys(tutto).filter((k) => k.startsWith(GIORNALE) && !vivi.has(k.slice(GIORNALE.length)));
+  if (orfani.length) await chrome.storage.local.remove(orfani);
+  const archivio = (tutto.vrQueueArchive || []).map((q) => ({ ...q, log: (q.log || []).slice(-50) }));
+  await chrome.storage.local.set({ vrQueueArchive: archivio, vrErrori: (tutto.vrErrori || []).slice(0, 20) });
+  return { giornaliTolti: orfani.length };
+}
+
+const quotaPiena = (e) => /quota/i.test(String(e?.message || e));
+
+/** Scrittura della coda che, se lo spazio e' finito, compatta e riprova una volta. */
+async function scriviCodaConRiserva(coda) {
+  try {
+    await scriviCoda(coda);
+  } catch (errore) {
+    if (!quotaPiena(errore)) throw errore;
+    await registraErrore("salvataggio", "quota", errore?.message || errore);
+    await compattaArchivio();
+    coda.rev = Math.max(0, (coda.rev || 1) - 1);
+    await scriviCoda(coda);
+  }
+}
+
+// ------------------------------------------------------ riparazione della coda
+
+/**
+ * «Ripara i dati della coda» (Salute): porta la coda salvata alla struttura
+ * attuale (C.riparaStruttura), toglie i giornali orfani e ricrea le sveglie.
+ * Prima tiene una copia della coda com'era (vrQueuePrimaRiparazione).
+ * Non tocca archivio, inventario, statistiche, impostazioni.
+ */
+async function riparaCoda(coda) {
+  const { vrQueue: grezza } = await chrome.storage.local.get("vrQueue");
+  const problemi = C.controllaStruttura(grezza);
+  const { coda: riparata, correzioni } = C.riparaStruttura(grezza);
+  const giornali = await compattaArchivio().catch(() => ({ giornaliTolti: 0 }));
+  if (grezza && correzioni.length) {
+    await chrome.storage.local.set({ vrQueuePrimaRiparazione: { at: Date.now(), coda: grezza } });
+    await scriviCoda(riparata);
+  }
+  if (riparata?.running) await recupera(C.migra((await chrome.storage.local.get("vrQueue")).vrQueue));
+  return { ok: true, problemi, correzioni, giornaliTolti: giornali.giornaliTolti, copia: Boolean(grezza && correzioni.length) };
+}
+
+// ------------------------------------------------------------- diagnostica
+
+const SITI_SCHEDE = SITI;
+
+/**
+ * Report di confronto fra due installazioni (Salute › Report diagnostico).
+ * Solo stato tecnico: versioni, permessi, API, spazio, struttura dei dati,
+ * sveglie, schede raggiungibili, errori recenti. Mai cookie, token, id
+ * utente, titoli o testi degli annunci.
+ */
+async function rapportoDiagnostico() {
+  const manifest = chrome.runtime.getManifest();
+  const ora = Date.now();
+  const sicuro = async (fn, ripiego = null) => { try { return await fn(); } catch (e) { return ripiego ?? { errore: V.ripulisci(e?.message || e) }; } };
+
+  const permessi = await sicuro(async () => {
+    const concessi = await chrome.permissions.getAll();
+    const host = [];
+    for (const o of manifest.host_permissions || []) host.push({ origine: o, concesso: await chrome.permissions.contains({ origins: [o] }) });
+    return {
+      richiesti: [...(manifest.permissions || [])].sort(),
+      concessi: [...(concessi.permissions || [])].sort(),
+      mancanti: (manifest.permissions || []).filter((p) => !(concessi.permissions || []).includes(p)).sort(),
+      hostNegati: host.filter((h) => !h.concesso).map((h) => h.origine),
+      hostConcessi: host.filter((h) => h.concesso).length,
+      hostRichiesti: host.length,
+    };
+  });
+
+  const dati = await chrome.storage.local.get(null);
+  const coda = dati.vrQueue || null;
+  const conta = {};
+  for (const a of coda?.items || []) conta[a.status] = (conta[a.status] || 0) + 1;
+  const campi = [...new Set((coda?.items || []).flatMap((a) => Object.keys(a || {})))].sort();
+  const sveglie = await sicuro(async () => (await chrome.alarms.getAll()).map((a) => ({ nome: a.name, tra: Math.round((a.scheduledTime - ora) / 1000), periodoMin: a.periodInMinutes ?? null }))
+    .sort((x, y) => x.nome.localeCompare(y.nome)), []);
+  const sessione = await sicuro(async () => {
+    const s = await chrome.storage.session.get(null);
+    return { chiavi: Object.keys(s).sort(), tokenCsrf: Boolean(s.vrTokens?.csrf), passoInCorso: Boolean(s.vrQueueStep) };
+  });
+
+  // Le schede Vinted: il content script risponde? con quale codice? su che tipo di pagina?
+  const schede = await sicuro(async () => {
+    const tabs = await chrome.tabs.query({ url: SITI_SCHEDE });
+    const out = [];
+    for (const t of tabs.slice(0, 6)) {
+      const r = await sicuro(() => conTimeout(chrome.tabs.sendMessage(t.id, { type: "vr:ping" }), 3000), null);
+      out.push(r && !r.errore
+        ? { risponde: true, build: r.build, manifest: r.manifest, pagina: r.pagina, utenteNoto: r.utenteNoto, lavorazioni: r.lavorazioni, scaricata: Boolean(t.discarded) }
+        : { risponde: false, motivo: r?.errore || "nessuna risposta", scaricata: Boolean(t.discarded), stato: t.status });
+    }
+    return { aperte: tabs.length, dettaglio: out };
+  }, { aperte: 0, dettaglio: [] });
+
+  const impostazioni = {};
+  for (const k of ["deleteOld", "order", "delayMs", "humanRhythm", "peakOnly", "canary", "autoFill", "autoRule", "queueIntervalMin", "autoUpdateCheck", "linksRemote", "consoleBridge"]) {
+    impostazioni[k] = k in dati ? dati[k] : "(predefinita)";
+  }
+
+  return {
+    formato: "vinted-relist-diagnosi",
+    versioneFormato: 1,
+    generato: new Date(ora).toISOString(),
+    versioni: { manifest: manifest.version, serviceWorker: BUILD, codaLogica: C.VERSIONE || "(assente: file vecchio in memoria)" },
+    browser: { userAgent: V.ripulisci(self.navigator?.userAgent || ""), marchi: (self.navigator?.userAgentData?.brands || []).map((b) => `${b.brand} ${b.version}`).sort() },
+    serviceWorker: { avviatoAlle: new Date(AVVIO_SW).toISOString(), attivoDaS: Math.round((ora - AVVIO_SW) / 1000) },
+    api: {
+      storageSession: Boolean(chrome.storage?.session), alarms: Boolean(chrome.alarms), idle: Boolean(chrome.idle),
+      notifications: Boolean(chrome.notifications), downloads: Boolean(chrome.downloads), getContexts: typeof chrome.runtime.getContexts === "function",
+      getBytesInUse: typeof chrome.storage.local.getBytesInUse === "function",
+    },
+    permessi,
+    archivio: await sicuro(async () => { const u = await usoArchivio(); return { totale: u.totale, quota: u.quota, percento: u.percento, gruppi: u.gruppi }; }),
+    sessione,
+    coda: coda ? {
+      schema: coda.v ?? null, batch: Array.isArray(coda.batches) ? coda.batches.length : 0, attiva: Boolean(coda.running), stato: coda.state ?? null,
+      articoli: (coda.items || []).length, perStato: conta, campiArticolo: campi, problemiStruttura: C.controllaStruttura(coda).map((p) => p.codice),
+      incorso: (coda.items || []).filter((a) => a.status === "working").map((a) => ({ fase: a.fase ?? null, scheda: Number.isInteger(a.scheda), daS: a.startedAt ? Math.round((ora - a.startedAt) / 1000) : null })),
+    } : null,
+    archivioSessioni: { sessioni: (dati.vrQueueArchive || []).length, conBatch: (dati.vrQueueArchive || []).filter((q) => Array.isArray(q.batches)).length },
+    giornali: Object.keys(dati).filter((k) => k.startsWith(GIORNALE)).length,
+    copieSicurezza: Object.keys(dati).filter((k) => k.startsWith("vrBackup:")).length,
+    inventario: { articoli: Object.keys(dati.inventory || {}).length, sostituiti: Object.keys(dati.vrInventoryReplaced || {}).length },
+    aggiornamenti: { ultimoControllo: dati.updateCheck?.at ? new Date(dati.updateCheck.at).toISOString() : null, esito: dati.updateCheck?.remota?.ok ? dati.updateCheck.remota.versione : dati.updateCheck?.remota?.errore || null, notificata: dati.updateNotified?.versione || null },
+    sveglie,
+    schede,
+    impostazioni,
+    datiVecchi: Object.keys(dati).filter((k) => ["showOnOtherProfiles", "queueOverrides"].includes(k)).sort(),
+    erroriRecenti: (dati.vrErrori || []).slice(0, 20).map((e) => ({ quando: new Date(e.at).toISOString(), dove: e.dove, codice: e.codice, messaggio: e.messaggio, build: e.build })),
+  };
+}
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "vr:diagnosi") {
+    rapportoDiagnostico().then(sendResponse, (e) => sendResponse({ errore: String(e?.message || e) }));
+    return true;
+  }
+  if (message?.type === "vr:riparaCoda") {
+    conCoda((coda) => riparaCoda(coda)).then(sendResponse, (e) => sendResponse({ ok: false, motivo: String(e?.message || e) }));
+    return true;
+  }
+  if (message?.type === "vr:updateCheckNow") {
+    controllaAggiornamenti({ manuale: true }).then(sendResponse, (e) => sendResponse({ ok: false, errore: String(e?.message || e) }));
+    return true;
+  }
+  return false;
+});
+
+// ---------------------------------------------------- aggiornamenti periodici
+
+/**
+ * Ogni 12 ore (chrome.alarms: sopravvive alla sospensione del service worker
+ * e al riavvio del browser) si legge il version.json del repository, la
+ * stessa fonte di «Cerca aggiornamento». Una notifica per versione: si
+ * ricorda l'ultima notificata (updateNotified) e si avvisa solo per una piu'
+ * recente. Niente richieste all'apertura del popup.
+ */
+const ALARM_AGGIORNAMENTI = "vr:updateCheck";
+const AGGIORNAMENTI_ORE = 12;
+
+async function programmaControlloAggiornamenti() {
+  const { autoUpdateCheck = true } = await chrome.storage.local.get("autoUpdateCheck");
+  if (!autoUpdateCheck) return chrome.alarms.clear(ALARM_AGGIORNAMENTI);
+  const esiste = await chrome.alarms.get(ALARM_AGGIORNAMENTI);
+  if (!esiste || esiste.periodInMinutes !== AGGIORNAMENTI_ORE * 60) {
+    chrome.alarms.create(ALARM_AGGIORNAMENTI, { delayInMinutes: 2, periodInMinutes: AGGIORNAMENTI_ORE * 60 });
+  }
+}
+
+async function controllaAggiornamenti({ manuale = false } = {}) {
+  const d = await chrome.storage.local.get({ updateRepo: "", updateCheck: null, updateNotified: null, autoUpdateCheck: true });
+  if (!manuale && !d.autoUpdateCheck) return { ok: false, spento: true };
+  const repo = d.updateRepo || V.REPO;
+  const installata = chrome.runtime.getManifest().version;
+
+  // Un controllo recente (anche manuale, dal popup) basta: niente richieste doppie.
+  const recente = d.updateCheck?.repo === repo && d.updateCheck.at && Date.now() - d.updateCheck.at < (manuale ? V.ATTESA_CONTROLLO_MS : (AGGIORNAMENTI_ORE * 60 - 30) * 60_000);
+  let remota = recente ? d.updateCheck.remota : null;
+  if (!recente) {
+    try {
+      const risposta = await fetch(V.urlVersione(repo), { headers: { Accept: "application/vnd.github.raw+json" }, cache: "no-store", credentials: "omit" });
+      remota = risposta.ok ? V.leggiVersioneRemota(await risposta.text()) : { ok: false, errore: V.erroreGithub(risposta.status) };
+    } catch {
+      remota = { ok: false, errore: V.erroreGithub(0) };
+    }
+    await chrome.storage.local.set({ updateCheck: { at: Date.now(), repo, remota, automatico: !manuale } });
+  }
+
+  const decisione = V.daNotificare(installata, remota, d.updateNotified?.versione || null);
+  // Cercata a mano: la vedi gia' nel popup, conta come avvisata (niente notifica dopo).
+  if (decisione.notifica && manuale) {
+    await chrome.storage.local.set({ updateNotified: { versione: decisione.versione, at: Date.now(), vista: true } });
+  } else if (decisione.notifica) {
+    await chrome.storage.local.set({ updateNotified: { versione: decisione.versione, at: Date.now() } });
+    const testo = (remota.note || [])[0] || "Le novità sono nel popup, Salute › Versione.";
+    await registraEvento({ kind: "info", title: `Disponibile la versione ${decisione.versione}`, text: `Hai la ${installata}. ${testo}` });
+    chrome.notifications.create(`vr-agg-${decisione.versione}`, {
+      type: "basic",
+      iconUrl: chrome.runtime.getURL("icons/icon128.png"),
+      title: `Vinted Relist ${decisione.versione} disponibile`,
+      message: `Hai la ${installata}. ${testo}`.slice(0, 200),
+      contextMessage: "Clic per scaricarla da Salute",
+    });
+  }
+  return { ok: Boolean(remota?.ok), remota, notificata: decisione.notifica ? decisione.versione : null, motivo: decisione.motivo || null };
+}
+
+chrome.storage.onChanged.addListener((modifiche, area) => {
+  if (area === "local" && modifiche.autoUpdateCheck) programmaControlloAggiornamenti();
+});
+chrome.runtime.onStartup.addListener(() => programmaControlloAggiornamenti());
+programmaControlloAggiornamenti();
+
+// 2.3: i bottoni compaiono solo nel tuo armadio; l'opzione «Mostra ovunque» non c'e' piu'.
+chrome.runtime.onInstalled.addListener(() => chrome.storage.local.remove("showOnOtherProfiles").catch(() => {}));
 
 // ---------------------------------------------------------------- centro eventi
 
@@ -1640,6 +1976,7 @@ async function apriPagina(percorso) {
 
 chrome.notifications.onClicked.addListener(async (id) => {
   if (id.startsWith("vr-coda-")) await apriPagina(`src/dashboard.html#coda-${id.slice(8)}`);
+  if (id.startsWith("vr-agg-")) await apriPagina("src/popup.html#salute");
   chrome.notifications.clear(id);
 });
 

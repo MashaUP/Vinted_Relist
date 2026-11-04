@@ -25,6 +25,9 @@
  *     nessuna operazione usa indici: tutto passa per id.
  */
 (function (root) {
+  /** Versione del codice di questo file: la diagnostica la confronta con pagina e service worker. */
+  const VERSIONE = "2.3.1";
+
   const ETICHETTE = {
     pending: "In attesa",
     working: "In elaborazione",
@@ -626,9 +629,10 @@
    */
   function confermaInvio(coda, id, avviatoAt, ora = Date.now()) {
     const a = corrente(coda);
-    if (!coda?.running || !a || a.id !== String(id)) return { ok: false, motivo: "l'articolo non è più quello in lavorazione" };
-    if (avviatoAt != null && Number(avviatoAt) !== a.startedAt) return { ok: false, motivo: "tentativo non più valido" };
-    if (a.annullaRichiesto) return { ok: false, motivo: "annullamento richiesto", annullato: true };
+    if (!coda?.running) return { ok: false, codice: "coda-chiusa", motivo: "la coda non è più attiva" };
+    if (!a || a.id !== String(id)) return { ok: false, codice: "non-in-lavorazione", motivo: "l'articolo non è più quello in lavorazione (un controllo l'aveva già chiuso)" };
+    if (avviatoAt != null && Number(avviatoAt) !== a.startedAt) return { ok: false, codice: "tentativo-scaduto", motivo: "è un tentativo vecchio: l'articolo era già ripartito" };
+    if (a.annullaRichiesto) return { ok: false, codice: "annullato", motivo: "hai chiesto di annullarlo", annullato: true };
     if (a.fase === "invio") return { ok: true, gia: true };
     a.fase = "invio";
     a.invioAt = ora;
@@ -831,6 +835,12 @@
   function classificaErrore(e = {}) {
     const status = Number(e.status) || 0;
     if (e.annullato) return { categoria: "annullato", etichetta: "Annullato", cosaFare: "Niente: non è stato inviato niente a Vinted.", sicuroRiprovare: "si" };
+    // 2.3: il permesso di inviare non e' arrivato per un problema dell'estensione
+    // (service worker, salvataggio, versioni). Niente inviato: riprovare e' sicuro.
+    if (e.tecnico) {
+      return { categoria: "comunicazione", etichetta: "Problema dell'estensione", cosaFare: e.cosaFare || "Niente è stato inviato a Vinted. Leggi il motivo, poi riprendi la coda; se si ripete, genera il report diagnostico (Salute).", sicuroRiprovare: "si" };
+    }
+    if (e.nonTuo) return { categoria: "non-consentito", etichetta: "Non è un tuo annuncio", cosaFare: "Niente: l'estensione lavora solo sugli annunci del tuo armadio.", sicuroRiprovare: "no" };
     if (e.duplicato) return { categoria: "in-uso", etichetta: "Già in lavorazione", cosaFare: "Era già in ripubblicazione dal bottone sulla card.", sicuroRiprovare: "no" };
     if (e.parziale) {
       return { categoria: "incerto", etichetta: "Pubblicato, vecchio non eliminato", cosaFare: "Il nuovo annuncio c'è: elimina a mano quello vecchio dall'armadio.", sicuroRiprovare: "no" };
@@ -860,6 +870,7 @@
     temporaneo: "Temporaneo", dati: "Dati mancanti o rifiutati", sessione: "Sessione", "non-consentito": "Non consentito",
     rete: "Rete", interno: "Interno", incerto: "Esito incerto", annullato: "Annullato", "in-uso": "Già in lavorazione", verificato: "Verificato a mano",
     interrotto: "Interrotto prima dell'invio",
+    comunicazione: "Problema dell'estensione",
   };
 
   // -------------------------------------------------------- stima e salute
@@ -931,6 +942,94 @@
     if (r.error) return { livello: "attenzione", titolo: "Attenzione richiesta", perche: `${r.error} ${r.error === 1 ? "articolo fallito" : "articoli falliti"}.`, azione: "Leggi il motivo; riprova quelli per cui è sicuro." };
     if (coda.running) return { livello: "ok", titolo: "Tutto regolare", perche: "Nessun errore finora.", azione: "Niente da fare." };
     return { livello: "ok", titolo: "Sessione conclusa senza problemi", perche: `${r.done} ripubblicati.`, azione: "Niente da fare." };
+  }
+
+  // ------------------------------------------------------ struttura dei dati
+
+  const STATI = new Set(Object.keys(ETICHETTE));
+  const STATI_CODA = new Set(["waiting", "working", "paused", "scheduled", "recovering", "done"]);
+
+  /**
+   * Cosa non torna in una coda salvata, rispetto a quello che si aspetta il
+   * codice attuale. Non cambia niente: e' quello che mostra la diagnostica.
+   */
+  function controllaStruttura(coda) {
+    const p = [];
+    if (!coda) return p;
+    if (typeof coda !== "object") return [{ codice: "non-oggetto", testo: "la coda salvata non è un oggetto" }];
+    if (coda.v !== 3) p.push({ codice: "schema", testo: `schema ${coda.v ?? "assente"} (atteso 3): da migrare` });
+    if (!Array.isArray(coda.items)) { p.push({ codice: "articoli", testo: "elenco degli articoli assente" }); return p; }
+    if (!Array.isArray(coda.batches) || !coda.batches.length) p.push({ codice: "batch", testo: "batch assenti (coda di una versione precedente)" });
+    if (!Array.isArray(coda.log)) p.push({ codice: "registro", testo: "registro assente" });
+    if (coda.running && !STATI_CODA.has(coda.state)) p.push({ codice: "stato-coda", testo: `stato della sessione sconosciuto: ${String(coda.state)}` });
+    const visti = new Set();
+    let lavorano = 0;
+    const idBatch = new Set((coda.batches || []).map((b) => b.id));
+    for (const a of coda.items) {
+      if (!a || !ID.test(String(a.id ?? ""))) { p.push({ codice: "id", testo: "articolo senza id valido" }); continue; }
+      if (visti.has(String(a.id))) p.push({ codice: "doppione", testo: "lo stesso articolo compare due volte" });
+      visti.add(String(a.id));
+      if (!STATI.has(a.status)) p.push({ codice: "stato-articolo", testo: `stato dell'articolo sconosciuto: ${String(a.status)}` });
+      if (a.status === "working") lavorano++;
+      if (a.status === "working" && !coda.running) p.push({ codice: "lavoro-orfano", testo: "articolo «in elaborazione» in una sessione chiusa" });
+      if (a.status === "pending" && (a.fase || a.annullaRichiesto || a.scheda != null)) p.push({ codice: "residui", testo: "articolo in attesa con tracce di un tentativo precedente" });
+      if (idBatch.size && a.batch && !idBatch.has(a.batch)) p.push({ codice: "batch-mancante", testo: "articolo assegnato a una batch che non esiste" });
+    }
+    if (lavorano > 1) p.push({ codice: "piu-correnti", testo: `${lavorano} articoli «in elaborazione» insieme` });
+    if (coda.running && !Number.isFinite(Number(coda.intervalMin))) p.push({ codice: "intervallo", testo: "intervallo non valido" });
+    return p;
+  }
+
+  /**
+   * Riparazione mirata: porta la coda alla struttura attuale senza perdere
+   * articoli, esiti, batch o registro. Nel dubbio si sceglie lo stato prudente:
+   * un «in elaborazione» che non puo' esserlo diventa «da verificare», mai
+   * «in attesa» (potrebbe essere gia' stato pubblicato).
+   */
+  function riparaStruttura(coda, ora = Date.now()) {
+    if (!coda || typeof coda !== "object") return { coda: null, correzioni: coda ? ["coda illeggibile: scartata"] : [] };
+    const c = migra(clona(coda));
+    const correzioni = [];
+    if (!Array.isArray(c.items)) { c.items = []; correzioni.push("elenco degli articoli ricreato vuoto"); }
+    if (!Array.isArray(c.log)) { c.log = []; correzioni.push("registro ricreato"); }
+    conBatch(c);
+    const idBatch = new Set(c.batches.map((b) => b.id));
+    const visti = new Set();
+    let giaInCorso = null;
+    c.items = c.items.filter((a) => {
+      const id = String(a?.id ?? "");
+      if (!ID.test(id)) { correzioni.push("tolto un articolo senza id valido"); return false; }
+      if (visti.has(id)) { correzioni.push(`tolto un doppione dell'articolo ${id}`); return false; }
+      visti.add(id);
+      a.id = id;
+      return true;
+    });
+    for (const a of c.items) {
+      if (!STATI.has(a.status)) {
+        const nuovo = a.startedAt ? "verify" : "cancelled";
+        correzioni.push(`stato «${String(a.status)}» sconosciuto → «${ETICHETTE[nuovo]}»`);
+        Object.assign(a, { status: nuovo, finishedAt: a.finishedAt || ora, error: a.error || "stato non riconosciuto, sistemato dalla riparazione", attendeEsito: false });
+      }
+      if (a.status === "working") {
+        if (!c.running || giaInCorso) {
+          correzioni.push(`«in elaborazione» non possibile → «da verificare» (${a.title || a.id})`);
+          Object.assign(a, { status: "verify", finishedAt: ora, categoria: "incerto", sicuro: "no", attendeEsito: true,
+            error: "Trovato «in elaborazione» in uno stato che non lo permette: potrebbe essere stato pubblicato, verificalo prima di riprovare." });
+        } else giaInCorso = a;
+      }
+      if (a.status === "pending" && (a.fase || a.annullaRichiesto || a.scheda != null)) {
+        Object.assign(a, AZZERA_LAVORO);
+        correzioni.push(`tolte le tracce di un tentativo precedente da un articolo in attesa (${a.title || a.id})`);
+      }
+      if (!a.batch || !idBatch.has(a.batch)) {
+        if (a.batch) correzioni.push(`articolo riassegnato alla ${c.batches[0].nome}: la sua batch non esiste`);
+        a.batch = c.batches[0].id;
+      }
+    }
+    if (c.running && !STATI_CODA.has(c.state)) { correzioni.push(`stato della sessione «${String(c.state)}» → «in attesa di te»`); c.state = "recovering"; c.nextAt = null; }
+    if (!Number.isFinite(Number(c.intervalMin))) { c.intervalMin = 20; correzioni.push("intervallo riportato a 20 minuti"); }
+    if (correzioni.length) registra(c, "recupero", `Riparazione dei dati della coda: ${correzioni.length} ${correzioni.length === 1 ? "correzione" : "correzioni"}.`, {}, ora);
+    return { coda: c, correzioni };
   }
 
   // ---------------------------------------------------- archivio ed esportazione
@@ -1033,7 +1132,8 @@
   }
 
   const api = {
-    ETICHETTE, ICONE, TERMINALI, ETICHETTE_CATEGORIA, MAX_ARTICOLI, SOGLIA_PRUDENZA, MAX_BATCH,
+    VERSIONE, ETICHETTE, ICONE, TERMINALI, ETICHETTE_CATEGORIA, MAX_ARTICOLI, SOGLIA_PRUDENZA, MAX_BATCH,
+    controllaStruttura, riparaStruttura,
     nuova, migra, registra, trova, corrente, prossimo, inAttesa, posizione, conta, daChiudere,
     valutaAggiunta, aggiungi, rimuovi, annullaCorrente, sposta, riordina, riprova, risolvi,
     avviaArticolo, concludiArticolo, classificaErrore, stima, salute,

@@ -163,6 +163,11 @@
 
     const run = (overrides) => {
       if (fatto) return Promise.resolve();
+      // Ricontrollo al clic: solo nel tuo armadio o sulla pagina di un tuo annuncio.
+      if (!VR.puoAgireSu?.(itemId)) {
+        stato("Solo sui tuoi annunci, dal tuo armadio.", "error");
+        return Promise.resolve();
+      }
       setBusy(true);
       stato(VR.inRipubblicazione(itemId) ? "" : "In attesa del turno…");
 
@@ -196,7 +201,10 @@
     };
 
     relistButton.addEventListener("click", () => run({}));
-    editButton.addEventListener("click", () => VR.openEditor(itemId, (overrides) => run(overrides)));
+    editButton.addEventListener("click", () => {
+      if (!VR.puoAgireSu?.(itemId)) { stato("Solo sui tuoi annunci, dal tuo armadio.", "error"); return; }
+      VR.openEditor(itemId, (overrides) => run(overrides));
+    });
 
     return bar;
   };

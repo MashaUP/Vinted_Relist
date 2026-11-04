@@ -36,9 +36,14 @@
     return `GitHub ha risposto con un errore (HTTP ${status}).`;
   }
 
-  const SEMVER = /^(\d{1,4})\.(\d{1,4})\.(\d{1,6})$/;
+  const SEMVER = /^(\d{1,4})\.(\d{1,4})\.(\d{1,6})(?:-([0-9A-Za-z-]{1,20}(?:\.[0-9A-Za-z-]{1,20}){0,4}))?$/;
 
-  /** Confronto numerico, non alfabetico: 1.10.0 viene dopo 1.9.0. */
+  /**
+   * Confronto secondo semver: numerico, non alfabetico (1.10.0 viene dopo
+   * 1.9.0), e una prerelease viene prima della sua versione (2.3.0-beta.2 <
+   * 2.3.0). Fra prerelease: identificatori numerici per numero, gli altri in
+   * ordine alfabetico, i numerici prima degli altri.
+   */
   function confrontaVersioni(a, b) {
     const pa = SEMVER.exec(String(a).trim());
     const pb = SEMVER.exec(String(b).trim());
@@ -47,7 +52,37 @@
       const d = Number(pa[i]) - Number(pb[i]);
       if (d) return d > 0 ? 1 : -1;
     }
+    if (!pa[4] && !pb[4]) return 0;
+    if (!pa[4]) return 1;
+    if (!pb[4]) return -1;
+    const xa = pa[4].split(".");
+    const xb = pb[4].split(".");
+    for (let i = 0; i < Math.max(xa.length, xb.length); i++) {
+      if (xa[i] == null) return -1;
+      if (xb[i] == null) return 1;
+      const na = /^\d+$/.test(xa[i]);
+      const nb = /^\d+$/.test(xb[i]);
+      if (na && nb) { const d = Number(xa[i]) - Number(xb[i]); if (d) return d > 0 ? 1 : -1; continue; }
+      if (na !== nb) return na ? -1 : 1;
+      if (xa[i] !== xb[i]) return xa[i] > xb[i] ? 1 : -1;
+    }
     return 0;
+  }
+
+  const ePrerelease = (v) => Boolean(SEMVER.exec(String(v).trim())?.[4]);
+
+  /**
+   * Controllo periodico: va notificata questa versione? Una volta sola per
+   * versione: si ricorda l'ultima notificata, e si avvisa solo per una piu'
+   * recente di quella. Le prerelease solo a chi ne ha gia' una installata.
+   */
+  function daNotificare(installata, remota, giaNotificata = null) {
+    if (!remota?.ok) return { notifica: false, motivo: "versione remota non verificata" };
+    const v = remota.versione;
+    if (confrontaVersioni(v, installata) !== 1) return { notifica: false, motivo: "nessuna versione più recente" };
+    if (ePrerelease(v) && !ePrerelease(installata)) return { notifica: false, motivo: "è una prerelease" };
+    if (giaNotificata && confrontaVersioni(v, giaNotificata) !== 1) return { notifica: false, motivo: `la ${v} è già stata notificata` };
+    return { notifica: true, versione: v };
   }
 
   /**
@@ -73,7 +108,7 @@
     }
     if (!SEMVER.test(String(dati.version || ""))) return { ok: false, errore: "numero di versione non valido" };
 
-    const zip = /^Vinted_Relist-\d+\.\d+\.\d+\.zip$/.test(String(dati.zip || "")) ? dati.zip : null;
+    const zip = /^Vinted_Relist-\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]{1,40})?\.zip$/.test(String(dati.zip || "")) ? dati.zip : null;
     const note = Array.isArray(dati.notes)
       ? dati.notes.filter((n) => typeof n === "string").map((n) => n.slice(0, 200)).slice(0, 12)
       : [];
@@ -114,7 +149,7 @@
 
   /** Solo impostazioni innocue: niente id utente, niente dati appresi dagli annunci. */
   const IMPOSTAZIONI_DIAGNOSTICA = [
-    "deleteOld", "order", "delayMs", "autoReload", "showOnOtherProfiles", "queueIntervalMin",
+    "deleteOld", "order", "delayMs", "autoReload", "autoUpdateCheck", "queueIntervalMin",
     "humanRhythm", "notifyOnFinish", "canary", "autoFill", "peakOnly", "peakWindows",
     "autoRule", "autoRuleDays", "autoRuleMax", "toastsEnabled", "toastDuration", "consoleBridge", "updateRepo", "linksRemote",
   ];
@@ -168,8 +203,37 @@
     return righe.join("\n");
   }
 
+  // ------------------------------------------------- report di confronto
+
+  /**
+   * Due report diagnostici (di due installazioni) → elenco delle differenze,
+   * percorso per percorso. Le voci che cambiano sempre (ore, durate, numeri
+   * di serie della coda) non contano: si confronta la configurazione, non
+   * l'istante.
+   */
+  const VARIABILI = /(^|\.)(generato|at|tra|attivoDaS|avviatoAlle|rev|ultimoControllo|millisecondi|ms)$/;
+  function appiattisci(x, base = "", out = {}) {
+    if (x && typeof x === "object" && !Array.isArray(x)) {
+      for (const k of Object.keys(x).sort()) appiattisci(x[k], base ? `${base}.${k}` : k, out);
+    } else if (Array.isArray(x) && x.every((v) => v == null || typeof v !== "object")) {
+      out[base] = JSON.stringify(x);
+    } else if (Array.isArray(x)) {
+      x.forEach((v, i) => appiattisci(v, `${base}[${i}]`, out));
+      if (!x.length) out[base] = "[]";
+    } else out[base] = x === undefined ? "undefined" : JSON.stringify(x);
+    return out;
+  }
+  function differenzeRapporti(a, b) {
+    const pa = appiattisci(a);
+    const pb = appiattisci(b);
+    const chiavi = [...new Set([...Object.keys(pa), ...Object.keys(pb)])].sort();
+    return chiavi
+      .filter((k) => !VARIABILI.test(k) && pa[k] !== pb[k])
+      .map((k) => ({ percorso: k, questa: pa[k] ?? "(assente)", altra: pb[k] ?? "(assente)" }));
+  }
+
   const api = {
-    REPO, URL_VERSIONE, URL_REPO, urlVersione, urlRepo, urlZip, puoControllare, erroreGithub, ATTESA_CONTROLLO_MS,
+    REPO, daNotificare, ePrerelease, differenzeRapporti, URL_VERSIONE, URL_REPO, urlVersione, urlRepo, urlZip, puoControllare, erroreGithub, ATTESA_CONTROLLO_MS,
     confrontaVersioni, leggiVersioneRemota, statoAggiornamento, sezioniChangelog,
     costruisciDiagnostica, ripulisci,
   };

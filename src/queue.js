@@ -610,6 +610,11 @@
    */
   async function parti() {
     if (controlloInCorso) return;          // doppio clic
+    // Si ricontrolla al momento: la pagina potrebbe essere cambiata dopo il disegno.
+    if (!VR.nelMioArmadio?.()) {
+      VR.toast("La coda si avvia solo dal tuo armadio, con il tuo account riconosciuto.", "warn", { chiave: "avvio-coda" });
+      return;
+    }
     const attiva = Boolean(coda?.running);
     if (attiva && coda.stopDopoCorrente) {
       VR.toast("La coda si sta chiudendo: aspetta che finisca, poi avviane una nuova.", "warn", { chiave: "avvio-coda" });
@@ -733,6 +738,16 @@
   let passoLocale = null;
 
   function disegna() {
+    // 2.3: pannello, selezione e comandi della coda solo nel tuo armadio. La
+    // coda lavora anche se la scheda e' altrove; il suo stato e' nel popup e
+    // nella dashboard.
+    if (!VR.nelMioArmadio?.()) {
+      pannello?.remove();
+      pannello = null;
+      clearInterval(tic);
+      tic = null;
+      return;
+    }
     const inCorso = Boolean(coda?.running);
     const conclusa = Boolean(coda && !coda.running && coda.finishedAt);
     const quanti = selezionati.size;
@@ -854,6 +869,8 @@
    * service worker ("ci stai ancora lavorando?").
    */
   const lavorazioni = new Map();
+  VR.lavorazioniAttive = () => lavorazioni.size;
+  VR.aggiornaPannello = () => disegna();
 
   /**
    * Giornale del tentativo in storage (vrOp:<id>): fase, id del nuovo annuncio,
@@ -866,11 +883,55 @@
     await chrome.storage.local.set({ [chiaveGiornale(id)]: { ...base } });
   }
 
-  /** Errore che ferma il tentativo PRIMA di inviare qualcosa a Vinted. */
-  function fermato(motivo) {
-    const e = new Error(`Fermato prima dell'invio a Vinted: ${motivo}. Nessun annuncio creato o eliminato.`);
-    e.annullato = true;
+  /**
+   * Errore che ferma il tentativo PRIMA di inviare qualcosa a Vinted, con il
+   * motivo vero. Fino alla 2.2 ogni no senza motivo diventava «permesso
+   * negato», e un errore interno del service worker sembrava un rifiuto.
+   *   annullato: l'hai chiesto tu → «Annullato»
+   *   tecnico: problema dell'estensione (service worker, salvataggio, versioni)
+   *     → «Interrotto», riprovabile, e la coda si mette in pausa
+   *   altrimenti: il tentativo non valeva piu' (il service worker l'aveva gia'
+   *     chiuso): l'esito non cambia niente
+   */
+  function fermato(r) {
+    const e = new Error(`Fermato prima dell'invio a Vinted: ${r?.motivo || "il service worker ha rifiutato senza motivo"}. Nessun annuncio creato o eliminato.`);
+    e.codice = r?.codice || "sconosciuto";
+    if (r?.annullato || r?.codice === "annullato") e.annullato = true;
+    else if (r?.tecnico || !r?.codice) e.tecnico = true;
+    else e.superato = true;
     return e;
+  }
+
+  /**
+   * Chiede il permesso al service worker. Una risposta vera (si' o no con un
+   * motivo) vale subito. Nessuna risposta, una risposta vuota o un errore
+   * tecnico ritentabile (salvataggio, service worker che si riavvia) si
+   * riprovano qualche volta prima di arrendersi, e il motivo dice quale dei casi.
+   */
+  async function chiediPermesso(messaggio) {
+    let ultimo = null;
+    for (const attesa of [0, 600, 1500, 3000]) {
+      if (attesa) await VR.sleep(attesa);
+      let r;
+      try {
+        r = await chrome.runtime.sendMessage(messaggio);
+      } catch (errore) {
+        const testo = String(errore?.message || errore);
+        if (/context invalidated/i.test(testo)) {
+          return { ok: false, codice: "estensione-ricaricata", tecnico: true, motivo: "l'estensione è stata ricaricata o aggiornata durante il lavoro: ricarica la scheda di Vinted" };
+        }
+        ultimo = { ok: false, codice: "sw-irraggiungibile", tecnico: true, motivo: `il service worker non risponde (${testo.slice(0, 120)})` };
+        continue;
+      }
+      if (r && typeof r === "object" && typeof r.ok === "boolean") {
+        if (r.ok || !r.ritentabile) return r;
+        ultimo = r;
+        continue;
+      }
+      ultimo = { ok: false, codice: "risposta-vuota", tecnico: true,
+        motivo: `il service worker ha risposto senza un esito (${r === undefined ? "nessun valore" : String(JSON.stringify(r)).slice(0, 60)})` };
+    }
+    return ultimo;
   }
 
   /**
@@ -934,13 +995,8 @@
       // se nel frattempo ha dato il tentativo per interrotto, o hai annullato,
       // risponde no e qui ci si ferma senza aver inviato niente.
       oltre: async (info) => {
-        let r = null;
-        try {
-          r = await chrome.runtime.sendMessage({ type: "vr:relistConfirm", itemId: id, avviatoAt, traccia: info });
-        } catch {
-          throw fermato("il service worker non risponde");
-        }
-        if (!r?.ok) throw fermato(r?.motivo || "permesso negato");
+        const r = await chiediPermesso({ type: "vr:relistConfirm", itemId: id, avviatoAt, traccia: info, build: VR.BUILD });
+        if (!r?.ok) throw fermato(r);
         stato.oltre = true;
         stato.fase = "invio";
         await scriviGiornale(id, giornale, { fase: "invio", fotoIds: info?.fotoIds || [], prezzo: info?.prezzo ?? null,
@@ -962,7 +1018,7 @@
       .catch((e) => {
         if (e?.duplicato) return riferisci({ ok: false, outcome: "skipped", motivoSalto: "in-uso", error: "già in ripubblicazione a mano" });
         const k = CL().classificaErrore(e);
-        const outcome = e?.annullato ? "cancelled" : VR.esitoDaErrore(e);
+        const outcome = e?.annullato ? "cancelled" : e?.tecnico || e?.superato ? "interrupted" : VR.esitoDaErrore(e);
         barra?.stato(e?.message || String(e), outcome === "error" ? "error" : "warn");
         if (outcome === "partial") barra?.segnaFatto();
         else barra?.occupato(false);

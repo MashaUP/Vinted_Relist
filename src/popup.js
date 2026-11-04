@@ -507,6 +507,88 @@ el("copyDiag").addEventListener("click", async () => {
   setTimeout(() => (b.textContent = "Copia diagnostica"), 1500);
 });
 
+// ------------------------------------------------------- report di confronto
+
+/**
+ * Il report lo compone il service worker (vr:diagnosi); qui si aggiungono le
+ * cose che solo una pagina vede (versione completa del browser, Brave) e il
+ * tempo di andata e ritorno di un messaggio: se non torna, e' gia' una prova.
+ */
+let ultimoReport = null;
+async function generaReport() {
+  const t0 = performance.now();
+  let r;
+  try {
+    r = await chrome.runtime.sendMessage({ type: "vr:diagnosi" });
+  } catch (e) {
+    r = { errore: `il service worker non risponde: ${e.message}` };
+  }
+  const millisecondi = Math.round(performance.now() - t0);
+  let browser = {};
+  try {
+    const alta = await navigator.userAgentData?.getHighEntropyValues?.(["fullVersionList", "platform", "platformVersion"]);
+    browser = { versioni: (alta?.fullVersionList || []).map((b) => `${b.brand} ${b.version}`).sort(), piattaforma: `${alta?.platform || ""} ${alta?.platformVersion || ""}`.trim() };
+  } catch { /* non disponibile */ }
+  try { browser.brave = Boolean(await navigator.brave?.isBrave?.()); } catch { browser.brave = false; }
+  return { ...(r || { errore: "risposta vuota dal service worker" }), comunicazione: { popupServiceWorker: r && !r.errore ? "ok" : "errore", millisecondi }, browserPagina: browser };
+}
+
+el("makeReport").addEventListener("click", async () => {
+  const b = el("makeReport");
+  b.disabled = true;
+  b.textContent = "Raccolgo…";
+  ultimoReport = await generaReport();
+  const area = el("reportText");
+  area.value = JSON.stringify(ultimoReport, null, 2);
+  area.hidden = false;
+  el("copyReport").disabled = false;
+  el("saveReport").disabled = false;
+  b.disabled = false;
+  b.textContent = "Genera di nuovo";
+});
+
+el("copyReport").addEventListener("click", async () => {
+  const b = el("copyReport");
+  try { await navigator.clipboard.writeText(el("reportText").value); } catch { el("reportText").select(); document.execCommand("copy"); }
+  b.textContent = "Copiato";
+  setTimeout(() => (b.textContent = "Copia"), 1500);
+});
+
+el("saveReport").addEventListener("click", async () => {
+  if (!ultimoReport) return;
+  const giorno = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "");
+  await chrome.downloads.download({
+    url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(ultimoReport, null, 2))}`,
+    filename: `Vinted Relist/diagnosi-${VERSIONE}-${giorno}.json`,
+    saveAs: false,
+  }).catch(() => {});
+  el("saveReport").textContent = "Salvato in Download";
+  setTimeout(() => (el("saveReport").textContent = "Scarica"), 2000);
+});
+
+el("compareReport").addEventListener("click", async () => {
+  const lista = el("compareResult");
+  lista.textContent = "";
+  let altro;
+  try { altro = JSON.parse(el("otherReport").value); } catch { lista.append(h("li", {}, "Il testo incollato non è un report valido (JSON).")); return; }
+  if (altro?.formato !== "vinted-relist-diagnosi") { lista.append(h("li", {}, "Non è un report di Vinted Relist.")); return; }
+  if (!ultimoReport) ultimoReport = await generaReport();
+  const diff = V.differenzeRapporti(ultimoReport, altro);
+  if (!diff.length) { lista.append(h("li", { class: "uguale" }, "Nessuna differenza nella configurazione.")); return; }
+  for (const d of diff.slice(0, 80)) lista.append(h("li", {}, h("b", {}, d.percorso), `: questa ${d.questa} · altra ${d.altra}`));
+  if (diff.length > 80) lista.append(h("li", {}, `…e altre ${diff.length - 80}.`));
+});
+
+el("repairQueue").addEventListener("click", async () => {
+  const out = el("repairResult");
+  out.textContent = "Riparo…";
+  const r = await chrome.runtime.sendMessage({ type: "vr:riparaCoda" }).catch((e) => ({ ok: false, motivo: e.message }));
+  if (!r?.ok) { out.textContent = `Non riuscita: ${r?.motivo || "nessuna risposta"}`; return; }
+  out.textContent = r.correzioni.length
+    ? `Fatto: ${r.correzioni.join("; ")}.${r.giornaliTolti ? ` Giornali tolti: ${r.giornaliTolti}.` : ""} Una copia della coda com'era è stata conservata.`
+    : `Niente da correggere nella struttura della coda.${r.giornaliTolti ? ` Giornali di tentativi chiusi tolti: ${r.giornaliTolti}.` : ""}`;
+});
+
 // ----------------------------------------------------------- aggiornamenti
 
 const repoAttuale = async () => (await chrome.storage.local.get({ updateRepo: "" })).updateRepo || V.REPO;
@@ -526,6 +608,11 @@ async function mostraAggiornamento() {
   testo.textContent = `${stato.testo} Ultimo controllo: ${fa(updateCheck.at)}.`;
 
   if (stato.stato === "disponibile") {
+    // Vista qui: il controllo periodico non la notifica di nuovo (una volta per versione).
+    const { updateNotified } = await chrome.storage.local.get("updateNotified");
+    if (V.daNotificare(VERSIONE, updateCheck.remota, updateNotified?.versione || null).notifica) {
+      await chrome.storage.local.set({ updateNotified: { versione: updateCheck.remota.versione, at: Date.now(), vista: true } });
+    }
     box.hidden = false;
     const note = el("updateNotes");
     note.textContent = "";

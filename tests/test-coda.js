@@ -96,7 +96,9 @@ const attesa = () => new Promise((r) => setTimeout(r, 10));
   q = store.vrQueue;
   ok('seconda interruzione: resta «Interrotto», riprovabile', q.items[2].status === 'interrupted' && q.items[2].sicuro === 'si');
   ok('coda conclusa a fine elenco', !q.running && q.state === 'done');
-  ok('nessun alarm residuo', Object.keys(alarms).length === 0);
+  // 2.3: la sveglia degli aggiornamenti (ogni 12 ore) non e' della coda
+  const sveglieCoda = () => Object.keys(alarms).filter((n) => n !== 'vr:updateCheck');
+  ok('nessun alarm residuo della coda', sveglieCoda().length === 0);
 
   // stop manuale
   await invia({ type: 'vr:queueStart', items: [{id:'7',title:'G'}], intervalMin: 5 });
@@ -106,7 +108,7 @@ const attesa = () => new Promise((r) => setTimeout(r, 10));
   ok('stop con un articolo in volo: si chiude quando arriva il suo esito', store.vrQueue.running && store.vrQueue.stopDopoCorrente && store.vrQueue.items[0].status === 'working');
   await invia({ type: 'vr:relistDone', itemId: '7', ok: true });
   await attesa();
-  ok('stop manuale ferma tutto, con l\u0027esito vero dell\u0027articolo', !store.vrQueue.running && store.vrQueue.items[0].status === 'done' && Object.keys(alarms).length === 0);
+  ok('stop manuale ferma tutto, con l\u0027esito vero dell\u0027articolo', !store.vrQueue.running && store.vrQueue.items[0].status === 'done' && sveglieCoda().length === 0);
 
   console.log(esiti.join('\n'));
   process.exit(esiti.some((e) => e.includes('FAIL')) ? 1 : 0);

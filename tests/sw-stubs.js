@@ -16,6 +16,7 @@ module.exports = function completa(chrome) {
     for (const f of file) {
       if (/coda-logica\.js$/.test(f)) global.CodaLogica = require(path.join(RADICE, f));
       if (/armadio-logica\.js$/.test(f)) global.ArmadioLogica = require(path.join(RADICE, f));
+      if (/versione\.js$/.test(f)) global.Versione = require(path.join(RADICE, f));
     }
   };
   chrome.storage.session = chrome.storage.session || {};

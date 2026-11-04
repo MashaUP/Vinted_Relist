@@ -61,20 +61,34 @@ const fasi = (id) => giornali.filter((g) => g.id === id).map((g) => g.fase);
   const dopo = await manda({ type: 'vr:relistStatus', itemId: '1' });
   ok('   a lavoro finito la sonda risponde «non in corso»', dopo?.inCorso === false);
 
-  // B. permesso negato: niente creato, esito «annullato prima dell'invio»
-  messaggi = []; giornali = [];
-  let creato = false;
-  VR.relist = async (id, o, passo, segnale) => { await segnale.oltre({}); creato = true; return { id: 1 }; };
-  risposte = { 'vr:relistConfirm': { ok: false, motivo: "l'articolo non è più quello in lavorazione" }, 'vr:relistDone': { ok: true } };
-  await manda({ type: 'vr:relistOne', itemId: '2', avviatoAt: 222 }); await calma();
-  const e2 = messaggi.find((m) => m.type === 'vr:relistDone');
-  ok('B. permesso negato: non si invia niente a Vinted', !creato && e2.outcome === 'cancelled' && /Nessun annuncio creato/.test(e2.error));
-  ok('   service worker irraggiungibile al momento del permesso: idem', await (async () => {
-    messaggi = []; creato = false;
-    risposte = { 'vr:relistConfirm': () => { throw new Error('Extension context invalidated'); }, 'vr:relistDone': { ok: true } };
-    await manda({ type: 'vr:relistOne', itemId: '3', avviatoAt: 333 }); await calma();
-    return !creato && messaggi.find((m) => m.type === 'vr:relistDone')?.outcome === 'cancelled';
-  })());
+  // B. 2.3: ogni no ha il suo motivo. Fino alla 2.2 un errore interno del
+  // service worker o una risposta vuota diventavano «permesso negato».
+  const tenta = async (id, risposta) => {
+    messaggi = []; let creato = false;
+    VR.relist = async (i, o, passo, segnale) => { await segnale.oltre({}); creato = true; return { id: 1 }; };
+    risposte = { 'vr:relistConfirm': risposta, 'vr:relistDone': { ok: true } };
+    await manda({ type: 'vr:relistOne', itemId: id, avviatoAt: 222 }); await calma(80);
+    return { creato, esito: messaggi.find((m) => m.type === 'vr:relistDone'), chieste: messaggi.filter((m) => m.type === 'vr:relistConfirm').length };
+  };
+  let t = await tenta('2', { ok: false, codice: 'non-in-lavorazione', motivo: "l'articolo non è più quello in lavorazione" });
+  ok('B1. no con motivo: niente inviato, il motivo vero (non «permesso negato»)', !t.creato && t.esito.outcome === 'interrupted' && /non è più quello in lavorazione/.test(t.esito.error) && !/permesso negato/.test(t.esito.error) && t.chieste === 1);
+  t = await tenta('3', { ok: false, codice: 'annullato', annullato: true, motivo: 'hai chiesto di annullarlo' });
+  ok('B2. annullamento chiesto da te: «Annullato»', !t.creato && t.esito.outcome === 'cancelled' && t.esito.categoria === 'annullato');
+  t = await tenta('4', () => null);
+  ok('B3. risposta vuota: ripetuta 4 volte, poi «Interrotto» con il motivo esatto', !t.creato && t.chieste === 4 && t.esito.outcome === 'interrupted' && t.esito.categoria === 'comunicazione' && /senza un esito/.test(t.esito.error));
+  let giri = 0;
+  t = await tenta('5', () => (++giri === 1 ? { ok: false, codice: 'interno', tecnico: true, ritentabile: true, motivo: 'errore interno del service worker (QUOTA_BYTES quota exceeded)' } : { ok: true }));
+  ok('B4. errore interno ritentabile: ripetuto, e al secondo giro si pubblica', t.creato && t.chieste === 2 && t.esito.ok);
+  giri = 0;
+  t = await tenta('6', () => ({ ok: false, codice: 'salvataggio', tecnico: true, ritentabile: true, motivo: 'il service worker non riesce a salvare la coda (QUOTA_BYTES quota exceeded); spazio usato 9.99 MB su 10.00 MB' }));
+  ok('B5. salvataggio sempre fallito: «Interrotto» con causa e spazio usato', !t.creato && t.chieste === 4 && t.esito.categoria === 'comunicazione' && /QUOTA_BYTES/.test(t.esito.error) && /spazio usato/.test(t.esito.error));
+  t = await tenta('7', () => { throw new Error('Extension context invalidated.'); });
+  ok('B6. estensione ricaricata: una sola richiesta, «ricarica la scheda»', !t.creato && t.chieste === 1 && /ricarica la scheda di Vinted/.test(t.esito.error));
+  t = await tenta('8', () => { throw new Error('Could not establish connection. Receiving end does not exist.'); });
+  ok('B7. service worker irraggiungibile: ripetuto, poi il messaggio del browser', !t.creato && t.chieste === 4 && /non risponde \(Could not establish connection/.test(t.esito.error));
+  VR.BUILD = '2.3.1';
+  t = await tenta('9', { ok: true });
+  ok('B8. la richiesta di permesso porta la versione del codice della pagina', messaggi.find((m) => m.type === 'vr:relistConfirm').build === '2.3.1');
 
   // C. esito ritrasmesso finché non arriva la conferma
   messaggi = [];

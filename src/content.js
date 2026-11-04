@@ -12,35 +12,55 @@
 
   // ---------------------------------------------------------------- contesto
 
+  /**
+   * Chi sei: l'id dell'account con cui Vinted ti riconosce su questo dominio.
+   * Lo legge il service worker dal cookie v_uid (HttpOnly) delle richieste di
+   * Vinted stessa. Niente deduzioni dalla pagina: fino alla 2.2 un link
+   * nell'intestazione o un "user_id" nei dati della pagina potevano essere
+   * quelli del profilo che stavi guardando, e i bottoni comparivano negli
+   * armadi altrui. Se non si sa, i bottoni non compaiono.
+   */
   function currentUserId() {
-    // Il cookie v_uid e' HttpOnly: lo legge il service worker e lo lascia qui.
-    if (VR.settings.userId) return String(VR.settings.userId);
-
     const cookie = VR.cookie("v_uid");
     if (cookie && /^\d+$/.test(cookie)) return cookie;
-
-    const link = document.querySelector(
-      'header a[href^="/member/"], nav a[href^="/member/"], [data-testid*="user-menu"] a[href^="/member/"]'
-    );
-    const fromLink = link?.getAttribute("href")?.match(/\/member\/(\d+)/);
-    if (fromLink) return fromLink[1];
-
-    const nextData = document.getElementById("__NEXT_DATA__")?.textContent;
-    const fromData = nextData?.match(/"(?:current_user_id|user_id)"\s*:\s*"?(\d+)"?/);
-    return fromData ? fromData[1] : null;
+    const id = VR.settings.userId != null ? String(VR.settings.userId) : null;
+    const stessoSito = !VR.settings.vintedOrigin || VR.settings.vintedOrigin === location.origin;
+    return id && /^\d+$/.test(id) && stessoSito ? id : null;
   }
 
-  function wardrobeOwnerId() {
-    return location.pathname.match(/\/member\/(\d+)/)?.[1] || null;
-  }
+  // Solo la pagina dell'armadio: /member/123-nome. Le sottopagine del profilo
+  // (preferiti, recensioni…) mostrano articoli di altri: niente bottoni.
+  const ARMADIO = /^\/member\/(\d+)(?:-[^/]*)?\/?$/;
+  const ARTICOLO = /^\/items\/(\d+)(?:-[^/]*)?\/?$/;
 
-  function isOwnWardrobe() {
-    const owner = wardrobeOwnerId();
-    if (!owner) return false;
-    if (VR.settings.showOnOtherProfiles) return true;
+  /**
+   * Dove sei: armadio-mio, armadio-altrui, armadio-incerto (non so chi sei),
+   * articolo-mio (pagina di un tuo annuncio: Vinted mostra il link di
+   * modifica), articolo, profilo-sezione, altro. Proprietario dall'indirizzo,
+   * tu dall'account autenticato: servono tutti e due.
+   */
+  VR.contesto = () => {
     const me = currentUserId();
-    return !me || me === owner; // se non riesco a capirlo, mostro comunque
-  }
+    const path = location.pathname;
+    let m;
+    if ((m = path.match(ARMADIO))) {
+      if (!me) return { tipo: "armadio-incerto", proprietario: m[1], me: null };
+      return { tipo: m[1] === me ? "armadio-mio" : "armadio-altrui", proprietario: m[1], me };
+    }
+    if ((m = path.match(ARTICOLO))) {
+      const modificabile = Boolean(document.querySelector(`a[href*="/items/${m[1]}/edit"]`));
+      return { tipo: me && modificabile ? "articolo-mio" : "articolo", articolo: m[1], me };
+    }
+    if (/^\/member\/\d+/.test(path)) return { tipo: "profilo-sezione", me };
+    return { tipo: "altro", me };
+  };
+  VR.nelMioArmadio = () => VR.contesto().tipo === "armadio-mio";
+
+  /** Le azioni sensibili si ricontrollano al momento del clic, non solo quando si disegna il bottone. */
+  VR.puoAgireSu = (itemId) => {
+    const c = VR.contesto();
+    return c.tipo === "armadio-mio" || (c.tipo === "articolo-mio" && c.articolo === String(itemId));
+  };
 
   function itemIdFromHref(href) {
     return href?.match(/\/items\/(\d+)/)?.[1] || null;
@@ -79,7 +99,7 @@
   }
 
   function injectWardrobe() {
-    if (!isOwnWardrobe()) return;
+    if (!VR.nelMioArmadio()) return;
 
     for (const anchor of document.querySelectorAll('a[href*="/items/"]')) {
       const itemId = itemIdFromHref(anchor.getAttribute("href"));
@@ -97,13 +117,11 @@
   }
 
   function injectItemPage() {
-    const itemId = itemIdFromHref(location.pathname);
-    if (!itemId) return;
+    // Pagina di un tuo annuncio: il link di modifica di Vinted e il tuo account riconosciuto.
+    const c = VR.contesto();
+    if (c.tipo !== "articolo-mio") return;
+    const itemId = c.articolo;
     if (document.querySelector(".vr-bar--floating")) return;
-
-    // L'articolo e' mio solo se la pagina espone il link di modifica.
-    const isMine = !!document.querySelector(`a[href*="/items/${itemId}/edit"]`);
-    if (!isMine && !VR.settings.showOnOtherProfiles) return;
 
     const anchor = VR.h("div", { class: "vr-anchor" });
     document.body.append(anchor);
@@ -167,8 +185,36 @@
     }, 1500);
   }
 
+  /**
+   * Quando cambia dove sei (navigazione senza ricaricare, indietro/avanti,
+   * account riconosciuto dopo), tutto quello che l'estensione ha messo nella
+   * pagina se ne va se non e' piu' il tuo armadio: barre, caselle, selezione,
+   * pannello della coda. I bottoni di Vinted non si toccano.
+   */
+  let contestoPrecedente = null;
+  let benvenutoProvato = false;
+  function aggiornaContesto() {
+    const c = VR.contesto();
+    const chiave = `${c.tipo}:${c.proprietario || c.articolo || ""}:${c.me || ""}`;
+    if (chiave === contestoPrecedente) return c;
+    contestoPrecedente = chiave;
+    if (c.tipo !== "armadio-mio") {
+      document.querySelectorAll(".vr-bar:not(.vr-bar--floating)").forEach((node) => node.remove());
+      document.querySelectorAll("[data-vr-item]").forEach((node) => delete node.dataset.vrItem);
+      VR.selection?.nessuno?.();
+    }
+    if (c.tipo !== "articolo-mio") document.querySelectorAll(".vr-bar--floating, .vr-anchor").forEach((node) => node.remove());
+    VR.aggiornaPannello?.();
+    if (c.tipo === "armadio-mio" && !benvenutoProvato) {
+      benvenutoProvato = true;
+      VR.showOnboarding();
+    }
+    return c;
+  }
+
   function refresh() {
     try {
+      aggiornaContesto();
       injectWardrobe();
       injectItemPage();
     } catch (error) {
@@ -264,15 +310,35 @@
     const patch = {};
     for (const [key, value] of Object.entries(changes)) patch[key] = value.newValue;
     Object.assign(VR.settings, patch);
-    if (changes.seenOnboarding?.newValue === false) VR.showOnboarding({ force: true });
+    if (changes.seenOnboarding?.newValue === false && VR.nelMioArmadio()) VR.showOnboarding({ force: true });
+    // L'account riconosciuto e' cambiato (o arrivato solo adesso): si rifa' il conto di dove sei.
+    if (changes.userId || changes.vintedOrigin) schedule();
   });
 
-  // Il popup non puo' leggere i cookie di Vinted: gli lasciamo qui l'id,
-  // cosi' puo' offrire il collegamento al tuo armadio.
-  const mioId = currentUserId();
-  chrome.storage.local.set({ vintedOrigin: location.origin, ...(mioId ? { userId: mioId } : {}) });
+  // Il service worker chiede come sta la pagina (diagnostica): niente URL, niente id.
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type !== "vr:ping") return false;
+    const c = VR.contesto();
+    sendResponse({ build: VR.BUILD, manifest: chrome.runtime.getManifest().version, pagina: c.tipo, utenteNoto: Boolean(c.me), lavorazioni: VR.lavorazioniAttive?.() ?? null });
+    return false;
+  });
 
-  VR.showOnboarding();
+  /**
+   * Estensione aggiornata o ricaricata con questa pagina aperta: il codice qui
+   * resta scollegato e ogni operazione fallirebbe. Si tolgono barre e pannello
+   * e si dice una volta sola di ricaricare la pagina.
+   */
+  const controlloCollegamento = setInterval(() => {
+    if (chrome.runtime?.id) return;
+    clearInterval(controlloCollegamento);
+    document.querySelectorAll(".vr-bar, .vr-anchor, .vr-queue").forEach((n) => n.remove());
+    try {
+      VR.toast?.("Vinted Relist è stato aggiornato: ricarica questa pagina (F5) per continuare.", "warn", { durata: 0, chiave: "scollegata" });
+    } catch { /* niente */ }
+  }, 2000);
+
+  // 2.3: l'id utente e il dominio li scrive solo il service worker, dal cookie.
+  // Prima li scriveva anche la pagina, con le sue deduzioni (vedi currentUserId).
   refresh();
   VR.log("attivo su", location.hostname);
 })();

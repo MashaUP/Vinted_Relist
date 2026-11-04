@@ -137,6 +137,30 @@
           </div>
         </div>
 
+        <!-- 2.3: confronto fra due installazioni e riparazione mirata -->
+        <div class="card" id="reportCard">
+          <div class="card-title">Report di confronto</div>
+          <p class="desc">Stato tecnico dell'installazione, in un formato uguale per tutti: versioni dei componenti, permessi concessi, spazio usato, struttura dei dati della coda, sveglie, schede raggiungibili, errori recenti. Generalo su due installazioni e confrontali qui sotto. Niente cookie, token, id utente, titoli o testi degli annunci.</p>
+          <div class="btn-row">
+            <button id="makeReport" class="btn" type="button">Genera il report</button>
+            <button id="copyReport" class="btn" type="button" disabled>Copia</button>
+            <button id="saveReport" class="btn" type="button" disabled>Scarica</button>
+          </div>
+          <textarea id="reportText" class="diag" readonly rows="8" aria-label="Report diagnostico" hidden></textarea>
+          <details class="details">
+            <summary>Confronta con un'altra installazione</summary>
+            <textarea id="otherReport" class="diag" rows="5" aria-label="Report dell'altra installazione" placeholder="Incolla qui il report dell'altra installazione"></textarea>
+            <button id="compareReport" class="btn" type="button">Confronta</button>
+            <ul class="compare" id="compareResult" aria-live="polite"></ul>
+          </details>
+          <details class="details">
+            <summary>Ripara i dati della coda</summary>
+            <p class="desc">Porta la coda salvata alla struttura della versione installata (batch, stati, articoli doppi, residui di tentativi vecchi), toglie i giornali dei tentativi già chiusi e rimette le sveglie. Prima tiene una copia della coda com'era. Non tocca archivio, inventario, statistiche, impostazioni né le copie di sicurezza degli annunci. Un articolo «in elaborazione» che non può esserlo diventa «da verificare», mai «in attesa».</p>
+            <button id="repairQueue" class="btn" type="button">Ripara i dati della coda</button>
+            <p class="desc" id="repairResult" aria-live="polite"></p>
+          </details>
+        </div>
+
         <div class="card" id="linksCard">
           <div class="card-title">Progetto e community</div>
           <div class="link-list" data-link-elenco data-link-escludi="kofi" hidden></div>
@@ -202,7 +226,7 @@
 
         <details class="group">
           <summary><svg class="row-icon"><use href="#i-wrench"/></svg><span><b>Avanzate</b><small>Pause, console, aggiornamenti, backup</small></span></summary>
-          <label class="toggle"><span><b>Mostra i bottoni ovunque</b><small>Anche sui profili degli altri (la ripubblicazione funziona solo sui tuoi).</small></span><input type="checkbox" data-key="showOnOtherProfiles" /></label>
+          <label class="toggle"><span><b>Controlla gli aggiornamenti da solo</b><small>Ogni 12 ore legge il version.json del progetto su GitHub e ti avvisa una volta per ogni versione nuova.</small></span><input type="checkbox" data-key="autoUpdateCheck" /></label>
           <label class="field"><span class="field-label">Pausa tra le chiamate (ms)</span>
             <input type="number" data-key="delayMs" min="300" max="10000" step="100" inputmode="numeric" />
           </label>

@@ -9,11 +9,28 @@
 
   // ---------------------------------------------------------------- token
 
+  /**
+   * Dopo un aggiornamento o un ricaricamento dell'estensione, la pagina gia'
+   * aperta resta con il codice vecchio, scollegato: non puo' piu' chiedere il
+   * token al service worker. Fino alla 2.3.0 questo usciva come «Token CSRF non
+   * trovato»; e' invece «ricarica la pagina».
+   */
+  const scollegata = (e) => !chrome.runtime?.id || /context invalidated/i.test(String(e?.message || e));
+  function erroreScollegata() {
+    const e = new Error("Vinted Relist è stato aggiornato o ricaricato: ricarica questa pagina di Vinted (F5) e riprova. Niente è stato inviato.");
+    e.scollegata = true;
+    e.tecnico = true;
+    return e;
+  }
+  VR.paginaScollegata = () => !chrome.runtime?.id;
+
   async function tokensFromBackground() {
+    if (VR.paginaScollegata()) throw erroreScollegata();
     try {
       const response = await chrome.runtime.sendMessage({ type: "vr:getTokens" });
       return response?.ok ? response.tokens || {} : {};
-    } catch {
+    } catch (e) {
+      if (scollegata(e)) throw erroreScollegata();
       return {};
     }
   }
@@ -53,7 +70,7 @@
     const sniffed = (await tokensFromBackground()).csrf;
     cachedCsrf = sniffed || csrfFromDom() || (await csrfFromUploadPage());
 
-    if (!cachedCsrf) throw new Error("Token CSRF non trovato: ricarica la pagina di Vinted e riprova.");
+    if (!cachedCsrf) throw new Error("Token CSRF non trovato: la sessione di Vinted non è stata letta. Ricarica la pagina di Vinted da loggato e riprova.");
     return cachedCsrf;
   }
 
