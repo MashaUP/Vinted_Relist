@@ -86,9 +86,9 @@ const fasi = (id) => giornali.filter((g) => g.id === id).map((g) => g.fase);
   ok('B6. estensione ricaricata: una sola richiesta, «ricarica la scheda»', !t.creato && t.chieste === 1 && /ricarica la scheda di Vinted/.test(t.esito.error));
   t = await tenta('8', () => { throw new Error('Could not establish connection. Receiving end does not exist.'); });
   ok('B7. service worker irraggiungibile: ripetuto, poi il messaggio del browser', !t.creato && t.chieste === 4 && /non risponde \(Could not establish connection/.test(t.esito.error));
-  VR.BUILD = '2.3.1';
+  VR.BUILD = '2.4.0';
   t = await tenta('9', { ok: true });
-  ok('B8. la richiesta di permesso porta la versione del codice della pagina', messaggi.find((m) => m.type === 'vr:relistConfirm').build === '2.3.1');
+  ok('B8. la richiesta di permesso porta la versione del codice della pagina', messaggi.find((m) => m.type === 'vr:relistConfirm').build === '2.4.0');
 
   // C. esito ritrasmesso finché non arriva la conferma
   messaggi = [];

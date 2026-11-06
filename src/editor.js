@@ -630,6 +630,8 @@
     (async () => {
       try {
         source = await VR.api.getUploadDraft(itemId);
+        // 2.4.0: venduto nel frattempo (la card non lo diceva ancora): niente modifiche.
+        VR.controllaVendibile?.(source);
         const prezzo = typeof source.price === "object" ? source.price?.amount : source.price;
         const colori = [source.color1_id, source.color2_id].filter((c) => c != null);
 

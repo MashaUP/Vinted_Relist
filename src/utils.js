@@ -35,7 +35,7 @@
   VR.settings = { ...VR.DEFAULTS };
 
   /** Versione del codice della pagina: va con la richiesta di permesso e nella diagnostica. */
-  VR.BUILD = "2.3.1";
+  VR.BUILD = "2.4.0";
 
   /** itemId → comandi della sua barra, cosi' la coda puo' aggiornare le card. */
   VR.bars = new Map();

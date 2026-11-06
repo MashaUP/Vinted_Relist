@@ -217,6 +217,7 @@
           crea("span", { class: "b-name" }, b.nome),
           crea("span", { class: `b-state ${classe}` }, b.stato),
           crea("span", { class: "b-counts" }, conti),
+          crea("span", { class: "b-counts" }, `Intervallo: ${b.intervalMin} min`),
           crea("span", { class: "b-counts" }, `Regole: ${regole}`)));
       const azioni = crea("div", { class: "b-actions" },
         bottone(filtroBatch === b.id ? "Mostra tutte le batch" : "Mostra solo questa", "btn-sm", () => {
@@ -239,8 +240,10 @@
    * delle opzioni della coda sulla pagina di Vinted (editor-logica). Ritorna il
    * nodo e una funzione che legge { ok, overrides, campi, errori }.
    */
-  function moduloRegole(iniziali = {}, { copiaDa = [] } = {}) {
+  function moduloRegole(iniziali = {}, { copiaDa = [], intervalMin = 20 } = {}) {
     const f = { modo: "", valore: "", aggiunta: "", cerca: "", con: "", colore: "", ...(iniziali || {}) };
+    // 2.4.0: il tempo tra le ripubblicazioni e' della batch
+    const intervallo = crea("input", { type: "number", min: "1", max: "240", step: "1", value: String(intervalMin || 20), "aria-describedby": "rf-err-intervallo" });
     const err = (k) => crea("p", { class: "err", id: `rf-err-${k}` });
     const modo = crea("select", { "aria-label": "Prezzo" },
       ...[["", "Prezzo invariato"], ["percent", "Variazione in percentuale"], ["delta", "Variazione in euro"], ["fixed", "Prezzo fisso per tutti"]]
@@ -253,7 +256,7 @@
       crea("option", { value: "" }, "Lascia come è"),
       crea("option", { value: "auto" }, "Deduci dai tuoi articoli simili"),
       ...Object.entries(mappaColori).sort((a, b) => a[1].localeCompare(b[1], "it")).map(([id, nome]) => crea("option", { value: id }, nome)));
-    const errori = { valore: err("valore"), aggiunta: err("aggiunta"), cerca: err("cerca") };
+    const errori = { valore: err("valore"), aggiunta: err("aggiunta"), cerca: err("cerca"), intervallo: err("intervallo") };
     const riempi = (o) => {
       modo.value = o.modo || ""; valore.value = o.valore || ""; aggiunta.value = o.aggiunta || "";
       cerca.value = o.cerca || ""; con.value = o.con || ""; colore.value = o.colore || "";
@@ -261,7 +264,8 @@
     riempi(f);
     const nodo = crea("div", { class: "rules-form" },
       copiaDa.length ? crea("div", { class: "copy" }, "Parti da:",
-        ...copiaDa.map((b) => bottone(`Copia da ${b.nome}`, "btn-sm", () => { riempi(b.campi); leggi(); }))) : null,
+        ...copiaDa.map((b) => bottone(`Copia da ${b.nome}`, "btn-sm", () => { riempi(b.campi); if (b.intervalMin) intervallo.value = String(b.intervalMin); leggi(); }))) : null,
+      crea("label", {}, "Tempo tra le ripubblicazioni (minuti)", intervallo, errori.intervallo),
       crea("div", { class: "row" },
         crea("label", {}, "Prezzo", modo),
         crea("label", {}, "Valore", valore, errori.valore)),
@@ -272,12 +276,12 @@
       crea("label", {}, "Colore, dove manca", colore));
     function leggi() {
       const campi = { modo: modo.value, valore: valore.value, aggiunta: aggiunta.value, cerca: cerca.value, con: con.value, colore: colore.value };
-      const v = L()?.validaOpzioniCoda({ ...campi, intervallo: "20", quando: "" }) || { ok: false, errori: {} };
+      const v = L()?.validaOpzioniCoda({ ...campi, intervallo: intervallo.value, quando: "" }) || { ok: false, errori: {} };
       for (const [k, n] of Object.entries(errori)) n.textContent = v.errori?.[k] || "";
       valore.closest("label").hidden = !campi.modo;
-      return { ok: v.ok, overrides: v.overrides || null, campi };
+      return { ok: v.ok, overrides: v.overrides || null, campi, intervalMin: v.intervalMin };
     }
-    for (const x of [modo, valore, aggiunta, cerca, con, colore]) { x.addEventListener("input", leggi); x.addEventListener("change", leggi); }
+    for (const x of [modo, valore, aggiunta, cerca, con, colore, intervallo]) { x.addEventListener("input", leggi); x.addEventListener("change", leggi); }
     leggi();
     return { nodo, leggi, primo: modo };
   }
@@ -293,7 +297,7 @@
     const box = el("queueConfirm");
     box.textContent = "";
     box.hidden = false;
-    const form = moduloRegole(b.campi || {});
+    const form = moduloRegole(b.campi || {}, { intervalMin: b.intervalMin });
     const r = b.conteggi;
     const esclusi = [
       r.working ? "1 in elaborazione continua con le regole attuali (le ha già ricevute)" : null,
@@ -303,7 +307,7 @@
     const ok = bottone(`Applica a ${r.pending} in attesa`, "btn-primary", async () => {
       const v = form.leggi();
       if (!v.ok) return;
-      const ris = await chiedi("vr:queueBatchEdit", { batchId: b.id, overrides: v.overrides, campi: v.campi, modello: null });
+      const ris = await chiedi("vr:queueBatchEdit", { batchId: b.id, overrides: v.overrides, campi: v.campi, modello: null, intervalMin: v.intervalMin });
       box.hidden = true;
       messaggio(ris.ok ? `${b.nome}: regole aggiornate per ${ris.applicati?.length || 0} articoli in attesa (revisione ${ris.rev}).` : ris.motivo || ris.error || "Non applicate.", ris.ok ? "ok" : "error");
     });
@@ -873,7 +877,7 @@
       // con le regole scelte qui (partendo dalle ultime usate).
       const { queueDraft = {} } = await chrome.storage.local.get("queueDraft");
       const c = C.migra(codaCorrente);
-      form = moduloRegole(queueDraft, { copiaDa: (c.batches || []).filter((b) => b.campi) });
+      form = moduloRegole(queueDraft, { copiaDa: (c.batches || []).filter((b) => b.campi), intervalMin: (c.batches || []).slice(-1)[0]?.intervalMin || c.intervalMin });
     } else {
       const { queueDraft = {}, queueIntervalMin = 20 } = await chrome.storage.local.get(["queueDraft", "queueIntervalMin"]);
       const v = L()?.validaOpzioniCoda({ ...queueDraft, quando: "", intervallo: queueDraft.intervallo || String(queueIntervalMin) });
@@ -901,7 +905,7 @@
       if (attiva) {
         const v = form.leggi();
         if (!v.ok) return;
-        regole = { overrides: v.overrides, campi: v.campi, modello: null };
+        regole = { overrides: v.overrides, campi: v.campi, modello: null, intervalMin: v.intervalMin };
       }
       const r = attiva
         ? await chiedi("vr:queueAdd", { items: voci, dove, batch: regole })

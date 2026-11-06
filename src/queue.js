@@ -226,7 +226,9 @@
     modo.value = f.modo; valore.value = f.valore; aggiunta.value = f.aggiunta; cerca.value = f.cerca;
     con.value = f.con; colore.value = f.colore || ""; quando.value = f.quando; intervallo.value = f.intervallo;
     // L'intervallo e' della sessione: per una batch non si sceglie, ma serve valido per la validazione.
-    if (perBatch) { quando.value = ""; intervallo.value = String(sessione?.intervalMin || 20); }
+    // 2.4.0: ogni batch ha il suo intervallo. Si parte da quello dell'ultima batch, modificabile.
+    const ultimaBatch = perBatch ? (sessione?.batches || []).slice(-1)[0] : null;
+    if (perBatch) { quando.value = ""; intervallo.value = String(ultimaBatch?.intervalMin || sessione?.intervalMin || 20); }
 
     const cValore = campo("Valore", h2("span", { class: "vr-input-unit" }, valore, unita), "valore");
     const cAggiunta = campo("Aggiungi in fondo alla descrizione", aggiunta, "aggiunta");
@@ -350,6 +352,7 @@
             const o = b.campi;
             modo.value = o.modo || ""; valore.value = o.valore || ""; aggiunta.value = o.aggiunta || "";
             cerca.value = o.cerca || ""; con.value = o.con || ""; colore.value = o.colore || "";
+            if (b.intervalMin) intervallo.value = String(b.intervalMin);
             modelloApplicato = b.modello || "";
             aggiorna();
           },
@@ -440,14 +443,16 @@
             ? "Prima di avviare, ogni articolo viene letto (senza pubblicare) e ti dico cosa manca."
             : "Il controllo prima di avviare è spento nelle impostazioni."))),
       perBatch
-        ? h2("p", { class: "vr-field__help" }, `Intervallo tra gli articoli: quello della sessione (${sessione?.intervalMin || "?"} min).`)
+        ? sezione("Tempo tra le ripubblicazioni",
+          h2("div", { class: "vr-row" }, cIntervallo.nodo),
+          h2("p", { class: "vr-field__help" }, "Vale per gli articoli di questa batch: è l'attesa prima di ognuno di loro. Le altre batch tengono il loro; l'attesa già in corso non cambia."))
         : sezione("Pianificazione", h2("div", { class: "vr-row" }, cQuando.nodo, cIntervallo.nodo)),
       h2("div", { class: "vr-actions vr-actions--split" },
         h2("button", {
           class: "vr-btn vr-btn--quiet", type: "button",
           onclick: () => {
             modo.value = ""; valore.value = ""; aggiunta.value = ""; cerca.value = ""; con.value = "";
-            colore.value = ""; quando.value = ""; intervallo.value = perBatch ? String(sessione?.intervalMin || 20) : "20";
+            colore.value = ""; quando.value = ""; intervallo.value = perBatch ? String(ultimaBatch?.intervalMin || sessione?.intervalMin || 20) : "20";
             modelloApplicato = "";
             aggiorna();
           },
@@ -462,7 +467,7 @@
       if (!v.ok) return;
       // Le regole scelte diventano anche le ultime usate; intervallo e avvio salvati restano i tuoi.
       await salvaOpzioni({ ...opzioni, ...soloCampi(f), intervallo: opzioni.intervallo, quando: "", modello: modelloApplicato });
-      risolviBatch({ overrides: v.overrides || null, campi: Object.fromEntries(["modo", "valore", "aggiunta", "cerca", "con", "colore"].map((k) => [k, f[k] || ""])), modello: modelloApplicato || null });
+      risolviBatch({ overrides: v.overrides || null, campi: Object.fromEntries(["modo", "valore", "aggiunta", "cerca", "con", "colore"].map((k) => [k, f[k] || ""])), modello: modelloApplicato || null, intervalMin: v.intervalMin });
       chiudi();
     });
 
@@ -668,7 +673,7 @@
 
     const scelta = await mostraRiepilogo({
       voci, controllati, rifiutati, attiva, overrides, totale: daControllare.length,
-      descrizione: attiva ? `${nomeBatch}: ${descriviOverrides(regole.overrides || {}, { modello: regole.modello })}` : descriviOpzioni(),
+      descrizione: attiva ? `${nomeBatch}: ${descriviOverrides(regole.overrides || {}, { modello: regole.modello, intervalMin: regole.intervalMin })}` : descriviOpzioni(),
     });
     if (!scelta) return;
     const items = scelta.items.map(({ id, title, thumb, price }) => ({ id, title, thumb, price }));
@@ -1017,6 +1022,11 @@
       })
       .catch((e) => {
         if (e?.duplicato) return riferisci({ ok: false, outcome: "skipped", motivoSalto: "in-uso", error: "già in ripubblicazione a mano" });
+        // Venduto nel frattempo: si salta questo, la coda continua con gli altri.
+        if (e?.venduto) {
+          barra?.stato("Venduto: saltato", "warn");
+          return riferisci({ ok: false, outcome: "skipped", motivoSalto: "venduto", error: e.message, categoria: "venduto", sicuro: "no" });
+        }
         const k = CL().classificaErrore(e);
         const outcome = e?.annullato ? "cancelled" : e?.tecnico || e?.superato ? "interrupted" : VR.esitoDaErrore(e);
         barra?.stato(e?.message || String(e), outcome === "error" ? "error" : "warn");
@@ -1106,14 +1116,91 @@
 
   // --------------------------------------------------------------------- stato
 
+  // ------------------------------------------------------------ marcatori
+
+  /**
+   * Il marcatore sotto ogni card deriva SOLO dalla coda salvata (vrQueue): niente
+   * stato visivo a parte che potrebbe andare fuori sincrono. Si ricalcola a ogni
+   * cambio della coda e a ogni barra nuova (scroll, navigazione, ricarica).
+   *   In coda / In attesa / In elaborazione / Da verificare: la casella si spegne,
+   *   l'articolo non si puo' rimettere in coda ne' ripubblicare a mano.
+   *   Completato / Errore / Interrotto / Annullato: solo informazione, finche' la
+   *   sessione e' aperta; la casella resta attiva. Rimossi e saltati: nessun marcatore.
+   */
+  const BLOCCANTI = new Set(["pending", "working", "verify"]);
+  function statoArticolo(id) {
+    const q = CL().migra(coda);
+    if (!q?.items) return null;
+    const a = CL().trova(q, id);
+    if (!a) return null;
+    if (!q.running && a.status !== "verify") return null;
+    const ora = (t) => new Date(t).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+    let testo = null;
+    switch (a.status) {
+      case "pending": {
+        const pos = CL().posizione(q, a.id);
+        const primo = pos === 1;
+        testo = q.state === "paused" ? `In coda · #${pos} · coda in pausa`
+          : primo && q.nextAt && !CL().corrente(q) ? `In attesa · parte verso le ${ora(q.nextAt)}`
+          : `In coda · #${pos}`;
+        break;
+      }
+      case "working": testo = "In elaborazione"; break;
+      case "verify": testo = "Da verificare: non rimetterlo in coda"; break;
+      case "done": testo = "Completato"; break;
+      case "error": testo = a.error ? `Errore: ${String(a.error).slice(0, 80)}` : "Errore"; break;
+      case "interrupted": testo = "Interrotto"; break;
+      case "cancelled": testo = "Annullato"; break;
+      default: return null;                                   // rimosso, saltato: nessun marcatore
+    }
+    const bloccante = BLOCCANTI.has(a.status)
+      ? a.status === "verify"
+        ? "Esito da verificare: potrebbe essere già online. Verificalo prima di ripubblicarlo."
+        : "È già nella coda ed è in attesa di ripubblicazione: non serve aggiungerlo di nuovo."
+      : null;
+    return { stato: a.status, testo, bloccante };
+  }
+  VR.statoInCoda = (id) => {
+    const s = statoArticolo(String(id));
+    return s?.bloccante ? s : null;
+  };
+
+  function aggiornaMarcatori() {
+    for (const bar of document.querySelectorAll(".vr-bar[data-vr-bar]")) {
+      const id = bar.dataset.vrBar;
+      const s = statoArticolo(id);
+      const mark = bar.querySelector(".vr-bar__mark");
+      bar.dataset.vrStato = s?.stato || "";
+      if (mark) {
+        mark.hidden = !s;
+        mark.textContent = s?.testo || "";
+      }
+      // L'avviso «è già nella coda» di un clic precedente non vale piu' quando lo stato cambia.
+      const avviso = bar.querySelector(".vr-bar__status--warn");
+      if (avviso && !s?.bloccante && /già nella coda|Esito da verificare/.test(avviso.textContent)) {
+        avviso.className = "vr-bar__status";
+        avviso.textContent = "";
+      }
+      const pick = bar.querySelector(".vr-bar__pick");
+      if (pick) {
+        pick.disabled = Boolean(s?.bloccante);
+        pick.title = s?.bloccante || "Aggiungi alla coda — Shift per selezionare un intervallo";
+        if (s?.bloccante && selezionati.has(id)) VR.selection.cambia(id, false);
+      }
+    }
+  }
+  VR.aggiornaMarcatori = aggiornaMarcatori;
+
   chrome.storage.local.get("vrQueue").then(({ vrQueue }) => {
     coda = vrQueue || null;
     disegna();
+    aggiornaMarcatori();
   });
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local" || !changes.vrQueue) return;
     coda = changes.vrQueue.newValue || null;
     disegna();
+    aggiornaMarcatori();
   });
 })();

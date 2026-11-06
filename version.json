@@ -1,9 +1,11 @@
 {
-  "version": "2.3.1",
-  "date": "2026-11-04",
-  "zip": "Vinted_Relist-2.3.1.zip",
+  "version": "2.4.0",
+  "date": "2026-11-06",
+  "zip": "Vinted_Relist-2.4.0.zip",
   "notes": [
-    "Dopo un aggiornamento, la pagina di Vinted già aperta dice di ricaricarla invece di «Token CSRF non trovato»",
-    "Le novità della 2.3.0: motivo vero dei blocchi della coda, report di confronto, aggiornamenti automatici, bottoni solo nel tuo armadio"
+    "Ogni gruppo della coda ha il suo intervallo tra una ripubblicazione e l'altra",
+    "Gli articoli venduti non hanno più bottoni e la coda li salta senza fermarsi",
+    "Niente più Ripubblica/Modifica nel pannello delle notifiche di Vinted",
+    "Sugli articoli in coda c'è lo stato (In coda, In elaborazione, Completato…) e non si possono aggiungere due volte"
   ]
 }

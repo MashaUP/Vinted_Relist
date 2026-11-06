@@ -68,20 +68,70 @@
 
   // ---------------------------------------------------------------- injection
 
+  /**
+   * Zone della pagina che non sono card dell'armadio: intestazione, menu,
+   * notifiche, finestre, popover. Le notifiche di Vinted contengono link ai
+   * TUOI articoli («X ha aggiunto il tuo articolo…»): fino alla 2.3 bastava un
+   * link /items/ per ricevere una barra, e «Ripubblica» compariva nel pannello
+   * delle notifiche. Ruoli ARIA e tag, non classi casuali; le classi solo come
+   * aggiunta.
+   */
+  const ZONE_ESCLUSE = [
+    "header", "nav", "footer", "aside", "dialog",
+    '[role="banner"]', '[role="navigation"]', '[role="dialog"]', '[role="alertdialog"]', '[role="menu"]', '[role="menubar"]',
+    '[role="listbox"]', '[role="tooltip"]', '[role="complementary"]', '[aria-modal="true"]', "[popover]",
+    '[data-testid*="notification" i]', '[data-testid*="header" i]', '[data-testid*="dropdown" i]',
+    '[class*="notification" i]', '[class*="dropdown" i]', '[class*="popover" i]',
+    ".vr-bar", ".vr-queue", ".vr-overlay", ".vr-toast",
+  ].join(", ");
+  const inZonaEsclusa = (el) => Boolean(el?.closest?.(ZONE_ESCLUSE));
+
+  /**
+   * La card di un annuncio, o null se l'elemento non lo e' con certezza:
+   * un contenitore noto delle card (o, come ripiego, il piu' piccolo antenato con
+   * un solo link /items/), con una foto, dentro il contenuto principale della
+   * pagina e fuori dalle zone escluse.
+   */
   function cardFor(anchor) {
+    if (inZonaEsclusa(anchor)) return null;
+    let card = null;
     for (const selector of CARD_SELECTORS) {
-      const found = anchor.closest(selector);
-      if (found) return found;
+      card = anchor.closest(selector);
+      if (card) break;
     }
-    let node = anchor;
-    let best = anchor;
-    for (let i = 0; i < 6 && node.parentElement; i++) {
-      node = node.parentElement;
-      if (node.querySelectorAll('a[href*="/items/"]').length === 1) best = node;
-      else break;
+    if (!card) {
+      const principale = document.querySelector('main, [role="main"]');
+      if (principale && !principale.contains(anchor)) return null;
+      let node = anchor;
+      card = anchor;
+      for (let i = 0; i < 6 && node.parentElement; i++) {
+        node = node.parentElement;
+        if (node.querySelectorAll('a[href*="/items/"]').length === 1) card = node;
+        else break;
+      }
     }
-    return best;
+    if (inZonaEsclusa(card) || !card.querySelector("img")) return null;
+    return card;
   }
+
+  /**
+   * Annuncio venduto: Vinted mette sulla card un bollino con la sola parola
+   * «Venduto» (o la stessa nelle altre lingue). Si cerca un elemento il cui
+   * testo e' esattamente quello, non la parola dentro un titolo («Libro mai
+   * venduto»), o un attributo di test con "sold". Non il colore.
+   */
+  const VENDUTO = /^(venduto|venduta|sold|vendu|vendue|verkauft|vendido|vendida|verkocht|sprzedane|sprzedany|prodáno|predané|eladva|vândut|parduota|pārdots|müüdud|πουλήθηκε|myyty|solgt|såld|prodano)$/i;
+  function eVenduto(card) {
+    if (!card) return false;
+    if (card.querySelector('[data-testid*="sold" i], [data-testid*="closed" i]')) return true;
+    for (const el of card.querySelectorAll("span, div, p, small, strong, b, label")) {
+      if (el.children.length > 1) continue;
+      const t = (el.textContent || "").trim();
+      if (t.length <= 14 && VENDUTO.test(t)) return true;
+    }
+    return false;
+  }
+  VR.eVenduto = eVenduto;
 
   function attach(host, itemId, extraClass) {
     const bar = VR.buildActionBar(itemId);
@@ -98,22 +148,51 @@
     return bar;
   }
 
+  /**
+   * Barre gia' messe che non devono esserci piu': card diventata «Venduto»,
+   * card sparita, barra finita in una zona esclusa. Le barre restano solo dove
+   * si rimetterebbero oggi.
+   */
+  function ripulisciBarre() {
+    for (const bar of document.querySelectorAll(".vr-bar:not(.vr-bar--floating)")) {
+      const host = bar.previousElementSibling;
+      const card = host?.dataset?.vrItem ? host : host?.querySelector?.("[data-vr-item]");
+      const venduto = card && eVenduto(card);
+      if (!host || !card || venduto || inZonaEsclusa(host)) {
+        if (card && bar.dataset.vrBar) VR.selection?.cambia?.(bar.dataset.vrBar, false);
+        if (venduto) card.dataset.vrVenduto = "1";
+        bar.remove();
+      }
+    }
+  }
+
   function injectWardrobe() {
     if (!VR.nelMioArmadio()) return;
+    ripulisciBarre();
 
     for (const anchor of document.querySelectorAll('a[href*="/items/"]')) {
       const itemId = itemIdFromHref(anchor.getAttribute("href"));
       if (!itemId) continue;
 
       const card = cardFor(anchor);
+      if (!card) continue;                                  // non e' con certezza una card dell'armadio
+      if (eVenduto(card)) {
+        // Niente casella ne' bottoni; l'inventario lo sa (non si ripubblica, non conta nel valore).
+        if (card.dataset.vrVenduto !== itemId) {
+          card.dataset.vrVenduto = itemId;
+          annota(itemId, anchor, card, { venduto: true });
+        }
+        continue;
+      }
       if (card.dataset.vrItem === itemId) continue;
-      if (card.nextElementSibling?.classList?.contains("vr-bar")) continue;
+      const host = card.closest("a") || card;
+      if (host.nextElementSibling?.classList?.contains("vr-bar")) continue;
 
       card.dataset.vrItem = itemId;
-      const host = card.closest("a") || card;
       attach(host, itemId);
-      annota(itemId, anchor, card);
+      annota(itemId, anchor, card, { venduto: false });
     }
+    VR.aggiornaMarcatori?.();
   }
 
   function injectItemPage() {
@@ -163,9 +242,9 @@
    * (src/armadio-logica.js): una card vecchia rimasta a schermo dopo una
    * ripubblicazione non rimette piu' dentro l'annuncio che non esiste.
    */
-  function annota(itemId, anchor, card) {
+  function annota(itemId, anchor, card, extra = {}) {
     const titolo = (anchor.getAttribute("title") || anchor.textContent || "").trim();
-    daAnnotare.set(itemId, { title: titolo.slice(0, 80), ...leggiCard(card) });
+    daAnnotare.set(itemId, { title: titolo.slice(0, 80), ...leggiCard(card), ...extra });
 
     clearTimeout(scrittura);
     scrittura = setTimeout(async () => {
@@ -293,7 +372,19 @@
     timer = setTimeout(refresh, 250);
   };
 
-  new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
+  /**
+   * Si ridisegna solo se e' cambiato qualcosa fuori dalle zone escluse e fuori
+   * dagli elementi dell'estensione: aprire le notifiche o un menu non fa
+   * ripassare tutta la pagina.
+   */
+  new MutationObserver((mutazioni) => {
+    const pertinente = mutazioni.some((m) => {
+      const t = m.target.nodeType === 1 ? m.target : m.target.parentElement;
+      if (!t || inZonaEsclusa(t)) return false;
+      return [...m.addedNodes, ...m.removedNodes].some((n) => n.nodeType === 1 && !n.classList?.contains("vr-bar") && !inZonaEsclusa(n));
+    });
+    if (pertinente) schedule();
+  }).observe(document.body, { childList: true, subtree: true });
 
   let lastUrl = location.href;
   setInterval(() => {

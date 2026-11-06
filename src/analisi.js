@@ -42,6 +42,8 @@
     let totale = 0;
     let conPrezzo = 0;
     for (const art of Object.values(inventory)) {
+      // 2.4.0: un venduto non e' piu' «in vendita».
+      if (art?.venduto) continue;
       if (typeof art.price === "number" && art.price > 0) {
         totale += art.price;
         conPrezzo++;

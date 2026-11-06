@@ -199,6 +199,48 @@ li fa arrivare insieme l'esito andava perso **11 volte su 40**, e l'articolo sar
 ripubblicato due volte. Con `conCoda` e il passo spostato in `storage.session`: 40 su 40
 (`test-gara`).
 
+### 2.4: intervallo per batch, venduti, marcatori, notifiche
+
+**Intervallo per batch.** `batch.intervalMin` (1–240, `minutiValidi`); una batch senza valore
+(create dalla 2.3) usa `coda.intervalMin`. `C.intervalloPer(coda, id)` è l'attesa prima di
+quell'articolo, `C.intervalloProssimo(coda)` quella del prossimo `pending`: la usa `esitoCoda` per
+`programmaProssimo`, la prudenza e la pausa dopo l'articolo. Aggiunte, modifiche e rimozioni non
+chiamano mai `programmaProssimo`: l'attesa in corso (`nextAt` + sveglia `vr:queueNext`) resta
+quella. `modificaBatch` mette il valore precedente nello `storico` della batch; `stima` somma gli
+intervalli dei singoli articoli. Esportazione e archivio portano `intervalMin` per batch.
+
+**Venduti.** Tre punti, dal più presto al più tardi:
+1. `content.js › eVenduto(card)`: bollino con il testo esatto «Venduto» (e traduzioni) o
+   `data-testid` sold/closed → niente barra, `inventory[id].venduto = true`. `ripulisciBarre()`
+   toglie una barra già messa se la card diventa venduta. Il DOM di Vinted non viene modificato
+   (solo `data-vr-venduto` sulla card, per non rileggerla).
+2. `background.js › bloccatiPerAggiunta()`: sotto il lock, avvio e aggiunta rifiutano i venduti
+   dell'inventario e gli id `verify` di sessioni passate; `valutaAggiunta` rifiuta anche gli
+   `skipped` con `motivoSalto: "venduto"`.
+3. `relist.js › VR.controllaVendibile(source)` (dopo `controllaProprieta`, prima di ogni upload) e
+   `editor.js` all'apertura: `is_sold`, `is_closed`, `item_closing_action` sold → errore
+   `venduto`. In coda diventa `skipped` / `motivoSalto: "venduto"`, la coda continua, l'inventario
+   viene annotato.
+
+**Card e zone escluse.** `cardFor(anchor)` restituisce una card solo se: fuori da `ZONE_ESCLUSE`
+(header, nav, footer, aside, dialog, ruoli banner/navigation/dialog/menu/listbox/tooltip,
+`aria-modal`, `[popover]`, `data-testid`/classi notification/dropdown/popover, gli elementi
+dell'estensione), con una foto, e — se si arriva dal ripiego che risale gli antenati — dentro
+`main`. Il `MutationObserver` ignora le mutazioni dentro le zone escluse e quelle fatte
+dall'estensione.
+
+**Marcatori.** `queue.js › statoArticolo(id)` legge solo `vrQueue` (stesso oggetto dei pannelli,
+aggiornato da `storage.onChanged`): `pending` → «In coda · #n» / «In attesa · parte verso le
+hh:mm», `working`, `verify`, `done` → «Completato», `error` → «Errore: …», `cancelled` →
+«Annullato». `pending`/`working`/`verify` sono bloccanti: casella spenta e deselezionata,
+«Ripubblica» rifiuta con il motivo (`VR.statoInCoda`). Il controllo vero dei doppioni resta nel
+service worker (`valutaAggiunta` sotto `conCoda`), atomico anche con aggiunte simultanee.
+
+**Release.** `.github/workflows/release.yml` su `release: published` (e a mano con il tag):
+checkout del tag, test, `scripts/pacchetto.sh <tag>` (versione del tag = `manifest.json` =
+`version.json`, file del manifest e `importScripts` presenti, `manifest.json` nella radice dello
+zip, nessun file di sviluppo), `gh release upload --clobber`. Permessi: `contents: write`.
+
 ### Campi che dipendono dalla categoria (2.0.1)
 
 Percorso di un campo, dalla lettura all'invio, con il punto in cui si decide:
@@ -370,14 +412,20 @@ Non vengono mai scritti in `local`, nei log, negli eventi o nella diagnostica.
 - Lo storico delle versioni prima della 1.9.0 non è stato conservato.
 - Gli articoli aggiunti dalla dashboard non passano dal controllo preventivo (che legge da Vinted
   e vive nella pagina): vengono comunque letti e controllati quando arriva il loro turno.
-- L'intervallo di una sessione non si cambia a sessione avviata. Le regole sì, per batch (2.2).
+- Dalla 2.4 l'intervallo è per batch: si sceglie per ogni batch nuova e si cambia con la modifica
+  della batch; l'attesa già programmata non si ricalcola.
 - La verifica di un esito incerto riconosce il nuovo annuncio dall'id restituito da Vinted o dalle
   foto caricate in quel tentativo, cercandole fra gli ultimi 20 annunci dell'armadio
   (`/api/v2/wardrobe/<id>/items`, lettura usata dal sito). Endpoint e forma della risposta non
   sono stati verificati su Vinted reale: se cambiano, la verifica dice «non riesco a leggere» e
   l'articolo resta da verificare.
-- Il valore dell'armadio conta gli articoli dell'inventario: uno venduto o eliminato a mano esce
-  dal totale solo quando non compare più (o quando una verifica lo trova assente).
+- Il valore dell'armadio conta gli articoli dell'inventario: uno venduto esce dal totale quando la
+  sua card mostra «Venduto» o quando la coda lo salta perché venduto (2.4); uno eliminato a mano
+  solo quando non compare più (o quando una verifica lo trova assente).
+- Il bollino «Venduto» si riconosce dal testo esatto (o da un `data-testid` con «sold»/«closed»),
+  e la notifica di Vinted come zona esclusa da tag, ruoli ARIA e classi: verificato su un Vinted
+  finto modellato sugli screenshot, non sul DOM reale. Se Vinted cambia i nomi, il controllo dei
+  dati dell'articolo (`is_closed`, `item_closing_action`) ferma comunque ripubblica e modifica.
 - Finché `links.json` non è sul ramo `main`, Chrome scrive un 404 nella console delle pagine
   dell'estensione al massimo una volta l'ora.
 
@@ -452,6 +500,8 @@ dell'interfaccia, `npm install` in `tests/` (installa jsdom).
 cd tests && npm install && node run.js
 ```
 
+Il workflow delle release esegue gli stessi test prima di creare lo zip.
+
 | Suite | Cosa copre |
 |---|---|
 | `test-mapping`, `test-sconto`, `test-prezzi`, `test-riempimento` | conversione lettura → scrittura, prezzi, campi vuoti |
@@ -470,6 +520,7 @@ cd tests && npm install && node run.js
 | `test-armadio` | 2.2: valore progressivo, prezzo cambiato, card vecchie, doppioni, incerti, scritture simultanee (40 giri) |
 | `test-permesso` | 2.3: no con codice e motivo (salvataggio, versione, interno), compattazione e nuovo tentativo, pausa della coda su un problema tecnico, report diagnostico senza segreti, confronto, riparazione, aggiornamenti una volta per versione |
 | `test-proprietario` | 2.3: tuo armadio / altrui / sottopagine / annuncio / account non riconosciuto, barre costruite e tolte navigando, la pagina non scrive l'id, controllo di proprietà in `relist()` |
+| `test-240` | 2.4: intervallo per batch (modello e service worker: valori, passaggio di batch, timer mai azzerato da aggiunte, modifiche e rimozioni, pausa, riavvio, stima), venduti saltati senza fermare la coda e mai rimessi in coda, doppioni fra batch con aggiunte simultanee, incerti di sessioni passate |
 | `test-link` | 2.1: `links.json` del pacchetto, validazione, protocolli e siti vietati, precedenza, cache, tempi, timeout |
 | `test-versione` | versioni, aggiornamenti, diagnostica, impostazioni |
 | `dom/test-ui` | editor in un DOM simulato: controlli, download foto, ritaglio, anteprima, pubblica |

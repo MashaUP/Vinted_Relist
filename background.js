@@ -19,7 +19,7 @@ const V = self.Versione;
  * memoria file vecchi dopo un aggiornamento, si vede (e si dice) invece di
  * fallire con un errore generico.
  */
-const BUILD = "2.3.1";
+const BUILD = "2.4.0";
 const AVVIO_SW = Date.now();
 
 // ------------------------------------------------------------ registro errori
@@ -807,6 +807,8 @@ async function esitoCoda(coda, msg) {
   const e = esitoDa(msg);
   if (e.nuovoId) C.annotaTraccia(coda, c.id, { nuovoId: e.nuovoId });
   const r = C.concludiArticolo(coda, c.id, e);
+  // Venduto nel frattempo: l'inventario lo sa (non entra piu' in coda, non conta nel valore).
+  if (e.motivoSalto === "venduto") annotaInventario({ [c.id]: { venduto: true } }).catch(() => {});
   coda.backoff = 0;
   coda.note = null;
   await togliGiornale(c.id);
@@ -835,7 +837,7 @@ async function esitoCoda(coda, msg) {
     coda.motivoPausa = tecnico
       ? `Problema dell'estensione, non dell'articolo: ${String(c.ultimoErrore || c.error || "").replace(/^Fermato prima dell'invio a Vinted: /, "").replace(/\. Nessun annuncio creato o eliminato\.$/, "")}. Niente è stato inviato a Vinted: risolvi, poi Riprendi (in Salute c'è il report diagnostico).`
       : `${coda.erroriDiFila} esiti negativi di fila: controlla i motivi prima di continuare.`;
-    coda.pausedRemainingMs = coda.intervalMin * 60_000;
+    coda.pausedRemainingMs = C.intervalloProssimo(coda) * 60_000;
     coda.nextAt = null;
     C.registra(coda, "prudenza", `Coda fermata da sola: ${coda.motivoPausa}`, { azione: "leggi gli errori, poi Riprendi" });
     await scriviCoda(coda);
@@ -845,11 +847,12 @@ async function esitoCoda(coda, msg) {
 
   if (coda.pausaDopoCorrente) {
     coda.pausaDopoCorrente = false;
-    return mettiInPausa(coda, { minuti: coda.pausaMinuti || null, restante: coda.intervalMin * 60_000 });
+    return mettiInPausa(coda, { minuti: coda.pausaMinuti || null, restante: C.intervalloProssimo(coda) * 60_000 });
   }
 
   // Dopo un'interruzione non e' stato pubblicato niente: non serve l'intervallo intero.
-  return programmaProssimo(coda, r.stato === "interrupted" ? 1 : coda.intervalMin);
+  // 2.4.0: l'attesa e' quella della batch del PROSSIMO articolo, non della sessione.
+  return programmaProssimo(coda, r.stato === "interrupted" ? 1 : C.intervalloProssimo(coda));
 }
 
 async function mettiInPausa(coda, { minuti = null, restante = null } = {}) {
@@ -1272,6 +1275,34 @@ async function verificheAutomatiche() {
 /** Chiave per riconoscere lo stesso avvio arrivato due volte (doppio clic). */
 const firmaAvvio = (ids) => [...ids].map(String).sort().join(",");
 
+/**
+ * Articoli che non possono entrare in nessuna coda, qualunque sia la strada
+ * (pagina, dashboard, riprova): i venduti (lo dice l'inventario, letto dalle
+ * card) e quelli con un esito ancora da verificare in una sessione passata,
+ * che potrebbero essere gia' online. Controllo centrale, sotto il lock.
+ */
+async function bloccatiPerAggiunta(coda) {
+  const { inventory = {}, vrQueueArchive = [] } = await chrome.storage.local.get({ inventory: {}, vrQueueArchive: [] });
+  const motivi = new Map();
+  for (const [id, voce] of Object.entries(inventory)) if (voce?.venduto) motivi.set(id, "venduto: non si ripubblica");
+  const sessioni = [...vrQueueArchive, ...(coda && !coda.running ? [coda] : [])];
+  for (const q of sessioni) {
+    for (const a of q.items || []) if (a.status === "verify") motivi.set(String(a.id), "esito ancora da verificare in una sessione passata: potrebbe essere già online");
+  }
+  return motivi;
+}
+
+function filtraBloccati(items, motivi) {
+  const ammessi = [];
+  const rifiutati = [];
+  for (const it of items || []) {
+    const id = String(it?.id ?? "");
+    if (motivi.has(id)) rifiutati.push({ id, motivo: motivi.get(id) });
+    else ammessi.push(it);
+  }
+  return { ammessi, rifiutati };
+}
+
 async function avviaCoda(coda, message) {
   // Doppio clic: la stessa coda e' gia' partita, non si riparte da capo.
   // Una coda diversa in corso invece non si sovrascrive mai: si aggiunge.
@@ -1282,8 +1313,12 @@ async function avviaCoda(coda, message) {
     return { ok: false, error: "C'è già una coda in corso: usa «Aggiungi alla coda» per metterci questi articoli." };
   }
 
+  const filtro = filtraBloccati(message.items || [], await bloccatiPerAggiunta(coda));
+  if (!filtro.ammessi.length && filtro.rifiutati.length) {
+    return { ok: false, error: `Nessun articolo da mettere in coda: ${filtro.rifiutati[0].motivo}.`, rifiutati: filtro.rifiutati };
+  }
   const { coda: nuova, saltati } = C.nuova({
-    items: message.items || [],
+    items: filtro.ammessi,
     intervalMin: message.intervalMin,
     overrides: message.overrides || null,
     campi: message.campi || null,
@@ -1309,7 +1344,7 @@ async function avviaCoda(coda, message) {
     await scriviCoda(nuova);
     await passoCoda(nuova);
   }
-  return { ok: true, count: nuova.items.length, saltati };
+  return { ok: true, count: nuova.items.length, saltati, rifiutati: filtro.rifiutati };
 }
 
 /**
@@ -1322,22 +1357,24 @@ async function aggiungiAllaCoda(coda, message) {
   if (!coda?.running) return { ok: false, error: "Nessuna coda attiva: avviane una nuova." };
   if (coda.stopDopoCorrente) return { ok: false, error: "La coda si sta chiudendo: avviane una nuova quando ha finito." };
   const batch = message.batch && typeof message.batch === "object"
-    ? { overrides: message.batch.overrides || null, campi: message.batch.campi || null, modello: message.batch.modello || null }
+    ? { overrides: message.batch.overrides || null, campi: message.batch.campi || null, modello: message.batch.modello || null, intervalMin: message.batch.intervalMin ?? null }
     : null;
-  const r = C.aggiungi(coda, (message.items || []).slice(0, MAX_ID_PER_MESSAGGIO), {
+  const filtro = filtraBloccati((message.items || []).slice(0, MAX_ID_PER_MESSAGGIO), await bloccatiPerAggiunta(coda));
+  const r = C.aggiungi(coda, filtro.ammessi, {
     dove: message.dove === "cima" ? "cima" : "fondo",
     batch,
     batchId: message.batchId != null ? String(message.batchId) : null,
   });
   if (r.aggiunti.length || r.riattivati.length) await scriviCoda(coda);
-  return { ok: r.ok, aggiunti: r.aggiunti, riattivati: r.riattivati, rifiutati: r.rifiutati, batch: r.batch, error: r.ok ? undefined : r.motivo };
+  const rifiutati = [...filtro.rifiutati, ...(r.rifiutati || [])];
+  return { ok: r.ok, aggiunti: r.aggiunti, riattivati: r.riattivati, rifiutati, batch: r.batch, error: r.ok ? undefined : r.motivo };
 }
 
 /** Nuove regole per gli articoli in attesa di una batch. */
 async function modificaBatchCoda(coda, message) {
   if (!coda?.running) return { ok: false, motivo: "Nessuna coda attiva." };
   if (coda.stopDopoCorrente) return { ok: false, motivo: "La sessione si sta chiudendo." };
-  const r = C.modificaBatch(coda, String(message.batchId || ""), { overrides: message.overrides || null, campi: message.campi || null, modello: message.modello || null });
+  const r = C.modificaBatch(coda, String(message.batchId || ""), { overrides: message.overrides || null, campi: message.campi || null, modello: message.modello || null, intervalMin: message.intervalMin ?? null });
   if (r.ok) await scriviCoda(coda);
   return r;
 }
@@ -1432,13 +1469,13 @@ async function rimettiPerBatch(coda, origine, articoli, extra = {}) {
     if (!gruppi.has(k)) gruppi.set(k, { b, voci: [] });
     gruppi.get(k).voci.push({ id: a.id, title: a.title, thumb: a.thumb, price: a.price });
   }
-  const regole = (b) => ({ overrides: b?.overrides ?? origine.overrides ?? null, campi: b?.campi || null, modello: b?.modello ?? origine.modello ?? null });
+  const regole = (b) => ({ overrides: b?.overrides ?? origine.overrides ?? null, campi: b?.campi || null, modello: b?.modello ?? origine.modello ?? null, intervalMin: b?.intervalMin ?? origine.intervalMin ?? null });
   let risultato = null;
   for (const { b, voci } of gruppi.values()) {
     const attiva = coda?.running ? coda : null;
     const r = attiva
       ? await aggiungiAllaCoda(attiva, { items: voci, dove: "fondo", batch: regole(b) })
-      : await avviaCoda(coda, { items: voci, intervalMin: origine.intervalMin, ...regole(b) });
+      : await avviaCoda(coda, { items: voci, ...regole(b), intervalMin: b?.intervalMin ?? origine.intervalMin });
     if (!attiva && r.ok) coda = C.migra(await leggiCoda());
     risultato = risultato
       ? { ...risultato, ok: risultato.ok || r.ok, aggiunti: [...(risultato.aggiunti || []), ...(r.aggiunti || [])], rifiutati: [...(risultato.rifiutati || []), ...(r.rifiutati || [])] }

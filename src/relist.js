@@ -691,6 +691,7 @@
       pubblica = true;
     }
     VR.controllaProprieta(source, { pubblica });
+    VR.controllaVendibile(source);
 
     // L'editor puo' riordinare, togliere, ruotare e ritagliare: arriva come elenco.
     // Senza editor, tutte le foto nell'ordine originale e senza modifiche.
@@ -816,6 +817,22 @@
    * risultare, ed essere tu. Nel dubbio ci si ferma. Vale per il bottone, la
    * coda e il ripristino, che passano tutti da relist().
    */
+  /**
+   * 2.4.0: un annuncio venduto (o chiuso) non si ripubblica ne' si modifica,
+   * neanche se era in coda da prima: si salta, senza fermare la coda. Lo dice
+   * Vinted stesso nei dati dell'articolo, riletti al momento.
+   */
+  VR.controllaVendibile = (source) => {
+    const chiusura = String(source?.item_closing_action ?? source?.closing_action ?? "").toLowerCase();
+    const venduto = source?.is_sold === true || source?.is_closed === true || /sold|vendut/.test(chiusura) ||
+      String(source?.status ?? "").toLowerCase() === "sold";
+    if (venduto) {
+      const e = new Error("Venduto: un annuncio venduto non si ripubblica né si modifica.");
+      e.venduto = true;
+      throw e;
+    }
+  };
+
   VR.controllaProprieta = (source, { pubblica = false } = {}) => {
     const me = VR.settings.userId != null ? String(VR.settings.userId) : null;
     const proprietario = source?.user_id ?? source?.user?.id ?? null;

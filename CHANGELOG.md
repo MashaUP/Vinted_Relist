@@ -6,6 +6,39 @@ ultime tre leggendo questo file dall'estensione installata.
 Numerazione `x.y.z`: **x** quando cambia il modo di usarla o i dati salvati in modo non
 compatibile, **y** per funzioni nuove, **z** per sole correzioni.
 
+## 2.4.0 · Intervallo per batch, venduti, marcatori, zip automatico delle release (6 novembre 2026)
+
+Minor: funzioni nuove retrocompatibili. Code, archivio, inventario e impostazioni restano come
+sono; le batch create prima prendono l'intervallo della loro coda.
+
+### Novità
+- **Intervallo per batch.** Nel Centro di modifica di una batch nuova c'è «Intervallo tra gli
+  articoli»: è l'attesa prima di ognuno dei suoi articoli. È proposto uguale a quello della batch
+  precedente, si cambia anche dopo (dashboard › batch › Modifica). Le altre batch tengono il loro,
+  l'attesa già in corso non si azzera mai (né aggiungendo, né modificando, né togliendo articoli),
+  pausa e riavvio lo conservano. La dashboard mostra «Intervallo: N min» per ogni batch, la stima
+  della fine li somma.
+- **Marcatori sulle card.** Ogni articolo che è nella coda mostra il suo stato (In coda · #2,
+  In attesa · parte verso le 14:20, In elaborazione, Da verificare, Completato, Errore,
+  Annullato), letto solo dallo stato salvato della coda: resta dopo un ricaricamento e si aggiorna
+  da solo. In coda, in lavorazione e da verificare spengono la casella e bloccano «Ripubblica».
+- **Zip allegato in automatico alle release di GitHub** (`.github/workflows/release.yml`): vedi
+  il README, «Pubblicare una versione».
+
+### Corretto
+- **Articoli venduti:** le card con «Venduto» non hanno più casella né bottoni, e non c'è modo di
+  ripubblicarli o modificarli: se Vinted dice che è venduto (anche quando la card non lo mostra
+  ancora) l'operazione si ferma prima di caricare qualunque foto. Un articolo venduto mentre è in
+  coda viene saltato e la coda continua. I venduti non contano nel valore dell'armadio e non si
+  rimettono in coda.
+- **Ripubblica e Modifica nel pannello delle notifiche di Vinted:** le notifiche contengono link
+  ai tuoi articoli, e l'estensione li trattava come card dell'armadio. Ora una card deve essere nel
+  contenuto principale della pagina, con una foto, e fuori da header, menu, finestre, notifiche e
+  popup: lì non compare più niente, neanche nei pannelli che si aprono dopo.
+- **Doppioni fra batch:** un articolo già in attesa, in lavorazione o da verificare (anche in una
+  sessione passata) non entra in un'altra batch, nemmeno con due aggiunte nello stesso momento; il
+  rifiuto dice il motivo.
+
 ## 2.3.1 · Pagina da ricaricare dopo un aggiornamento (4 novembre 2026)
 
 Patch: una correzione.

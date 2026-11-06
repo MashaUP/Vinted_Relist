@@ -134,6 +134,8 @@
         firstSeen: prima.firstSeen || ora,
         lastSeen: ora,
         series: serie.slice(-MAX_PUNTI_SERIE),
+        // 2.4.0: la card mostra il bollino «Venduto» di Vinted
+        ...(letto?.venduto === true ? { venduto: true, vendutoAt: prima.vendutoAt || ora } : letto?.venduto === false ? { venduto: false } : {}),
       };
       cambiati++;
     }

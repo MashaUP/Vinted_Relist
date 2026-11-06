@@ -44,12 +44,12 @@ global.chrome = {
     get: async (id) => ({ id }),
     sendMessage: async (_id, m) => {
       inviati.push(m);
-      if (m.type === 'vr:ping') return { build: '2.3.1', manifest: '2.3.1', pagina: 'armadio-mio', utenteNoto: true, lavorazioni: 1 };
+      if (m.type === 'vr:ping') return { build: '2.4.0', manifest: '2.4.0', pagina: 'armadio-mio', utenteNoto: true, lavorazioni: 1 };
       if (m.type === 'vr:relistStatus') return { inCorso: true, passo: 'Foto' };
       return { accepted: true };
     },
   },
-  runtime: { onMessage: { addListener: (f) => L.message.push(f) }, getURL: (p) => p, getManifest: () => ({ version: '2.3.1', permissions: ['storage', 'webRequest', 'alarms', 'notifications', 'idle', 'downloads'], host_permissions: ['https://www.vinted.it/*'] }),
+  runtime: { onMessage: { addListener: (f) => L.message.push(f) }, getURL: (p) => p, getManifest: () => ({ version: '2.4.0', permissions: ['storage', 'webRequest', 'alarms', 'notifications', 'idle', 'downloads'], host_permissions: ['https://www.vinted.it/*'] }),
     onStartup: { addListener() {} }, onInstalled: { addListener() {} } },
   webRequest: { onSendHeaders: { addListener() {} }, onBeforeRequest: { addListener() {} } },
 };
@@ -63,7 +63,7 @@ const calma = () => new Promise((r) => setTimeout(r, 40));
 const art = (...ids) => ids.map((id) => ({ id: String(id), title: `Titolo privato ${id}`, price: 10 }));
 const q = () => store.vrQueue;
 const a = (id) => q().items.find((i) => i.id === String(id));
-const permesso = (id, extra = {}) => invia({ type: 'vr:relistConfirm', itemId: String(id), avviatoAt: a(id).startedAt, traccia: { fotoIds: ['1'] }, build: '2.3.1', ...extra });
+const permesso = (id, extra = {}) => invia({ type: 'vr:relistConfirm', itemId: String(id), avviatoAt: a(id).startedAt, traccia: { fotoIds: ['1'] }, build: '2.4.0', ...extra });
 const out = []; const ok = (n, c) => out.push(`  ${c ? 'OK  ' : 'FAIL'} ${n}`);
 
 (async () => {
@@ -111,9 +111,9 @@ const out = []; const ok = (n, c) => out.push(`  ${c ? 'OK  ' : 'FAIL'} ${n}`);
   store.showOnOtherProfiles = true;
   const rep = await invia({ type: 'vr:diagnosi' });
   const testo = JSON.stringify(rep);
-  ok('5. report: formato, versioni dei tre componenti, permessi', rep.formato === 'vinted-relist-diagnosi' && rep.versioni.serviceWorker === '2.3.1' && rep.versioni.codaLogica === '2.3.1' && rep.permessi.mancanti.length === 0 && rep.permessi.hostRichiesti === 1);
+  ok('5. report: formato, versioni dei tre componenti, permessi', rep.formato === 'vinted-relist-diagnosi' && rep.versioni.serviceWorker === '2.4.0' && rep.versioni.codaLogica === '2.4.0' && rep.permessi.mancanti.length === 0 && rep.permessi.hostRichiesti === 1);
   ok('   spazio usato e gruppi di chiavi (solo misure)', rep.archivio.totale > 0 && rep.archivio.gruppi['vrBackup:*'].chiavi === 1 && rep.copieSicurezza === 1);
-  ok('   struttura della coda, sveglie, schede che rispondono e con quale codice', rep.coda.schema === 3 && rep.coda.batch === 1 && rep.sveglie.length > 0 && rep.schede.dettaglio[0].build === '2.3.1' && rep.schede.dettaglio[0].pagina === 'armadio-mio');
+  ok('   struttura della coda, sveglie, schede che rispondono e con quale codice', rep.coda.schema === 3 && rep.coda.batch === 1 && rep.sveglie.length > 0 && rep.schede.dettaglio[0].build === '2.4.0' && rep.schede.dettaglio[0].pagina === 'armadio-mio');
   ok('   dati di versioni vecchie segnalati', rep.datiVecchi.includes('showOnOtherProfiles'));
   ok('   errori recenti con i codici', rep.erroriRecenti.some((e) => e.codice === 'salvataggio') && rep.erroriRecenti.some((e) => e.codice === 'versione'));
   ok('   niente token, id utente, titoli', !/SEGRETO-CSRF|anon-xyz|129315368|Titolo privato/.test(testo) && rep.sessione.tokenCsrf === true);
@@ -140,20 +140,20 @@ const out = []; const ok = (n, c) => out.push(`  ${c ? 'OK  ' : 'FAIL'} ${n}`);
   await programmaControlloAggiornamenti(); await calma();
   ok('8. sveglia degli aggiornamenti ogni 12 ore', alarms['vr:updateCheck']?.periodInMinutes === 720);
   const versione = (v) => ({ status: 200, corpo: { version: v, date: '2026-11-04', zip: `Vinted_Relist-${v}.zip`, notes: ['Novità'] } });
-  risposteFetch = [versione('2.4.0')];
+  risposteFetch = [versione('2.5.0')];
   await sveglia('vr:updateCheck'); await calma();
-  ok('   2.4.0 pubblicata: una notifica', notifiche.filter((n) => /2\.4\.0/.test(n.title)).length === 1 && store.updateNotified.versione === '2.4.0');
-  store.updateCheck.at = 0; risposteFetch = [versione('2.4.0')];
-  await sveglia('vr:updateCheck'); await calma();
-  store.updateCheck.at = 0; risposteFetch = [versione('2.4.0')];
-  await sveglia('vr:updateCheck'); await calma();
-  ok('   2.4.0 di nuovo, due volte: nessuna nuova notifica', notifiche.filter((n) => /2\.4\.0/.test(n.title)).length === 1);
-  store.updateCheck.at = 0; risposteFetch = [versione('2.5.0-beta.1')];
-  await sveglia('vr:updateCheck'); await calma();
-  ok('   prerelease: nessuna notifica a chi ha una versione stabile', !notifiche.some((n) => /beta/.test(n.title)));
+  ok('   2.5.0 pubblicata: una notifica', notifiche.filter((n) => /2\.5\.0/.test(n.title)).length === 1 && store.updateNotified.versione === '2.5.0');
   store.updateCheck.at = 0; risposteFetch = [versione('2.5.0')];
   await sveglia('vr:updateCheck'); await calma();
-  ok('   2.5.0: nuova notifica', notifiche.filter((n) => /2\.5\.0/.test(n.title)).length === 1 && store.updateNotified.versione === '2.5.0');
+  store.updateCheck.at = 0; risposteFetch = [versione('2.5.0')];
+  await sveglia('vr:updateCheck'); await calma();
+  ok('   2.5.0 di nuovo, due volte: nessuna nuova notifica', notifiche.filter((n) => /2\.5\.0/.test(n.title)).length === 1);
+  store.updateCheck.at = 0; risposteFetch = [versione('2.6.0-beta.1')];
+  await sveglia('vr:updateCheck'); await calma();
+  ok('   prerelease: nessuna notifica a chi ha una versione stabile', !notifiche.some((n) => /beta/.test(n.title)));
+  store.updateCheck.at = 0; risposteFetch = [versione('2.6.0')];
+  await sveglia('vr:updateCheck'); await calma();
+  ok('   2.6.0: nuova notifica', notifiche.filter((n) => /2\.6\.0/.test(n.title)).length === 1 && store.updateNotified.versione === '2.6.0');
   const prima = notifiche.length;
   risposteFetch = [];
   await sveglia('vr:updateCheck'); await calma();

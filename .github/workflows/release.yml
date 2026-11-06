@@ -1,0 +1,58 @@
+# Quando pubblichi una release su GitHub, questo workflow crea lo zip
+# dell'estensione e lo allega alla release. Rilanciarlo (o modificare la
+# release) sostituisce lo zip, non ne aggiunge un secondo.
+name: Zip della release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag della release a cui allegare lo zip (es. v2.4.0)"
+        required: true
+      salta_test:
+        description: "Allega lo zip anche se i test falliscono"
+        type: boolean
+        default: false
+
+# Solo quello che serve: leggere il codice e allegare un file alla release.
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  zip:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - name: Codice della release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Test
+        if: ${{ !inputs.salta_test }}
+        working-directory: tests
+        run: |
+          npm install --no-audit --no-fund --ignore-scripts
+          node run.js
+
+      - name: Zip (manifest nella radice, solo i file dell'estensione)
+        id: zip
+        run: bash scripts/pacchetto.sh "$TAG" "$RUNNER_TEMP/dist"
+
+      - name: Allega alla release (sostituisce uno zip con lo stesso nome)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$TAG" "${{ steps.zip.outputs.percorso }}" --clobber --repo "$GITHUB_REPOSITORY"
+          echo "Allegato ${{ steps.zip.outputs.nome }} alla release $TAG" >> "$GITHUB_STEP_SUMMARY"

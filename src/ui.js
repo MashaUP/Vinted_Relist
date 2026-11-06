@@ -125,10 +125,13 @@
     });
     VR.selection.registra(itemId, pick);
 
+    // 2.4.0: marcatore dello stato in coda (lo aggiorna queue.js dallo stato salvato della coda).
+    const marcatore = h("span", { class: "vr-bar__mark", hidden: true, role: "status" });
     const bar = h(
       "div",
-      { class: "vr-bar" },
+      { class: "vr-bar", dataset: { vrBar: String(itemId) } },
       h("div", { class: "vr-bar__row" }, pick, relistButton, editButton),
+      marcatore,
       label
     );
 
@@ -166,6 +169,12 @@
       // Ricontrollo al clic: solo nel tuo armadio o sulla pagina di un tuo annuncio.
       if (!VR.puoAgireSu?.(itemId)) {
         stato("Solo sui tuoi annunci, dal tuo armadio.", "error");
+        return Promise.resolve();
+      }
+      // 2.4.0: gia' in coda (o da verificare): ripubblicarlo a mano creerebbe un doppione.
+      const inCoda = VR.statoInCoda?.(itemId);
+      if (inCoda) {
+        stato(inCoda.bloccante, "warn");
         return Promise.resolve();
       }
       setBusy(true);

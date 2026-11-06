@@ -111,6 +111,24 @@
   color: var(--vr-error);
 }
 
+/* 2.4.0: stato in coda dell'articolo, dallo stato salvato della coda */
+.vr-bar__mark {
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #e6f2f3;
+  color: #0b5b63;
+}
+.vr-bar__mark[hidden] { display: none; }
+.vr-bar[data-vr-stato="working"] .vr-bar__mark { background: #e3effd; color: #1d4f91; }
+.vr-bar[data-vr-stato="verify"] .vr-bar__mark,
+.vr-bar[data-vr-stato="interrupted"] .vr-bar__mark { background: #fff4e0; color: #8a4a00; }
+.vr-bar[data-vr-stato="error"] .vr-bar__mark { background: #fdecec; color: #9b1c1c; }
+.vr-bar[data-vr-stato="done"] .vr-bar__mark { background: #e8f5ec; color: #1f6b3a; }
+
 .vr-bar--busy .vr-bar__status {
   color: var(--vr-teal);
 }

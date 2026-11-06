@@ -24,18 +24,20 @@ un intervallo tra uno e l'altro.
 |---|---|
 | Distribuzione | zip su GitHub, da caricare come estensione non pacchettizzata. **Non è sul Chrome Web Store** (vedi [perché](docs/SVILUPPO.md#11-chrome-web-store-rischi)) |
 | Verificato su Vinted reale | la ripubblicazione, nelle versioni precedenti usate dall'autore |
-| Verificato solo nei test | le novità della 2.1 e della 2.2 (code dinamiche, esiti incerti, batch, «Ripubblica ora», valore dell'armadio): oltre 600 controlli automatici e prove in Chromium con l'estensione caricata su un Vinted finto, senza pubblicazioni vere |
+| Verificato solo nei test | le novità dalla 2.1 alla 2.4 (code dinamiche, esiti incerti, batch, intervallo per batch, venduti, marcatori, «Ripubblica ora», valore dell'armadio): oltre 700 controlli automatici e prove in Chromium con l'estensione caricata su un Vinted finto, senza pubblicazioni vere |
 | Dipendenze | nessuna libreria, nessun passaggio di build |
 
 Prima di usarla su tanti articoli, provala su uno a cui tieni poco.
 
 ## Installazione
 
-1. Scarica dal repository lo zip **`Vinted_Relist-2.3.1.zip`** (nella radice).
+1. Scarica lo zip **`Vinted_Relist-2.4.0.zip`**: dalla pagina della release su GitHub (tra gli
+   allegati) o dalla radice del repository.
 2. Estrailo **in una cartella stabile** (non nella cartella temporanea che Windows apre con il
-   doppio clic): ottieni la cartella `Vinted_Relist`.
+   doppio clic). La cartella giusta è quella che contiene `manifest.json`: con lo zip della
+   radice è `Vinted_Relist`, con quello della release è la cartella in cui l'hai estratto.
 3. Apri `brave://extensions` (o `chrome://extensions`) e attiva **Modalità sviluppatore**.
-4. **Carica estensione non pacchettizzata** › scegli la cartella `Vinted_Relist`.
+4. **Carica estensione non pacchettizzata** › scegli la cartella con `manifest.json`.
 5. Apri il tuo armadio su Vinted da loggato e ricarica la pagina: sulle card compaiono i bottoni.
 
 ### Aggiornare
@@ -76,6 +78,17 @@ li divide in pronti, con avvisi e bloccati › **Avvia**.
 - Titolo con contatore, descrizione, prezzo, colore; controlli in tempo reale (errori, avvisi e
   note) e punteggio di completezza; anteprima di cosa cambia; bozza salvata da sola.
 - **Scarica le foto** originali, nella qualità più alta, in Download › Vinted Relist.
+
+### Novità 2.4
+- **Intervallo per batch:** ogni batch aggiunta con il Centro di modifica ha il suo «Intervallo tra
+  gli articoli» (proposto uguale alla batch precedente). L'attesa in corso non si azzera mai.
+- **Marcatori sulle card:** In coda, In attesa, In elaborazione, Da verificare, Completato,
+  Errore, Annullato, dallo stato salvato della coda. Chi è in coda o da verificare non si può
+  selezionare né ripubblicare a mano: niente doppioni, neanche fra batch diverse.
+- **Venduti:** nessun bottone sulle card «Venduto», nessuna ripubblicazione o modifica; in coda
+  vengono saltati senza fermarla.
+- **Notifiche di Vinted pulite:** i bottoni compaiono solo sulle card dell'armadio, non nel
+  pannello delle notifiche, nei menu o nelle finestre.
 
 ### Novità 2.3
 - **Coda che non si ferma più in silenzio:** se il permesso di inviare a Vinted non arriva, il
@@ -342,10 +355,37 @@ src/impostazioni.js      validazione, backup e ripristino delle impostazioni (fu
 src/utils.js, styles.css impostazioni predefinite, avvisi, stile dentro Vinted
 src/page-bridge.js       strumenti di sola lettura nella console (facoltativi)
 tests/                   test automatici e valida-link.js
+scripts/pacchetto.sh     crea lo zip dell'estensione e lo controlla (usato dal workflow delle release)
+.github/workflows/       release.yml: zip allegato in automatico alle release
 ```
 
 Tecnologie: JavaScript senza framework, Chrome Manifest V3 (service worker, `chrome.storage`,
 `chrome.alarms`), HTML e CSS; test con Node e jsdom.
+
+## Pubblicare una versione
+
+Lo zip per gli utenti lo crea GitHub da solo quando pubblichi una release
+(`.github/workflows/release.yml`):
+
+1. Aggiorna la versione in `manifest.json`, `version.json` (anche `zip`), `src/utils.js`
+   (`VR.BUILD`) e `CHANGELOG.md`; fai il commit.
+2. Su GitHub › **Releases** › **Draft a new release**: tag `v` + versione (es. `v2.4.0`),
+   titolo e note › **Publish release**.
+3. Il workflow controlla che il tag coincida con `manifest.json` e `version.json`, esegue i test,
+   crea `Vinted_Relist-<versione>.zip` (con `manifest.json` nella radice, solo i file
+   dell'estensione: niente `.git`, `.github`, `tests`, `docs`, `scripts`, `node_modules`, zip
+   vecchi) e lo allega alla release. Se fallisce, la release resta senza zip e il motivo è nella
+   scheda **Actions**.
+4. Rilanciarlo non crea doppioni: lo zip con lo stesso nome viene sostituito. Si può rilanciare a
+   mano da **Actions** › «Zip della release» › **Run workflow**, indicando il tag (e, solo se serve,
+   «Allega lo zip anche se i test falliscono»).
+
+Permessi del workflow: solo `contents: write` (serve per allegare il file), con il token
+temporaneo di GitHub; nessun segreto da configurare. Lo stesso zip si crea in locale con
+`scripts/pacchetto.sh [v2.4.0] [cartella]`.
+
+«Cerca aggiornamento» per ora legge `version.json` e scarica lo zip dalla radice del repository:
+finché resta così, carica anche lì lo zip della versione nuova.
 
 ## Link del progetto
 

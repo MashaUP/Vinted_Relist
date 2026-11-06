@@ -11,7 +11,8 @@
  *   Articolo: { id, title, thumb, price, status, error, categoria, sicuro,
  *     motivoSalto, tentativi, addedAt, startedAt, finishedAt, annullaRichiesto,
  *     batch, regole: {batch, rev}, scheda, fase, invioAt, traccia, attendeEsito, nuovoId }
- *   Batch (2.2.0): { id: "b1", n, nome, overrides, campi, modello, creataAt, rev, storico }
+ *   Batch (2.2.0): { id: "b1", n, nome, overrides, campi, modello, creataAt, rev, storico,
+ *     intervalMin (2.4.0: minuti di attesa prima di ogni suo articolo) }
  *     Le regole (overrides) stanno sulla batch, non sulla coda: ogni articolo
  *     usa quelle della SUA batch. coda.overrides resta, per compatibilita', uguale
  *     a quelle della prima batch.
@@ -26,7 +27,7 @@
  */
 (function (root) {
   /** Versione del codice di questo file: la diagnostica la confronta con pagina e service worker. */
-  const VERSIONE = "2.3.1";
+  const VERSIONE = "2.4.0";
 
   const ETICHETTE = {
     pending: "In attesa",
@@ -113,7 +114,13 @@
   const MAX_BATCH = 50;
   const MAX_STORICO_BATCH = 10;
 
-  function creaBatch(coda, { overrides = null, campi = null, modello = null, nome = null } = {}, ora = Date.now()) {
+  /** Minuti tra un articolo e il successivo: 1–240, come per la sessione. */
+  const minutiValidi = (v) => {
+    const n = Math.round(Number(v));
+    return Number.isFinite(n) && n >= 1 ? Math.min(240, n) : null;
+  };
+
+  function creaBatch(coda, { overrides = null, campi = null, modello = null, nome = null, intervalMin = null } = {}, ora = Date.now()) {
     coda.batches = coda.batches || [];
     const n = Math.max(coda.batchSeq || 0, coda.batches.length) + 1;
     coda.batchSeq = n;
@@ -124,6 +131,8 @@
       overrides: pulisciOverrides(overrides),
       campi: pulisciCampi(campi),
       modello: modello ? String(modello).slice(0, 60) : null,
+      // Ogni batch ha il suo intervallo; se non lo dici, quello della sessione al momento.
+      intervalMin: minutiValidi(intervalMin) ?? minutiValidi(coda.intervalMin) ?? 20,
       creataAt: ora,
       rev: 1,
       storico: [],
@@ -146,6 +155,21 @@
     return o ? clona(o) : {};
   }
 
+  /**
+   * Quanto aspettare prima di pubblicare questo articolo: l'intervallo della
+   * SUA batch (2.4.0). Una coda o una batch di una versione precedente senza
+   * intervallo proprio usa quello della sessione.
+   */
+  function intervalloPer(coda, id) {
+    const b = batchDi(coda, trova(coda, id));
+    return minutiValidi(b?.intervalMin) ?? minutiValidi(coda?.intervalMin) ?? 20;
+  }
+  /** L'attesa dopo un articolo: quella del prossimo da pubblicare (della sua batch). */
+  function intervalloProssimo(coda) {
+    const p = prossimo(coda);
+    return p ? intervalloPer(coda, p.id) : minutiValidi(coda?.intervalMin) ?? 20;
+  }
+
   /** Stato di ogni batch, per l'elenco raggruppato e il riepilogo. */
   function riepilogoBatch(coda) {
     return (coda?.batches || []).map((b) => {
@@ -157,7 +181,8 @@
         : r.pending ? (problemi ? "in attesa, con problemi" : "in attesa")
         : !totale ? "vuota"
         : problemi ? "conclusa, con problemi" : "conclusa";
-      return { id: b.id, n: b.n, nome: b.nome, overrides: b.overrides, campi: b.campi, modello: b.modello, rev: b.rev, creataAt: b.creataAt, conteggi: r, totale, problemi, stato };
+      return { id: b.id, n: b.n, nome: b.nome, overrides: b.overrides, campi: b.campi, modello: b.modello, rev: b.rev, creataAt: b.creataAt,
+        intervalMin: minutiValidi(b.intervalMin) ?? minutiValidi(coda.intervalMin) ?? 20, conteggi: r, totale, problemi, stato };
     });
   }
 
@@ -166,13 +191,14 @@
    * attesa: quello in elaborazione ha gia' ricevuto le sue, i conclusi restano
    * registrati con la revisione che hanno usato (a.regole).
    */
-  function modificaBatch(coda, batchId, { overrides = null, campi = null, modello = null } = {}, ora = Date.now()) {
+  function modificaBatch(coda, batchId, { overrides = null, campi = null, modello = null, intervalMin = null } = {}, ora = Date.now()) {
     const b = trovaBatch(coda, batchId);
     if (!b) return { ok: false, motivo: "Batch non trovata in questa coda." };
     const suoi = (coda.items || []).filter((a) => batchDi(coda, a)?.id === b.id);
     const inAttesaB = suoi.filter((a) => a.status === "pending");
     if (!inAttesaB.length) return { ok: false, motivo: "Questa batch non ha articoli in attesa: le regole nuove non avrebbero niente a cui applicarsi." };
-    b.storico = [...(b.storico || []), { rev: b.rev, overrides: b.overrides, campi: b.campi, modello: b.modello, finoA: ora }].slice(-MAX_STORICO_BATCH);
+    b.storico = [...(b.storico || []), { rev: b.rev, overrides: b.overrides, campi: b.campi, modello: b.modello, intervalMin: b.intervalMin ?? null, finoA: ora }].slice(-MAX_STORICO_BATCH);
+    if (minutiValidi(intervalMin)) b.intervalMin = minutiValidi(intervalMin);
     b.overrides = pulisciOverrides(overrides);
     b.campi = pulisciCampi(campi);
     b.modello = modello ? String(modello).slice(0, 60) : null;
@@ -268,7 +294,7 @@
       items: articoli,
       log: [],
     };
-    const b = creaBatch(coda, { overrides, campi, modello }, ora);
+    const b = creaBatch(coda, { overrides, campi, modello, intervalMin: coda.intervalMin }, ora);
     for (const a of articoli) a.batch = b.id;
     registra(coda, "creata", `Coda creata con ${articoli.length} articoli${modello ? ` (modello «${coda.modello}»)` : ""}.`, { batch: b.id }, ora);
     return { coda, saltati };
@@ -282,7 +308,7 @@
     if (Array.isArray(c.batches) && c.batches.length) return c;
     c.batches = [];
     c.batchSeq = 0;
-    const b = creaBatch(c, { overrides: c.overrides || null, modello: c.modello || null }, c.startedAt || Date.now());
+    const b = creaBatch(c, { overrides: c.overrides || null, modello: c.modello || null, intervalMin: c.intervalMin }, c.startedAt || Date.now());
     for (const a of c.items || []) if (!a.batch) a.batch = b.id;
     return c;
   }
@@ -339,9 +365,9 @@
         case "done": return { id, esito: "rifiuta", motivo: "già ripubblicato in questa sessione: quell'annuncio non esiste più" };
         case "verify": return { id, esito: "rifiuta", motivo: "esito da verificare: conferma prima se è stato pubblicato" };
         case "skipped":
-          return esistente.motivoSalto === "gia-ripubblicato"
-            ? { id, esito: "rifiuta", motivo: "già ripubblicato a mano dopo l'avvio" }
-            : { id, esito: "riattiva", motivo: "era stato saltato" };
+          if (esistente.motivoSalto === "gia-ripubblicato") return { id, esito: "rifiuta", motivo: "già ripubblicato a mano dopo l'avvio" };
+          if (esistente.motivoSalto === "venduto") return { id, esito: "rifiuta", motivo: "venduto: non si ripubblica" };
+          return { id, esito: "riattiva", motivo: "era stato saltato" };
         case "error":
           return esistente.sicuro === "no"
             ? { id, esito: "rifiuta", motivo: `riprovare non serve: ${esistente.error || "errore definitivo"}` }
@@ -406,7 +432,7 @@
       else if (coda.batches.length >= MAX_BATCH) destinazione = coda.batches[coda.batches.length - 1];
       else {
         const prima = coda.batches[0];
-        destinazione = creaBatch(coda, batch || { overrides: prima?.overrides, campi: prima?.campi, modello: prima?.modello }, ora);
+        destinazione = creaBatch(coda, batch || { overrides: prima?.overrides, campi: prima?.campi, modello: prima?.modello, intervalMin: prima?.intervalMin }, ora);
       }
       for (const a of nuovi) a.batch = destinazione.id;
       // Un articolo rimesso in coda con regole scelte adesso usa quelle: e' un tentativo nuovo.
@@ -840,6 +866,7 @@
     if (e.tecnico) {
       return { categoria: "comunicazione", etichetta: "Problema dell'estensione", cosaFare: e.cosaFare || "Niente è stato inviato a Vinted. Leggi il motivo, poi riprendi la coda; se si ripete, genera il report diagnostico (Salute).", sicuroRiprovare: "si" };
     }
+    if (e.venduto) return { categoria: "venduto", etichetta: "Venduto", cosaFare: "Niente: un annuncio venduto non si ripubblica.", sicuroRiprovare: "no" };
     if (e.nonTuo) return { categoria: "non-consentito", etichetta: "Non è un tuo annuncio", cosaFare: "Niente: l'estensione lavora solo sugli annunci del tuo armadio.", sicuroRiprovare: "no" };
     if (e.duplicato) return { categoria: "in-uso", etichetta: "Già in lavorazione", cosaFare: "Era già in ripubblicazione dal bottone sulla card.", sicuroRiprovare: "no" };
     if (e.parziale) {
@@ -871,6 +898,7 @@
     rete: "Rete", interno: "Interno", incerto: "Esito incerto", annullato: "Annullato", "in-uso": "Già in lavorazione", verificato: "Verificato a mano",
     interrotto: "Interrotto prima dell'invio",
     comunicazione: "Problema dell'estensione",
+    venduto: "Venduto",
   };
 
   // -------------------------------------------------------- stima e salute
@@ -887,7 +915,6 @@
       .filter((i) => ["done", "error", "verify"].includes(i.status) && i.startedAt && i.finishedAt)
       .map((i) => i.finishedAt - i.startedAt);
     const media = durate.length ? durate.reduce((a, b) => a + b, 0) / durate.length : null;
-    const intervallo = (coda?.intervalMin || 20) * 60_000;
     const base = { trascorsoMs, campioni: durate.length, durataMediaMs: media, intervalMin: coda?.intervalMin || null };
 
     if (!coda?.running) return { ...base, rimanenteMs: 0, fineAlle: coda?.finishedAt || null, affidabile: true, testo: "Sessione conclusa." };
@@ -900,12 +927,14 @@
     let ms = 0;
     const c = corrente(coda);
     if (c) ms += Math.max(0, op - (ora - (c.startedAt || ora)));
-    let restanti = r.pending;
-    if (!c && restanti) {
+    // Ogni articolo in attesa con l'intervallo della sua batch (2.4.0).
+    const attesa = inAttesa(coda);
+    let da = 0;
+    if (!c && attesa.length) {
       ms += Math.max(0, (coda.nextAt || ora) - ora) + op;       // il prossimo parte a nextAt
-      restanti -= 1;
+      da = 1;
     }
-    ms += restanti * (intervallo + op);
+    for (const a of attesa.slice(da)) ms += intervalloPer(coda, a.id) * 60_000 + op;
 
     const affidabile = durate.length >= 2;
     const nota = affidabile
@@ -1046,7 +1075,7 @@
       modello: coda.modello || null,
       intervalMin: coda.intervalMin,
       overrides: coda.overrides || null,
-      batches: (coda.batches || []).map(({ id, n, nome, overrides, campi, modello, creataAt, rev, storico }) => ({ id, n, nome, overrides, campi, modello, creataAt, rev, storico: storico || [] })),
+      batches: (coda.batches || []).map(({ id, n, nome, overrides, campi, modello, creataAt, rev, storico, intervalMin }) => ({ id, n, nome, overrides, campi, modello, creataAt, rev, storico: storico || [], intervalMin: intervalMin ?? null })),
       conteggi: r,
       items: (coda.items || []).map(({ id, title, status, error, thumb, price, categoria, sicuro, motivoSalto, tentativi, addedAt, startedAt, finishedAt, batch, regole, fase, invioAt, traccia, attendeEsito, nuovoId, verificato }) =>
         ({ id: String(id), title: title || null, status, error: error || null, thumb: thumb || null, price: price ?? null,
@@ -1099,7 +1128,7 @@
         inizio: iso(sessione?.startedAt), fine: iso(sessione?.finishedAt), stato: sessione?.running ? sessione.state : "conclusa",
         intervalloMin: sessione?.intervalMin ?? null, modello: sessione?.modello || null, automatica: Boolean(sessione?.auto), note: sessione?.note || null,
         conteggi: conta(sessione),
-        batch: (sessione?.batches || []).map((b) => ({ id: b.id, nome: b.nome, regole: b.overrides || null, revisione: b.rev || 1, modello: b.modello || null })),
+        batch: (sessione?.batches || []).map((b) => ({ id: b.id, nome: b.nome, regole: b.overrides || null, revisione: b.rev || 1, modello: b.modello || null, intervalloMin: b.intervalMin ?? sessione.intervalMin ?? null })),
       },
       articoli: (sessione?.items || []).map((a, i) => ({
         ordine: i + 1, id: a.id, titolo: a.title, batch: a.batch || null, stato: a.status, nuovoId: a.nuovoId || null, errore: a.error || null, categoria: a.categoria || null,
@@ -1137,7 +1166,7 @@
     nuova, migra, registra, trova, corrente, prossimo, inAttesa, posizione, conta, daChiudere,
     valutaAggiunta, aggiungi, rimuovi, annullaCorrente, sposta, riordina, riprova, risolvi,
     avviaArticolo, concludiArticolo, classificaErrore, stima, salute,
-    pulisciOverrides, pulisciCampi, trovaBatch, batchDi, overridesDi, riepilogoBatch, modificaBatch,
+    pulisciOverrides, pulisciCampi, trovaBatch, batchDi, overridesDi, riepilogoBatch, modificaBatch, intervalloPer, intervalloProssimo,
     ripubblicaOra, rimettiDopoInterruzione, confermaInvio, assegnaScheda, annotaTraccia, esitoTardivo, valutaVerifica, esitoDaVerdetto, applicaVerifica,
     perArchivio, daRiprendere, esportaCSV, esportaJSON, resoconto,
   };
