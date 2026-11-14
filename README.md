@@ -402,6 +402,19 @@ Lo zip per gli utenti lo crea GitHub da solo quando pubblichi una release
    mano da **Actions** › «Zip della release» › **Run workflow**, indicando il tag (e, solo se serve,
    «Allega lo zip anche se i test falliscono»).
 
+**Annuncio su Discord (facoltativo).** Alla pubblicazione il workflow manda anche un messaggio a
+un canale Discord, con titolo e note della release e il link allo zip:
+
+1. Discord › canale › Modifica canale › Integrazioni › Webhook › copia l'URL del webhook
+   (inizia con `https://discord.com/api/webhooks/`).
+2. GitHub › repository › Settings › Secrets and variables › Actions › **New repository secret**:
+   nome `DISCORD_WEBHOOK_URL`, valore l'URL.
+3. Alla prossima release arriva il messaggio. Per provarlo subito: Actions › «Zip della release» ›
+   Run workflow, tag di una release esistente, spunta «Annuncia la release anche su Discord».
+
+Senza il secret il passo si salta con un avviso; un URL sbagliato o rifiutato da Discord dà un
+errore con il motivo (lo zip resta allegato). Il messaggio non fa ping a nessuno.
+
 Permessi del workflow: solo `contents: write` (serve per allegare il file), con il token
 temporaneo di GitHub; nessun segreto da configurare. Lo stesso zip si crea in locale con
 `scripts/pacchetto.sh [v2.5.1] [cartella]`.

@@ -14,6 +14,8 @@ Patch: nessun cambiamento per chi usa l'estensione.
   (jsdom) non ha `TextDecoder`, che il lettore ZIP di Vintory creava già al caricamento della
   pagina. Ora il lettore lo crea al primo uso e il test lo fornisce come fa il browser; aggiunto un
   controllo sul pannello «Ripubblica da Vintory».
+- Workflow: annuncio della release su Discord, se c'è il secret `DISCORD_WEBHOOK_URL` (vedi
+  README, «Pubblicare una versione»).
 - Workflow: `actions/checkout@v5` e `actions/setup-node@v5` (Node 24, niente più avviso di
   deprecazione) e `ubuntu-24.04` fisso invece di `ubuntu-latest`.
 

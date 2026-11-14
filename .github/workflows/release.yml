@@ -15,6 +15,10 @@ on:
         description: "Allega lo zip anche se i test falliscono"
         type: boolean
         default: false
+      annuncia_discord:
+        description: "Annuncia la release anche su Discord"
+        type: boolean
+        default: false
 
 # Solo quello che serve: leggere il codice e allegare un file alla release.
 permissions:
@@ -56,3 +60,42 @@ jobs:
         run: |
           gh release upload "$TAG" "${{ steps.zip.outputs.percorso }}" --clobber --repo "$GITHUB_REPOSITORY"
           echo "Allegato ${{ steps.zip.outputs.nome }} alla release $TAG" >> "$GITHUB_STEP_SUMMARY"
+
+      # Annuncio su Discord: solo se c'e' il secret DISCORD_WEBHOOK_URL (Settings › Secrets and
+      # variables › Actions). Alla pubblicazione di una release sempre; rilanciando a mano solo
+      # con «Annuncia la release anche su Discord». Titolo e note li prende dalla release.
+      - name: Annuncia su Discord
+        if: ${{ github.event_name == 'release' || inputs.annuncia_discord }}
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          GH_TOKEN: ${{ github.token }}
+          ZIP: ${{ steps.zip.outputs.nome }}
+        run: |
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+            echo "::warning::Secret DISCORD_WEBHOOK_URL non impostato: niente annuncio su Discord."
+            exit 0
+          fi
+          case "$DISCORD_WEBHOOK_URL" in
+            https://discord.com/api/webhooks/*|https://discordapp.com/api/webhooks/*|https://ptb.discord.com/api/webhooks/*|https://canary.discord.com/api/webhooks/*) ;;
+            *) echo "::error::DISCORD_WEBHOOK_URL non sembra l'URL di un webhook di Discord (deve iniziare con https://discord.com/api/webhooks/)."; exit 1 ;;
+          esac
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json name,body,url > release.json
+          jq -n --slurpfile r release.json --arg zip "$ZIP" --arg repo "$GITHUB_REPOSITORY" --arg tag "$TAG" '
+            ($r[0]) as $r |
+            {
+              username: "Vinted Relist",
+              allowed_mentions: { parse: [] },
+              embeds: [{
+                title: (($r.name // "") | if . == "" then "Vinted Relist \($tag)" else . end)[0:250],
+                url: $r.url,
+                description: ((($r.body // "") | if length > 3500 then .[0:3500] + "…" else . end)
+                  + "\n\n**Scarica:** [\($zip)](https://github.com/\($repo)/releases/download/\($tag)/\($zip))"),
+                color: 30594
+              }]
+            }' > discord.json
+          codice=$(curl -sS -o risposta.txt -w '%{http_code}' -H 'Content-Type: application/json' --data @discord.json "${DISCORD_WEBHOOK_URL%%\?*}?wait=true")
+          if [ "$codice" != "200" ] && [ "$codice" != "204" ]; then
+            echo "::error::Discord ha risposto $codice: $(head -c 300 risposta.txt)"
+            exit 1
+          fi
+          echo "Annunciata su Discord" >> "$GITHUB_STEP_SUMMARY"

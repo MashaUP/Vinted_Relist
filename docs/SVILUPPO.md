@@ -239,7 +239,8 @@ service worker (`valutaAggiunta` sotto `conCoda`), atomico anche con aggiunte si
 **Release.** `.github/workflows/release.yml` su `release: published` (e a mano con il tag):
 checkout del tag, test, `scripts/pacchetto.sh <tag>` (versione del tag = `manifest.json` =
 `version.json`, file del manifest e `importScripts` presenti, `manifest.json` nella radice dello
-zip, nessun file di sviluppo), `gh release upload --clobber`. Permessi: `contents: write`.
+zip, nessun file di sviluppo), `gh release upload --clobber`, poi (2.5.1) annuncio su Discord via webhook se c'è il secret
+`DISCORD_WEBHOOK_URL`: embed con nome, note e link allo zip, `allowed_mentions` vuoto. Permessi: `contents: write`.
 
 ### 2.5: Ripubblica da Vintory
 
