@@ -6,6 +6,17 @@ ultime tre leggendo questo file dall'estensione installata.
 Numerazione `x.y.z`: **x** quando cambia il modo di usarla o i dati salvati in modo non
 compatibile, **y** per funzioni nuove, **z** per sole correzioni.
 
+## 2.5.1 · Correzione per le release su GitHub (14 novembre 2026)
+
+Patch: nessun cambiamento per chi usa l'estensione.
+
+- **Zip della release:** il workflow si fermava ai test perché il DOM simulato della dashboard
+  (jsdom) non ha `TextDecoder`, che il lettore ZIP di Vintory creava già al caricamento della
+  pagina. Ora il lettore lo crea al primo uso e il test lo fornisce come fa il browser; aggiunto un
+  controllo sul pannello «Ripubblica da Vintory».
+- Workflow: `actions/checkout@v5` e `actions/setup-node@v5` (Node 24, niente più avviso di
+  deprecazione) e `ubuntu-24.04` fisso invece di `ubuntu-latest`.
+
 ## 2.5.0 · Ripubblica da Vintory (14 novembre 2026)
 
 Minor: funzione nuova, retrocompatibile. Coda, batch, archivio e impostazioni restano come sono.

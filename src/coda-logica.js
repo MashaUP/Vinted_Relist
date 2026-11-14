@@ -27,7 +27,7 @@
  */
 (function (root) {
   /** Versione del codice di questo file: la diagnostica la confronta con pagina e service worker. */
-  const VERSIONE = "2.5.0";
+  const VERSIONE = "2.5.1";
 
   const ETICHETTE = {
     pending: "In attesa",

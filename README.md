@@ -31,7 +31,7 @@ Prima di usarla su tanti articoli, provala su uno a cui tieni poco.
 
 ## Installazione
 
-1. Scarica lo zip **`Vinted_Relist-2.5.0.zip`**: dalla pagina della release su GitHub (tra gli
+1. Scarica lo zip **`Vinted_Relist-2.5.1.zip`**: dalla pagina della release su GitHub (tra gli
    allegati) o dalla radice del repository.
 2. Estrailo **in una cartella stabile** (non nella cartella temporanea che Windows apre con il
    doppio clic). La cartella giusta è quella che contiene `manifest.json`: con lo zip della
@@ -391,7 +391,7 @@ Lo zip per gli utenti lo crea GitHub da solo quando pubblichi una release
 
 1. Aggiorna la versione in `manifest.json`, `version.json` (anche `zip`), `src/utils.js`
    (`VR.BUILD`) e `CHANGELOG.md`; fai il commit.
-2. Su GitHub › **Releases** › **Draft a new release**: tag `v` + versione (es. `v2.5.0`),
+2. Su GitHub › **Releases** › **Draft a new release**: tag `v` + versione (es. `v2.5.1`),
    titolo e note › **Publish release**.
 3. Il workflow controlla che il tag coincida con `manifest.json` e `version.json`, esegue i test,
    crea `Vinted_Relist-<versione>.zip` (con `manifest.json` nella radice, solo i file
@@ -404,7 +404,7 @@ Lo zip per gli utenti lo crea GitHub da solo quando pubblichi una release
 
 Permessi del workflow: solo `contents: write` (serve per allegare il file), con il token
 temporaneo di GitHub; nessun segreto da configurare. Lo stesso zip si crea in locale con
-`scripts/pacchetto.sh [v2.5.0] [cartella]`.
+`scripts/pacchetto.sh [v2.5.1] [cartella]`.
 
 «Cerca aggiornamento» per ora legge `version.json` e scarica lo zip dalla radice del repository:
 finché resta così, carica anche lì lo zip della versione nuova.

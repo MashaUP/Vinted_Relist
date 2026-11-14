@@ -1,8 +1,9 @@
 {
-  "version": "2.5.0",
+  "version": "2.5.1",
   "date": "2026-11-14",
-  "zip": "Vinted_Relist-2.5.0.zip",
+  "zip": "Vinted_Relist-2.5.1.zip",
   "notes": [
+    "Correzione per GitHub: lo zip della release si allega di nuovo da solo (un test della dashboard non partiva su GitHub Actions)",
     "Ripubblica da Vintory: dalla dashboard scegli lo ZIP «Per Vinted_Relist» esportato da Vintory e rimetti in vendita anche gli annunci già eliminati da Vinted, senza eliminare niente",
     "Anteprima con foto, prezzo, stato su Vinted e avvisi: venduti esclusi, ancora online esclusi se non scegli la copia di Vintory",
     "Gli annunci scelti diventano una batch nuova con il Centro di modifica e il suo intervallo; foto in attesa in IndexedDB, mai nello spazio delle impostazioni",

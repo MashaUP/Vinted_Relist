@@ -33,6 +33,8 @@ async function apri({ hash = '', store = {}, risposte = {}, sessione = {}, linkR
   const html = sorgente.replace(/<script[^>]*><\/script>/g, '');
   const dom = new JSDOM(html, { runScripts: 'outside-only', url: `chrome-extension://abc/src/dashboard.html${hash}`, pretendToBeVisual: true });
   const w = dom.window;
+  // Come nel browser (jsdom non li ha): li usano il lettore ZIP e l'anteprima di Vintory (2.5)
+  w.TextDecoder = TextDecoder; w.TextEncoder = TextEncoder;
   const dati = { vintedOrigin: 'https://www.vinted.it', inventory: {}, qualityScores: {}, vrSnapshots: [], vrQueueArchive: [], ...store };
   const messaggi = [], schede = [], errori = [], scaricati = [], cambi = [];
   let appunti = '';
@@ -285,6 +287,7 @@ async function apri({ hash = '', store = {}, risposte = {}, sessione = {}, linkR
   const piede = (id) => p.d.querySelector(`.foot [data-link="${id}"]`);
   ok('piede: GitHub, Discord e «Segnala un problema» da links.json', piede('github').href === 'https://github.com/MashaUP/Vinted_Relist' && piede('discord').href === 'https://discord.gg/EPsbQCuAkx' && /issues\/new/.test(piede('bug-report').href));
   ok('   con etichetta visibile e icona decorativa', piede('discord').textContent.trim() === 'Discord' && piede('discord').querySelector('svg').getAttribute('aria-hidden') === 'true');
+  ok('2.5: pannello «Ripubblica da Vintory» con il suo pulsante e la scelta dello ZIP', Boolean(p.d.getElementById('vintoryApri')) && p.d.getElementById('vintoryFile')?.accept.includes('.zip') && typeof p.w.VintoryUI?.apri === 'function' && !p.errori.length);
   ok('   nessun URL scritto nell\'HTML della dashboard', !/https:\/\/(github\.com|discord|ko-fi)/.test(fs.readFileSync(SRC + 'dashboard.html', 'utf8')));
   ok('nessun errore JavaScript', !p.errori.length);
   p = await apri({ statoLink: 200, linkRemoto: { schemaVersion: 1, project: 'vinted-relist', revision: 3, links: { discord: { enabled: false } } } });

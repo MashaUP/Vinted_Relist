@@ -38,7 +38,7 @@ global.chrome = {
     get: async (id) => ({ id }),
     sendMessage: async (_id, msg) => { inviati.push(cp(msg)); return msg.type === 'vr:relistStatus' ? { inCorso: true } : { accepted: true }; },
   },
-  runtime: { onMessage: { addListener: (f) => L.message.push(f) }, getURL: (p) => p, getManifest: () => ({ version: '2.5.0' }),
+  runtime: { onMessage: { addListener: (f) => L.message.push(f) }, getURL: (p) => p, getManifest: () => ({ version: '2.5.1' }),
     onStartup: { addListener() {} }, onInstalled: { addListener() {} } },
   webRequest: { onSendHeaders: { addListener() {} }, onBeforeRequest: { addListener() {} } },
 };

@@ -26,7 +26,9 @@
     return (c ^ 0xffffffff) >>> 0;
   }
 
-  const dec = new TextDecoder();
+  // Creato al primo uso: la pagina si carica anche dove TextDecoder manca (DOM simulato dei test).
+  let decoder = null;
+  const dec = { decode: (b) => (decoder ||= new TextDecoder()).decode(b) };
   const MAX = 0xffffffff;
 
   /** Nomi pericolosi (percorsi assoluti, «..», barre rovesciate) non si leggono. */
