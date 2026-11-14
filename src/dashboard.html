@@ -94,6 +94,23 @@
         </div>
       </section>
 
+      <!-- 2.5.0: annunci archiviati da Vintory, anche quelli che su Vinted non ci sono più -->
+      <section class="panel vintory-panel" id="vintoryPanel" aria-labelledby="vintoryTitle">
+        <div class="panel-head">
+          <h2 id="vintoryTitle">Ripubblica da Vintory</h2>
+          <div class="btn-row">
+            <button class="btn btn-primary" id="vintoryApri" type="button">Ripubblica da Vintory</button>
+            <input type="file" id="vintoryFile" accept=".zip,application/zip" hidden />
+          </div>
+        </div>
+        <p class="hint">Scegli o trascina qui lo ZIP «Per Vinted_Relist» esportato da Vintory. Serve soprattutto per gli annunci
+          che su Vinted non ci sono più: si ripubblicano senza eliminare niente. Venduti esclusi, ancora online esclusi
+          se non lo chiedi. Tieni aperta una scheda di Vinted: lo stato di ogni annuncio si ricontrolla lì, in sola lettura.</p>
+        <p class="hint" id="vintoryStato" role="status" aria-live="polite"></p>
+        <div class="confirm" id="vintoryConferma" hidden role="alertdialog" aria-live="assertive"></div>
+        <div id="vintoryAnteprima"></div>
+      </section>
+
       <section class="groups" id="groups"></section>
 
       <section class="panel" id="duplicatesPanel" hidden>
@@ -184,5 +201,9 @@
     <script src="coda-logica.js"></script>
     <script src="dashboard.js"></script>
     <script src="dashboard-coda.js"></script>
+    <script src="vintory-zip.js"></script>
+    <script src="vintory-logica.js"></script>
+    <script src="vintory-db.js"></script>
+    <script src="dashboard-vintory.js"></script>
   </body>
 </html>

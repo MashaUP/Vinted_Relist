@@ -8,7 +8,8 @@
  */
 
 // Modello della coda: le stesse funzioni pure usate da popup, dashboard e pagina.
-importScripts("src/coda-logica.js", "src/armadio-logica.js", "src/versione.js");
+importScripts("src/coda-logica.js", "src/armadio-logica.js", "src/versione.js", "src/vintory-logica.js", "src/vintory-db.js");
+const VL = self.VintoryLogica;
 const C = self.CodaLogica;
 const A = self.ArmadioLogica;
 const V = self.Versione;
@@ -19,7 +20,7 @@ const V = self.Versione;
  * memoria file vecchi dopo un aggiornamento, si vede (e si dice) invece di
  * fallire con un errore generico.
  */
-const BUILD = "2.4.0";
+const BUILD = "2.5.0";
 const AVVIO_SW = Date.now();
 
 // ------------------------------------------------------------ registro errori
@@ -543,6 +544,7 @@ const leggiCoda = async () => (await chrome.storage.local.get(QUEUE_KEY))[QUEUE_
 async function scriviCoda(coda) {
   coda.rev = (coda.rev || 0) + 1;
   await chrome.storage.local.set({ [QUEUE_KEY]: coda });
+  if ((coda.items || []).some((a) => a.vintory)) sincronizzaVintory(coda);
 }
 
 const scriviPasso = (passo) => chrome.storage.session.set({ [STEP_KEY]: passo }).catch(() => {});
@@ -707,6 +709,8 @@ async function passoCoda(coda) {
       sessione: coda.startedAt,
       // le regole della SUA batch, non quelle della coda o dell'ultima aggiunta
       overrides: C.overridesDi(coda, prossimo.id),
+      // 2.5.0: da un file di Vintory (dati e foto in IndexedDB, chiesti a noi)
+      vintory: prossimo.vintory || null,
     }), 15_000);
   } catch (errore) {
     registraErrore("avvio-articolo", /timeout/.test(String(errore?.message)) ? "scheda-muta" : "scheda-irraggiungibile", errore?.message || errore);
@@ -1313,7 +1317,9 @@ async function avviaCoda(coda, message) {
     return { ok: false, error: "C'è già una coda in corso: usa «Aggiungi alla coda» per metterci questi articoli." };
   }
 
-  const filtro = filtraBloccati(message.items || [], await bloccatiPerAggiunta(coda));
+  const base = filtraBloccati(message.items || [], await bloccatiPerAggiunta(coda));
+  const fv = await filtraVintory(base.ammessi);
+  const filtro = { ammessi: fv.ammessi, rifiutati: [...base.rifiutati, ...fv.rifiutati] };
   if (!filtro.ammessi.length && filtro.rifiutati.length) {
     return { ok: false, error: `Nessun articolo da mettere in coda: ${filtro.rifiutati[0].motivo}.`, rifiutati: filtro.rifiutati };
   }
@@ -1353,13 +1359,114 @@ async function avviaCoda(coda, message) {
  * di modifica (message.batch), oppure si uniscono a una batch esistente
  * (message.batchId).
  */
+/**
+ * 2.5.0: articoli da un file di Vintory. Gia' ripubblicati da Vintory (registro
+ * vintoryOrigine) solo se lo chiedi apposta («ripubblica di nuovo»); le foto
+ * devono essere gia' nell'archivio IndexedDB, altrimenti al loro turno mancherebbero.
+ */
+async function filtraVintory(items) {
+  const lista = items || [];
+  if (!lista.some((it) => it?.vintory)) return { ammessi: lista, rifiutati: [] };
+  const { vintoryOrigine = {} } = await chrome.storage.local.get({ vintoryOrigine: {} });
+  const ammessi = [];
+  const rifiutati = [];
+  for (const it of lista) {
+    if (!it?.vintory) { ammessi.push(it); continue; }
+    const id = String(it.id ?? "");
+    const rif = VL.pulisciRiferimento(it.vintory);
+    if (!rif || !rif.chiave.startsWith(`vintory:${id}:`)) { rifiutati.push({ id, motivo: "dati di Vintory non validi" }); continue; }
+    const r = vintoryOrigine[id];
+    if (r?.nuovoId && !rif.ancora) { rifiutati.push({ id, motivo: `già ripubblicato da Vintory (nuovo annuncio ${r.nuovoId})` }); continue; }
+    let c = false;
+    try { c = await self.VintoryDB.esiste(rif.chiave); } catch { c = false; }
+    if (!c) { rifiutati.push({ id, motivo: "foto di Vintory non salvate: riapri il file e riprova" }); continue; }
+    ammessi.push({ ...it, vintory: rif });
+  }
+  return { ammessi, rifiutati };
+}
+
+/**
+ * Dopo ogni scrittura di una coda con articoli da Vintory: annota nel registro
+ * gli annunci nuovi (id originale → nuovo) e cancella dall'IndexedDB le foto
+ * che non servono piu'. In fila, fuori dal lock della coda: non la blocca.
+ */
+let catenaVintory = Promise.resolve();
+function sincronizzaVintory(coda) {
+  const copia = JSON.parse(JSON.stringify(coda));
+  catenaVintory = catenaVintory.then(async () => {
+    const nuovi = VL.pubblicati(copia);
+    if (nuovi.length) {
+      const { vintoryOrigine = {} } = await chrome.storage.local.get({ vintoryOrigine: {} });
+      let r = vintoryOrigine;
+      for (const n of nuovi) r = VL.registra(r, n);
+      if (JSON.stringify(r) !== JSON.stringify(vintoryOrigine)) await chrome.storage.local.set({ vintoryOrigine: r });
+    }
+    await pulisciFotoVintory(copia);
+  }).catch((e) => console.warn("[Relist] Vintory:", e));
+  return catenaVintory;
+}
+
+async function pulisciFotoVintory(coda = null) {
+  const elenco = await self.VintoryDB.elenco();
+  if (!elenco.length) return 0;
+  const { vrQueueArchive = [] } = await chrome.storage.local.get({ vrQueueArchive: [] });
+  const attuale = coda || C.migra(await leggiCoda());
+  const via = VL.daCancellare(elenco, VL.daConservare(attuale, vrQueueArchive), Date.now(), VL.nominate(attuale, vrQueueArchive));
+  for (const k of via) await self.VintoryDB.elimina(k);
+  return via.length;
+}
+
+/** Base64 di un Blob, a pezzi (niente FileReader nel service worker). */
+async function base64Di(blob) {
+  const b = new Uint8Array(await blob.arrayBuffer());
+  let s = "";
+  for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+async function messaggioVintory(message) {
+  if (message.type === "vr:vintoryDati") {
+    const v = await self.VintoryDB.leggi(String(message.chiave || ""));
+    if (!v) return { ok: false, error: "Dati di Vintory non più disponibili: riapri il file e rimetti l'annuncio in coda." };
+    return { ok: true, id: v.id, sorgente: v.sorgente, foto: v.foto.length, titolo: v.titolo };
+  }
+  if (message.type === "vr:vintoryFoto") {
+    const i = Number(message.i);
+    const blob = Number.isInteger(i) && i >= 0 ? await self.VintoryDB.foto(String(message.chiave || ""), i) : null;
+    if (!blob) return { ok: false, error: `Foto ${i + 1} di Vintory non disponibile.` };
+    return { ok: true, tipo: blob.type || "image/jpeg", base64: await base64Di(blob) };
+  }
+  if (message.type === "vr:vintoryStato") {
+    // Sola lettura su Vinted, dalla scheda aperta: l'estensione non ha i token per farlo da qui.
+    const ids = idDa(message.ids).slice(0, 25);
+    const tab = await schedaVinted();
+    if (!tab) return { ok: false, error: "Apri una scheda di Vinted (da loggato) per controllare lo stato degli annunci, poi premi «Ricontrolla»." };
+    try {
+      const r = await conTimeout(chrome.tabs.sendMessage(tab.id, { type: "vr:vintoryLeggi", ids }), 30_000 + ids.length * 25_000);
+      return r?.ok ? r : { ok: false, error: r?.error || "La scheda di Vinted non ha risposto: ricaricala e riprova." };
+    } catch (e) {
+      return { ok: false, error: "La scheda di Vinted non risponde: ricaricala e premi «Ricontrolla»." };
+    }
+  }
+  if (message.type === "vr:vintoryPulisci") return { ok: true, tolte: await pulisciFotoVintory() };
+  return { ok: false, error: "messaggio sconosciuto" };
+}
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (!["vr:vintoryDati", "vr:vintoryFoto", "vr:vintoryStato", "vr:vintoryPulisci"].includes(message?.type)) return false;
+  messaggioVintory(message).then(sendResponse, (e) => sendResponse({ ok: false, error: String(e?.message || e) }));
+  return true;
+});
+
 async function aggiungiAllaCoda(coda, message) {
   if (!coda?.running) return { ok: false, error: "Nessuna coda attiva: avviane una nuova." };
   if (coda.stopDopoCorrente) return { ok: false, error: "La coda si sta chiudendo: avviane una nuova quando ha finito." };
   const batch = message.batch && typeof message.batch === "object"
     ? { overrides: message.batch.overrides || null, campi: message.batch.campi || null, modello: message.batch.modello || null, intervalMin: message.batch.intervalMin ?? null }
     : null;
-  const filtro = filtraBloccati((message.items || []).slice(0, MAX_ID_PER_MESSAGGIO), await bloccatiPerAggiunta(coda));
+  const base = filtraBloccati((message.items || []).slice(0, MAX_ID_PER_MESSAGGIO), await bloccatiPerAggiunta(coda));
+  const fv = await filtraVintory(base.ammessi);
+  const filtro = { ammessi: fv.ammessi, rifiutati: [...base.rifiutati, ...fv.rifiutati] };
   const r = C.aggiungi(coda, filtro.ammessi, {
     dove: message.dove === "cima" ? "cima" : "fondo",
     batch,

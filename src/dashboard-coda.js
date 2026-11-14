@@ -597,6 +597,7 @@
       `ID ${a.id}`,
       typeof a.price === "number" ? euro(a.price) : null,
       a.aggiuntoDopo ? "aggiunto durante la sessione" : null,
+      a.vintory ? (a.vintory.elimina ? "da Vintory, con la copia (elimina il vecchio)" : "da Vintory, senza eliminare") : null,
       a.tentativi ? `${a.tentativi}° tentativo` : null,
       a.nuovoId ? `nuovo annuncio ${a.nuovoId}` : null,
       a.prioritaAt && a.status === "pending" ? "ripubblica ora" : null,
@@ -859,8 +860,15 @@
    * Il controllo completo (lettura di ogni articolo) avviene quando ciascuno
    * viene elaborato: da qui non c'e' una scheda Vinted da usare per leggerli.
    */
-  async function proponiAggiunta(items) {
-    const box = el("addConfirm");
+  /**
+   * opzioni (2.5.0, «Ripubblica da Vintory»):
+   *   box: dove mostrare la conferma; sempreModulo: Centro di modifica anche per
+   *   una coda nuova; primaDiInviare(voci): salva quello che serve (le foto in
+   *   IndexedDB) e puo' dire di no; dopoInvio(risposta, voci): pulizia dei rifiutati;
+   *   intestazione: testo in cima.
+   */
+  async function proponiAggiunta(items, opzioni = {}) {
+    const box = opzioni.box || el("addConfirm");
     box.textContent = "";
     box.hidden = false;
     const attiva = codaCorrente?.running && !codaCorrente.stopDopoCorrente;
@@ -878,6 +886,9 @@
       const { queueDraft = {} } = await chrome.storage.local.get("queueDraft");
       const c = C.migra(codaCorrente);
       form = moduloRegole(queueDraft, { copiaDa: (c.batches || []).filter((b) => b.campi), intervalMin: (c.batches || []).slice(-1)[0]?.intervalMin || c.intervalMin });
+    } else if (opzioni.sempreModulo) {
+      const { queueDraft = {}, queueIntervalMin = 20 } = await chrome.storage.local.get(["queueDraft", "queueIntervalMin"]);
+      form = moduloRegole(queueDraft, { copiaDa: [], intervalMin: queueIntervalMin });
     } else {
       const { queueDraft = {}, queueIntervalMin = 20 } = await chrome.storage.local.get(["queueDraft", "queueIntervalMin"]);
       const v = L()?.validaOpzioniCoda({ ...queueDraft, quando: "", intervallo: queueDraft.intervallo || String(queueIntervalMin) });
@@ -902,14 +913,21 @@
     const ok = bottone(attiva ? `Aggiungi ${entrano.length} come ${prossima}` : `Avvia una coda con ${entrano.length}`, "btn-primary", async () => {
       const voci = entrano.map((v) => items.find((i) => i.id === v.id));
       let regole = null;
-      if (attiva) {
+      if (form) {
         const v = form.leggi();
         if (!v.ok) return;
         regole = { overrides: v.overrides, campi: v.campi, modello: null, intervalMin: v.intervalMin };
+        if (!attiva) avvio = { intervalMin: v.intervalMin, overrides: v.overrides, campi: v.campi };
+      }
+      ok.disabled = true;
+      if (opzioni.primaDiInviare) {
+        const pronto = await opzioni.primaDiInviare(voci).catch((e) => ({ ok: false, error: e?.message || String(e) }));
+        if (!pronto?.ok) { ok.disabled = false; return messaggio(pronto?.error || "Non riuscito.", "error"); }
       }
       const r = attiva
         ? await chiedi("vr:queueAdd", { items: voci, dove, batch: regole })
         : await chiedi("vr:queueStart", { items: voci, intervalMin: avvio.intervalMin, overrides: avvio.overrides, campi: avvio.campi, modello: null });
+      await opzioni.dopoInvio?.(r, voci)?.catch?.(() => {});
       box.hidden = true;
       if (r.ok) {
         messaggio(attiva ? `${(r.aggiunti?.length || 0) + (r.riattivati?.length || 0)} aggiunti alla coda come ${prossima}.` : "Coda avviata. Tieni aperta una scheda su Vinted.", "ok");
@@ -919,9 +937,10 @@
     }, { disabled: entrano.length ? null : "" });
 
     metti(box,
-      crea("strong", {}, attiva ? `Aggiungi alla coda in corso · Centro di modifica per ${prossima}` : "Nuova coda"),
+      crea("strong", {}, `${opzioni.intestazione ? `${opzioni.intestazione} · ` : ""}${attiva ? `Aggiungi alla coda in corso · Centro di modifica per ${prossima}` : form ? "Nuova coda · Centro di modifica per Batch 1" : "Nuova coda"}`),
       crea("p", { class: "hint" }, attiva
         ? "Scegli le regole per questi articoli. La coda non si ferma e le batch già in coda tengono le loro. Ogni articolo viene letto e controllato quando arriva il suo turno."
+        : form ? "Scegli le regole e l'intervallo. Ogni articolo viene ricontrollato su Vinted quando arriva il suo turno."
         : `Opzioni salvate: ${config}. Ogni articolo viene comunque letto e controllato quando arriva il suo turno.`),
       form ? form.nodo : null,
       entrano.length ? crea("p", {}, `Entrano: ${entrano.map((v) => titolo(v.id)).join(", ")}`) : null,

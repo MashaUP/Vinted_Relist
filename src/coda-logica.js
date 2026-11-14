@@ -27,7 +27,7 @@
  */
 (function (root) {
   /** Versione del codice di questo file: la diagnostica la confronta con pagina e service worker. */
-  const VERSIONE = "2.4.0";
+  const VERSIONE = "2.5.0";
 
   const ETICHETTE = {
     pending: "In attesa",
@@ -56,12 +56,27 @@
   /** Tracce dell'ultimo tentativo: un articolo rimesso in attesa riparte pulito. */
   const AZZERA_LAVORO = { annullaRichiesto: false, scheda: null, fase: null, invioAt: null, attendeEsito: false, controlli: 0 };
 
+  /**
+   * 2.5.0: articolo da un file di Vintory. chiave: l'importazione in IndexedDB
+   * con dati e foto; elimina: era ancora online e hai scelto la copia di Vintory
+   * (si elimina il vecchio come sempre); ancora: ripubblicato di nuovo di proposito.
+   * Le stesse regole stanno in vintory-logica.js (pulisciRiferimento).
+   */
+  const CHIAVE_VINTORY = /^vintory:\d{1,20}:[0-9a-f]{16}$/;
+  function pulisciVintory(x) {
+    if (!x || typeof x !== "object" || !CHIAVE_VINTORY.test(String(x.chiave || ""))) return null;
+    const foto = Number(x.foto);
+    return { chiave: String(x.chiave), elimina: x.elimina === true, ancora: x.ancora === true, foto: Number.isInteger(foto) && foto > 0 && foto <= 20 ? foto : null };
+  }
+
   /** Un articolo che arriva da fuori (pagina, dashboard) e' un dato non attendibile. */
   function pulisciArticolo(item, ora) {
     const id = String(item?.id ?? "").trim();
     if (!ID.test(id)) return null;
     const prezzo = Number(item.price);
+    const vintory = pulisciVintory(item.vintory);
     return {
+      ...(vintory ? { vintory } : {}),
       id,
       title: String(item.title || `Articolo ${id}`).slice(0, 120),
       thumb: CDN.test(String(item.thumb || "")) ? item.thumb : null,
@@ -421,6 +436,10 @@
         const precedente = a.status;
         if (precedente === "error" || precedente === "interrupted") a.tentativi = (a.tentativi || 0) + 1;
         Object.assign(a, { status: "pending", error: null, categoria: null, sicuro: null, motivoSalto: null, startedAt: null, finishedAt: null, ...AZZERA_LAVORO });
+        // Rimesso in coda da un file di Vintory, o dall'armadio: vale la provenienza di adesso.
+        const vintory = pulisciVintory(perId.get(v.id)?.vintory);
+        if (vintory) a.vintory = vintory;
+        else delete a.vintory;
         riattivati.push({ articolo: a, precedente });
       }
     }
@@ -866,6 +885,8 @@
     if (e.tecnico) {
       return { categoria: "comunicazione", etichetta: "Problema dell'estensione", cosaFare: e.cosaFare || "Niente è stato inviato a Vinted. Leggi il motivo, poi riprendi la coda; se si ripete, genera il report diagnostico (Salute).", sicuroRiprovare: "si" };
     }
+    if (e.online) return { categoria: "online", etichetta: "Ancora online", cosaFare: "È ancora su Vinted: usa «Ripubblica» dall'armadio, o rimettilo da Vintory con «ripubblica con la copia di Vintory».", sicuroRiprovare: "no" };
+    if (e.vintory) return { categoria: "vintory", etichetta: "Dati di Vintory non disponibili", cosaFare: e.cosaFare || "Riapri il file di Vintory e rimetti l'annuncio in coda.", sicuroRiprovare: "no" };
     if (e.venduto) return { categoria: "venduto", etichetta: "Venduto", cosaFare: "Niente: un annuncio venduto non si ripubblica.", sicuroRiprovare: "no" };
     if (e.nonTuo) return { categoria: "non-consentito", etichetta: "Non è un tuo annuncio", cosaFare: "Niente: l'estensione lavora solo sugli annunci del tuo armadio.", sicuroRiprovare: "no" };
     if (e.duplicato) return { categoria: "in-uso", etichetta: "Già in lavorazione", cosaFare: "Era già in ripubblicazione dal bottone sulla card.", sicuroRiprovare: "no" };
@@ -899,6 +920,8 @@
     interrotto: "Interrotto prima dell'invio",
     comunicazione: "Problema dell'estensione",
     venduto: "Venduto",
+    online: "Ancora online",
+    vintory: "Dati di Vintory",
   };
 
   // -------------------------------------------------------- stima e salute
@@ -1077,8 +1100,8 @@
       overrides: coda.overrides || null,
       batches: (coda.batches || []).map(({ id, n, nome, overrides, campi, modello, creataAt, rev, storico, intervalMin }) => ({ id, n, nome, overrides, campi, modello, creataAt, rev, storico: storico || [], intervalMin: intervalMin ?? null })),
       conteggi: r,
-      items: (coda.items || []).map(({ id, title, status, error, thumb, price, categoria, sicuro, motivoSalto, tentativi, addedAt, startedAt, finishedAt, batch, regole, fase, invioAt, traccia, attendeEsito, nuovoId, verificato }) =>
-        ({ id: String(id), title: title || null, status, error: error || null, thumb: thumb || null, price: price ?? null,
+      items: (coda.items || []).map(({ id, title, status, error, thumb, price, categoria, sicuro, motivoSalto, tentativi, addedAt, startedAt, finishedAt, batch, regole, fase, invioAt, traccia, attendeEsito, nuovoId, verificato, vintory }) =>
+        ({ ...(pulisciVintory(vintory) ? { vintory: pulisciVintory(vintory) } : {}), id: String(id), title: title || null, status, error: error || null, thumb: thumb || null, price: price ?? null,
           categoria: categoria || null, sicuro: sicuro || null, motivoSalto: motivoSalto || null, tentativi: tentativi || 0,
           addedAt: addedAt || null, startedAt: startedAt || null, finishedAt: finishedAt || null,
           batch: batch || null, regole: regole || null, fase: fase || null, invioAt: invioAt || null, traccia: traccia || null,
@@ -1166,7 +1189,7 @@
     nuova, migra, registra, trova, corrente, prossimo, inAttesa, posizione, conta, daChiudere,
     valutaAggiunta, aggiungi, rimuovi, annullaCorrente, sposta, riordina, riprova, risolvi,
     avviaArticolo, concludiArticolo, classificaErrore, stima, salute,
-    pulisciOverrides, pulisciCampi, trovaBatch, batchDi, overridesDi, riepilogoBatch, modificaBatch, intervalloPer, intervalloProssimo,
+    pulisciOverrides, pulisciCampi, pulisciVintory, trovaBatch, batchDi, overridesDi, riepilogoBatch, modificaBatch, intervalloPer, intervalloProssimo,
     ripubblicaOra, rimettiDopoInterruzione, confermaInvio, assegnaScheda, annotaTraccia, esitoTardivo, valutaVerifica, esitoDaVerdetto, applicaVerifica,
     perArchivio, daRiprendere, esportaCSV, esportaJSON, resoconto,
   };

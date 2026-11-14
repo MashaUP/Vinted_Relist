@@ -241,6 +241,44 @@ checkout del tag, test, `scripts/pacchetto.sh <tag>` (versione del tag = `manife
 `version.json`, file del manifest e `importScripts` presenti, `manifest.json` nella radice dello
 zip, nessun file di sviluppo), `gh release upload --clobber`. Permessi: `contents: write`.
 
+### 2.5: Ripubblica da Vintory
+
+Contratto del file: `docs/RELIST_BRIDGE.md` nel repository di Vintory (formato `vintory-relist`,
+schema 2). Il ponte è solo un file: nessun messaggio fra le due estensioni, Vintory resta in sola
+lettura e non riceve niente.
+
+| Pezzo | Dove | Cosa fa |
+|---|---|---|
+| Lettore ZIP | `src/vintory-zip.js` | adattato da `src/shared/zip.js` di Vintory (MIT): stored e deflate (`DecompressionStream`), legge l'indice in fondo e ogni voce solo quando serve, ignora nomi con `..`, `/` iniziale, `\` |
+| Logica | `src/vintory-logica.js` | funzioni pure: `leggiPacchetto` (formato/schema), `valuta` (proprietario, modulo, foto e percorsi, sha256 presente, nomi cambiati, registro, già in coda), `statoVinted`, `decidi`, `sorgente`, `voceCoda`, `registra`, `daConservare`/`daCancellare`/`nominate`, `pubblicati` |
+| Foto | `src/vintory-db.js` | IndexedDB `vintoryImport` › `annunci`, chiave `vintory:<id>:<impronta 16 hex>`; `{ sorgente, foto: [{ blob, tipo, sha256 }] }` |
+| Anteprima | `src/dashboard-vintory.js` | scelta/trascinamento, sha256 di ogni foto (`crypto.subtle`), stato su Vinted a lotti di 8 via service worker, elenco, `CodaUI.proponiAggiunta(items, { sempreModulo, primaDiInviare, dopoInvio })` |
+| Service worker | `background.js` | `filtraVintory` (registro e foto presenti, sotto il lock), `vr:vintoryStato` (inoltra a una scheda Vinted), `vr:vintoryDati`, `vr:vintoryFoto` (base64), `vr:vintoryPulisci`; dopo ogni `scriviCoda` con articoli da Vintory `sincronizzaVintory` scrive il registro e pulisce l'IndexedDB, in fila fuori dal lock |
+| Pagina | `src/api.js › statoVintory`, `src/relist.js › preparaVintory`, `src/queue.js` | letture di stato (`/item_upload/items/:id`, poi `/items/:id`); `relist()` con `overrides.vintory`: dati e foto dal service worker, proprietario (`user_id` = `sellerId`, `pubblica: true`), stato riletto al momento, `deleteOld` falso se non esiste più |
+
+**Stato su Vinted.** Modulo di vendita leggibile → tuo e ancora online (venduto se chiuso).
+Modulo 404 → scheda pubblica: 404 = non esiste più; chiusa/venduta = venduto; visibile ma non
+modificabile o qualunque altro errore = ignoto (escluso). Si rilegge alla pubblicazione: un
+annuncio tornato online nel frattempo si salta (`skipped` / `motivoSalto: "online"`).
+
+**Bozza.** `sorgente()` clona `uploadDraft`, sovrascrive titolo, descrizione e prezzo
+(`{ amount, currency_code }`), toglie foto e campi di stato, mette `user_id`; poi `buildDraft` fa
+quello che fa sempre (campi ammessi, derivazioni, regole della batch). Le condizioni di libri e DVD
+restano in `item_attributes`.
+
+**Articolo in coda.** `vintory: { chiave, elimina, ancora, foto }` (pulito da
+`CodaLogica.pulisciVintory`), passa in archivio; rimesso in coda dall'armadio torna normale. Le
+foto si tengono per gli stati che si possono ancora riprovare o riprendere (in attesa, in corso, da
+verificare, fallito riprovabile, interrotto, annullato; nelle sessioni archiviate per 30 giorni) e
+si cancellano negli altri. Un'importazione che nessun articolo nomina si aspetta 15 minuti.
+
+**Registro `vintoryOrigine`** (`chrome.storage.local`, piccolo): `{ [idOriginale]: { nuovoId, at,
+impronta, volte } }`, scritto per gli articoli `done` e per i `verify` con l'id nuovo.
+
+**Non verificato su Vinted reale:** le risposte di `/item_upload/items/:id` e `/items/:id` per un
+annuncio eliminato (atteso 404) e per uno venduto. Se differiscono, lo stato risulta «non chiaro» e
+l'annuncio resta fuori: nessuna pubblicazione al buio.
+
 ### Campi che dipendono dalla categoria (2.0.1)
 
 Percorso di un campo, dalla lettura all'invio, con il punto in cui si decide:
@@ -521,6 +559,8 @@ Il workflow delle release esegue gli stessi test prima di creare lo zip.
 | `test-permesso` | 2.3: no con codice e motivo (salvataggio, versione, interno), compattazione e nuovo tentativo, pausa della coda su un problema tecnico, report diagnostico senza segreti, confronto, riparazione, aggiornamenti una volta per versione |
 | `test-proprietario` | 2.3: tuo armadio / altrui / sottopagine / annuncio / account non riconosciuto, barre costruite e tolte navigando, la pagina non scrive l'id, controllo di proprietà in `relist()` |
 | `test-240` | 2.4: intervallo per batch (modello e service worker: valori, passaggio di batch, timer mai azzerato da aggiunte, modifiche e rimozioni, pausa, riavvio, stima), venduti saltati senza fermare la coda e mai rimessi in coda, doppioni fra batch con aggiunte simultanee, incerti di sessioni passate |
+| `test-vintory` | 2.5: lettore ZIP (stored, deflate, troncato, nomi pericolosi), formato e schema, controlli per annuncio, decisioni con lo stato su Vinted, sorgente, registro e pulizia, modello della coda, `relist()` da Vintory con API simulate (niente eliminato, ordine delle foto, online, venduto, proprietario, foto mancanti, permesso); con `VINTORY_ZIP` anche un'esportazione vera |
+| `test-vintory-sw` | 2.5: service worker: filtro all'ingresso, riferimento alla pagina, dati e foto in base64, nessuna foto in `chrome.storage`, registro, pulizia, esito incerto, riavvio, «ancora online» saltato |
 | `test-link` | 2.1: `links.json` del pacchetto, validazione, protocolli e siti vietati, precedenza, cache, tempi, timeout |
 | `test-versione` | versioni, aggiornamenti, diagnostica, impostazioni |
 | `dom/test-ui` | editor in un DOM simulato: controlli, download foto, ritaglio, anteprima, pubblica |

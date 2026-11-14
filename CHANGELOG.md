@@ -6,6 +6,33 @@ ultime tre leggendo questo file dall'estensione installata.
 Numerazione `x.y.z`: **x** quando cambia il modo di usarla o i dati salvati in modo non
 compatibile, **y** per funzioni nuove, **z** per sole correzioni.
 
+## 2.5.0 · Ripubblica da Vintory (14 novembre 2026)
+
+Minor: funzione nuova, retrocompatibile. Coda, batch, archivio e impostazioni restano come sono.
+
+### Novità
+- **Ripubblica da Vintory.** Nella dashboard, «Ripubblica da Vintory»: scegli o trascini lo ZIP
+  «Per Vinted_Relist» esportato da Vintory (formato `vintory-relist`, schema 2). Serve soprattutto
+  per gli annunci **già eliminati** da Vinted, che si ripubblicano **senza eliminare niente**.
+- **Controlli prima di tutto:** formato e schema (uno più nuovo chiede di aggiornare Vinted
+  Relist), ogni foto presente nello ZIP con il suo sha256 (una rovinata esclude l'annuncio, con il
+  motivo), proprietario uguale all'account collegato, dati del modulo di vendita presenti.
+- **Stato reale su Vinted**, riletto in sola lettura dalla scheda aperta: non più su Vinted
+  (spuntato da solo), venduto (escluso), ancora online (escluso, con «usa Ripubblica normale»;
+  oppure «ripubblica con la copia di Vintory», che elimina il vecchio come sempre).
+- **Anteprima** con foto, titolo, prezzo, stato e avvisi (foto mancanti nell'archivio, marca,
+  taglia, colori, condizioni o categoria cambiate a mano in Vintory: Vinted riceve l'id originale,
+  lo scegli tu). Gli annunci scelti diventano **una batch nuova** con il Centro di modifica di
+  sempre (regole e intervallo); la coda in corso non si ferma.
+- **Foto in attesa in IndexedDB** (archivio `vintoryImport`), mai in `chrome.storage`: si
+  cancellano quando l'annuncio è pubblicato, tolto dalla coda, saltato o fallito senza rimedio. Una
+  coda con articoli da Vintory sopravvive al riavvio del browser.
+- **Nessun doppione:** registro `vintoryOrigine` (id originale → nuovo annuncio, data, impronta
+  delle foto). Riaprendo lo stesso ZIP i già ripubblicati compaiono come «già ripubblicato il …» e
+  si riselezionano solo con «ripubblica di nuovo»; un esito incerto blocca il secondo tentativo
+  finché la verifica non chiarisce.
+- Nella coda della dashboard gli articoli da Vintory lo dicono («da Vintory, senza eliminare»).
+
 ## 2.4.0 · Intervallo per batch, venduti, marcatori, zip automatico delle release (6 novembre 2026)
 
 Minor: funzioni nuove retrocompatibili. Code, archivio, inventario e impostazioni restano come

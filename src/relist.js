@@ -664,9 +664,64 @@
    *   creato(id): Vinted ha restituito l'id del nuovo annuncio (va annotato
    *   prima di qualunque altra cosa: e' la prova che e' stato pubblicato).
    */
+  // ------------------------------------------------------------ da Vintory (2.5.0)
+
+  const erroreVintory = (testo) => Object.assign(new Error(testo), { vintory: true });
+
+  /** Dati dell'annuncio importato (senza foto), dal service worker che tiene l'IndexedDB. */
+  async function datiVintory(chiave) {
+    let r = null;
+    try { r = await chrome.runtime.sendMessage({ type: "vr:vintoryDati", chiave }); } catch { r = null; }
+    if (!r) throw Object.assign(new Error("Il service worker non risponde: riprova fra poco."), { tecnico: true });
+    if (!r.ok) throw erroreVintory(r.error || "Dati di Vintory non disponibili: riapri il file e rimetti l'annuncio in coda.");
+    return r;
+  }
+
+  /** Una foto dello ZIP di Vintory, come Blob (arriva in base64: i messaggi non portano Blob). */
+  async function fotoVintory(chiave, i) {
+    const r = await chrome.runtime.sendMessage({ type: "vr:vintoryFoto", chiave, i });
+    if (!r?.ok) throw erroreVintory(r?.error || `Foto ${i + 1} di Vintory non disponibile.`);
+    const bin = atob(r.base64);
+    const b = new Uint8Array(bin.length);
+    for (let k = 0; k < bin.length; k++) b[k] = bin.charCodeAt(k);
+    return new Blob([b], { type: r.tipo || "image/jpeg" });
+  }
+
+  /**
+   * L'annuncio da ripubblicare viene dal file di Vintory invece che da Vinted.
+   * Prima di tutto, di nuovo e al momento: e' tuo, e com'e' adesso su Vinted?
+   *   non esiste piu'  → si crea il nuovo, senza eliminare niente (il caso per cui c'e' Vintory);
+   *   venduto          → si salta;
+   *   ancora online    → solo se avevi scelto «ripubblica con la copia di Vintory», e allora
+   *                      il vecchio si elimina come in una ripubblicazione normale;
+   *   non chiaro       → ci si ferma senza inviare niente.
+   */
+  async function preparaVintory(itemId, rif, deleteOldPredefinito, onProgress) {
+    const d = await datiVintory(rif.chiave);
+    if (String(d.id) !== String(itemId)) throw erroreVintory("I dati di Vintory non corrispondono a questo articolo.");
+    const source = d.sorgente;
+    // pubblica: true → il proprietario dichiarato deve esserci ed essere l'account collegato
+    VR.controllaProprieta(source, { pubblica: true });
+    onProgress("Controllo su Vinted…");
+    const stato = await VR.api.statoVintory(itemId);
+    if (stato.esito === "venduto") VR.controllaVendibile({ is_sold: true });
+    if (stato.esito === "ignoto") throw new Error(`Non riesco a capire com'è l'annuncio su Vinted: ${stato.motivo || "risposta non chiara"} Niente è stato inviato.`);
+    if (stato.esito === "online" && !rif.elimina) {
+      throw Object.assign(new Error("Ancora online su Vinted: usa «Ripubblica» dall'armadio (o rimettilo da Vintory con «ripubblica con la copia di Vintory»)."), { online: true });
+    }
+    const n = Math.min(Number(d.foto) || 0, 20);
+    if (!n) throw erroreVintory("Nell'importazione da Vintory non ci sono foto.");
+    return {
+      source,
+      deleteOld: stato.esito === "online" ? deleteOldPredefinito : false,
+      scelte: Array.from({ length: n }, (_, i) => ({ vintory: i })),
+      chiave: rif.chiave,
+    };
+  }
+
   async function relist(itemId, overrides = {}, onProgress = () => {}, segnale = {}) {
     const settings = VR.settings;
-    const deleteOld = overrides.deleteOld ?? settings.deleteOld;
+    let deleteOld = overrides.deleteOld ?? settings.deleteOld;
     const deleteFirst = settings.order === "clean";
 
     // Foto caricate e non usate restano orfane su Vinted, ma nessun annuncio
@@ -682,22 +737,29 @@
     onProgress("Lettura articolo…");
     let source;
     let pubblica = false;
-    try {
-      source = await VR.api.getUploadDraft(itemId);
-    } catch (error) {
-      VR.warn("item_upload non disponibile, uso la scheda pubblica", error);
-      source = await VR.api.getItem(itemId);
-      if (!source) throw error;
-      pubblica = true;
-    }
-    VR.controllaProprieta(source, { pubblica });
-    VR.controllaVendibile(source);
+    let scelte;
+    let chiaveVintory = null;
+    if (overrides.vintory) {
+      const v = await preparaVintory(itemId, overrides.vintory, deleteOld, onProgress);
+      ({ source, deleteOld, scelte, chiave: chiaveVintory } = v);
+    } else {
+      try {
+        source = await VR.api.getUploadDraft(itemId);
+      } catch (error) {
+        VR.warn("item_upload non disponibile, uso la scheda pubblica", error);
+        source = await VR.api.getItem(itemId);
+        if (!source) throw error;
+        pubblica = true;
+      }
+      VR.controllaProprieta(source, { pubblica });
+      VR.controllaVendibile(source);
 
-    // L'editor puo' riordinare, togliere, ruotare e ritagliare: arriva come elenco.
-    // Senza editor, tutte le foto nell'ordine originale e senza modifiche.
-    const scelte = Array.isArray(overrides.photos) && overrides.photos.length
-      ? overrides.photos
-      : photoUrls(source).map((url) => ({ url }));
+      // L'editor puo' riordinare, togliere, ruotare e ritagliare: arriva come elenco.
+      // Senza editor, tutte le foto nell'ordine originale e senza modifiche.
+      scelte = Array.isArray(overrides.photos) && overrides.photos.length
+        ? overrides.photos
+        : photoUrls(source).map((url) => ({ url }));
+    }
     if (!scelte.length) throw new Error("Nessuna foto trovata sull'articolo.");
 
     await backup(itemId, source);
@@ -715,7 +777,8 @@
 
       try {
         const id = await withRetry(`foto ${number}`, async () => {
-          const original = foto.blob || (await VR.api.downloadPhoto(foto.url));
+          const original = foto.blob
+            || (foto.vintory != null ? await fotoVintory(chiaveVintory, foto.vintory) : await VR.api.downloadPhoto(foto.url));
           const jpeg = await toJpeg(original, { rotate: foto.rotate || 0, crop: foto.crop || null });
           return VR.api.uploadPhoto(jpeg, `foto-${number}.jpg`, tempUuid);
         });

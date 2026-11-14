@@ -1015,7 +1015,7 @@
 
     barra?.occupato(true);
     scriviGiornale(id, giornale, {})
-      .then(() => VR.esclusivo(id, () => VR.relist(id, message.overrides || {}, passo, segnale)))
+      .then(() => VR.esclusivo(id, () => VR.relist(id, { ...(message.overrides || {}), ...(message.vintory ? { vintory: message.vintory } : {}) }, passo, segnale)))
       .then((creato) => {
         barra?.segnaFatto();
         return riferisci({ ok: true, nuovoId: creato?.id != null ? String(creato.id) : undefined });
@@ -1026,6 +1026,11 @@
         if (e?.venduto) {
           barra?.stato("Venduto: saltato", "warn");
           return riferisci({ ok: false, outcome: "skipped", motivoSalto: "venduto", error: e.message, categoria: "venduto", sicuro: "no" });
+        }
+        // Da Vintory ma ancora online, senza la scelta «copia di Vintory»: si salta, la coda continua.
+        if (e?.online) {
+          barra?.stato("Ancora online: saltato", "warn");
+          return riferisci({ ok: false, outcome: "skipped", motivoSalto: "online", error: e.message, categoria: "online", sicuro: "no" });
         }
         const k = CL().classificaErrore(e);
         const outcome = e?.annullato ? "cancelled" : e?.tecnico || e?.superato ? "interrupted" : VR.esitoDaErrore(e);
@@ -1043,6 +1048,29 @@
       });
 
     return false;
+  });
+
+  /**
+   * 2.5.0, «Ripubblica da Vintory»: la dashboard chiede (tramite il service
+   * worker) com'e' adesso su Vinted ogni annuncio del file. Solo letture, una
+   * alla volta, con una pausa: e' la stessa lettura che fa il sito.
+   */
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type !== "vr:vintoryLeggi") return false;
+    const ids = (Array.isArray(message.ids) ? message.ids : []).map(String).filter((x) => /^\d{1,20}$/.test(x)).slice(0, 25);
+    (async () => {
+      const letture = {};
+      for (const [i, id] of ids.entries()) {
+        if (i) await VR.sleep(350);
+        try {
+          letture[id] = await VR.api.statoVintory(id);
+        } catch (e) {
+          letture[id] = { esito: "ignoto", motivo: e?.message || String(e) };
+        }
+      }
+      sendResponse({ ok: true, letture, account: VR.settings.userId != null ? String(VR.settings.userId) : null });
+    })();
+    return true;
   });
 
   /** La sonda del service worker: questa scheda sta ancora lavorando l'articolo? */

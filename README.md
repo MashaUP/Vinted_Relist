@@ -24,14 +24,14 @@ un intervallo tra uno e l'altro.
 |---|---|
 | Distribuzione | zip su GitHub, da caricare come estensione non pacchettizzata. **Non è sul Chrome Web Store** (vedi [perché](docs/SVILUPPO.md#11-chrome-web-store-rischi)) |
 | Verificato su Vinted reale | la ripubblicazione, nelle versioni precedenti usate dall'autore |
-| Verificato solo nei test | le novità dalla 2.1 alla 2.4 (code dinamiche, esiti incerti, batch, intervallo per batch, venduti, marcatori, «Ripubblica ora», valore dell'armadio): oltre 700 controlli automatici e prove in Chromium con l'estensione caricata su un Vinted finto, senza pubblicazioni vere |
+| Verificato solo nei test | le novità dalla 2.1 alla 2.5 (code dinamiche, esiti incerti, batch, intervallo per batch, venduti, marcatori, «Ripubblica da Vintory», «Ripubblica ora», valore dell'armadio): quasi 800 controlli automatici e prove in Chromium con l'estensione caricata su un Vinted finto, senza pubblicazioni vere |
 | Dipendenze | nessuna libreria, nessun passaggio di build |
 
 Prima di usarla su tanti articoli, provala su uno a cui tieni poco.
 
 ## Installazione
 
-1. Scarica lo zip **`Vinted_Relist-2.4.0.zip`**: dalla pagina della release su GitHub (tra gli
+1. Scarica lo zip **`Vinted_Relist-2.5.0.zip`**: dalla pagina della release su GitHub (tra gli
    allegati) o dalla radice del repository.
 2. Estrailo **in una cartella stabile** (non nella cartella temporanea che Windows apre con il
    doppio clic). La cartella giusta è quella che contiene `manifest.json`: con lo zip della
@@ -78,6 +78,26 @@ li divide in pronti, con avvisi e bloccati › **Avvia**.
 - Titolo con contatore, descrizione, prezzo, colore; controlli in tempo reale (errori, avvisi e
   note) e punteggio di completezza; anteprima di cosa cambia; bozza salvata da sola.
 - **Scarica le foto** originali, nella qualità più alta, in Download › Vinted Relist.
+
+### Novità 2.5: Ripubblica da Vintory
+[Vintory](https://github.com/MashaUP/Vintory) archivia in locale i tuoi annunci, anche dopo che
+Vinted li ha eliminati. Con «Ripubblica da Vintory» li rimetti in vendita:
+
+1. In Vintory: scheda di un annuncio (o selezione) › **Per Vinted_Relist**: esporti uno ZIP.
+2. Tieni aperta una scheda di Vinted da loggato.
+3. Dashboard › **Ripubblica da Vintory** › scegli (o trascina) lo ZIP.
+4. L'anteprima controlla ogni foto (sha256), che l'annuncio sia tuo e com'è adesso su Vinted
+   (sola lettura): **non più su Vinted** → spuntato; **venduto** → escluso; **ancora online** →
+   escluso, a meno che tu scelga «ripubblica con la copia di Vintory» (elimina il vecchio come
+   «Ripubblica»).
+5. **Aggiungi alla coda**: diventano una batch nuova, con regole e intervallo suoi. Per gli
+   eliminati si crea l'annuncio nuovo **senza eliminare niente**.
+
+Le foto in attesa stanno nell'IndexedDB dell'estensione, non nello spazio delle impostazioni, e
+si cancellano da sole quando non servono più. Riaprendo lo stesso ZIP, i già ripubblicati restano
+fuori («già ripubblicato il …»). Titolo, descrizione e prezzo sono quelli di Vintory; categoria,
+marca, taglia, colori e condizioni quelli che Vinted aveva (se li hai cambiati a mano in Vintory,
+l'anteprima te lo dice).
 
 ### Novità 2.4
 - **Intervallo per batch:** ogni batch aggiunta con il Centro di modifica ha il suo «Intervallo tra
@@ -198,7 +218,7 @@ richieste fuori da Vinted vanno all'API pubblica di GitHub, senza cookie né dat
 
 | Permesso | Perché serve |
 |---|---|
-| `storage` | impostazioni, coda, inventario, storico, notifiche: tutto in locale |
+| `storage` | impostazioni, coda, inventario, storico, notifiche: tutto in locale (le foto importate da Vintory stanno invece nell'IndexedDB dell'estensione, sempre in locale; non serve un permesso in più) |
 | `webRequest` | leggere dalle richieste di Vinted il token di sessione, il tuo id e i formati |
 | `alarms` | svegliare la coda all'orario giusto e riprendere una pausa a tempo a popup chiuso |
 | `notifications` | la notifica di fine coda |
@@ -348,6 +368,8 @@ src/queue.js             selezione, opzioni e modelli della coda, controllo prev
 src/ui.js, content.js    bottoni sulle card, finestre, rilevamento articoli e inventario
 src/popup.*              Home, Notifiche, Salute, Impostazioni
 src/dashboard*.{html,js,css}  armadio e gestione della coda
+src/vintory-*.js         «Ripubblica da Vintory»: lettore ZIP, controlli del file (funzioni pure), foto in IndexedDB
+src/dashboard-vintory.js anteprima e aggiunta alla coda nella dashboard
 src/link.js              validazione e precedenza dei link (funzioni pure, riusabile)
 src/link-chrome.js       lettura, cache e collegamento dei link nelle pagine dell'estensione
 src/versione.js          versioni (semver con prerelease), aggiornamenti, diagnostica e confronto dei report (funzioni pure)
@@ -369,7 +391,7 @@ Lo zip per gli utenti lo crea GitHub da solo quando pubblichi una release
 
 1. Aggiorna la versione in `manifest.json`, `version.json` (anche `zip`), `src/utils.js`
    (`VR.BUILD`) e `CHANGELOG.md`; fai il commit.
-2. Su GitHub › **Releases** › **Draft a new release**: tag `v` + versione (es. `v2.4.0`),
+2. Su GitHub › **Releases** › **Draft a new release**: tag `v` + versione (es. `v2.5.0`),
    titolo e note › **Publish release**.
 3. Il workflow controlla che il tag coincida con `manifest.json` e `version.json`, esegue i test,
    crea `Vinted_Relist-<versione>.zip` (con `manifest.json` nella radice, solo i file
@@ -382,7 +404,7 @@ Lo zip per gli utenti lo crea GitHub da solo quando pubblichi una release
 
 Permessi del workflow: solo `contents: write` (serve per allegare il file), con il token
 temporaneo di GitHub; nessun segreto da configurare. Lo stesso zip si crea in locale con
-`scripts/pacchetto.sh [v2.4.0] [cartella]`.
+`scripts/pacchetto.sh [v2.5.0] [cartella]`.
 
 «Cerca aggiornamento» per ora legge `version.json` e scarica lo zip dalla radice del repository:
 finché resta così, carica anche lì lo zip della versione nuova.

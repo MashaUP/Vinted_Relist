@@ -1,4 +1,4 @@
-// 2.4.0 — Intervallo per batch, articoli venduti, duplicati fra batch.
+// 2.5.0 — Intervallo per batch, articoli venduti, duplicati fra batch.
 // Modello (coda-logica) e service worker vero con storage finto e latenze casuali.
 const fs = require('fs');
 const path = require('path');
@@ -82,7 +82,7 @@ global.chrome = {
     get: async (id) => ({ id }),
     sendMessage: async (_id, msg) => { inviati.push(cp(msg)); return msg.type === 'vr:relistStatus' ? { inCorso: true } : { accepted: true }; },
   },
-  runtime: { onMessage: { addListener: (f) => L.message.push(f) }, getURL: (p) => p, getManifest: () => ({ version: '2.4.0' }),
+  runtime: { onMessage: { addListener: (f) => L.message.push(f) }, getURL: (p) => p, getManifest: () => ({ version: '2.5.0' }),
     onStartup: { addListener() {} }, onInstalled: { addListener() {} } },
   webRequest: { onSendHeaders: { addListener() {} }, onBeforeRequest: { addListener() {} } },
 };

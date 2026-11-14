@@ -424,6 +424,31 @@
     },
 
     /**
+     * 2.5.0, «Ripubblica da Vintory»: com'e' adesso su Vinted l'annuncio originale.
+     * Solo letture. { esito: "online" | "venduto" | "assente" | "ignoto", motivo }
+     *   modulo di vendita leggibile → tuo e ancora su Vinted (online, o venduto se chiuso);
+     *   modulo 404 → scheda pubblica: 404 anche lei = non esiste piu'; venduta = venduto;
+     *   visibile ma non modificabile, o qualunque altro errore → ignoto (nel dubbio, niente).
+     */
+    async statoVintory(itemId) {
+      const venduto = (it) => it?.is_sold === true || it?.is_closed === true || /sold|vendut/i.test(String(it?.item_closing_action ?? "")) || String(it?.status ?? "").toLowerCase() === "sold";
+      try {
+        const payload = await request("GET", `/item_upload/items/${itemId}`, { timeoutMs: 20000 });
+        if (!payload?.item) return { esito: "ignoto", motivo: "Risposta di Vinted non riconosciuta." };
+        return venduto(payload.item) ? { esito: "venduto" } : { esito: "online" };
+      } catch (errore) {
+        if (errore.status !== 404) return { esito: "ignoto", motivo: `Vinted non risponde come previsto: ${errore.message}` };
+      }
+      try {
+        const payload = await request("GET", `/items/${itemId}`, { timeoutMs: 20000 });
+        if (venduto(payload?.item)) return { esito: "venduto" };
+        return { esito: "ignoto", motivo: "Vinted mostra ancora l'annuncio, ma non come uno che puoi modificare: per sicurezza resta fuori." };
+      } catch (errore) {
+        return errore.status === 404 ? { esito: "assente" } : { esito: "ignoto", motivo: `Vinted non risponde come previsto: ${errore.message}` };
+      }
+    },
+
+    /**
      * Gli annunci piu' recenti del tuo armadio, per riconoscere quello creato da
      * un tentativo senza conferma (stesse foto caricate). Endpoint di lettura
      * dell'armadio usato dal sito; se Vinted lo cambia, la verifica lo dice e
