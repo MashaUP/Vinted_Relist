@@ -6,6 +6,26 @@ ultime tre leggendo questo file dall'estensione installata.
 Numerazione `x.y.z`: **x** quando cambia il modo di usarla o i dati salvati in modo non
 compatibile, **y** per funzioni nuove, **z** per sole correzioni.
 
+## 2.6.0 · Lingue e modello dei telefoni (20 novembre 2026)
+
+Minor: funzione nuova (lingue) e una correzione, retrocompatibili.
+
+### Novità
+- **Cinque lingue:** italiano, inglese, francese, spagnolo e tedesco. Pannello **«Lingua»**
+  (🌐 nell'intestazione del popup e della dashboard): «Automatica» segue la lingua del browser
+  (inglese se non è una delle cinque), oppure ne scegli una. Il cambio vale subito ovunque, anche
+  sui bottoni già mostrati nelle pagine di Vinted, senza ricaricare. Sulle pagine di Vinted si
+  traducono solo gli elementi dell'estensione, mai il sito; titoli e descrizioni dei tuoi annunci
+  non vengono mai tradotti. Anche le notifiche di sistema escono nella lingua scelta.
+
+### Corretto
+- **Telefoni e altra elettronica:** ripubblicando, Vinted chiedeva di «selezionare il modello»
+  anche se l'annuncio lo aveva (segnalato da un utente francese). Il modello letto dall'annuncio
+  (`ontology_model_id`, e `ontology_collection_id` per le serie) ora passa nella pubblicazione;
+  per le altre categorie non cambia nulla. Se Vinted lo chiede comunque, il messaggio spiega cosa
+  fare: modificare e salvare una volta l'annuncio su Vinted (l'estensione impara i campi della
+  categoria, ora anche per categoria e non solo dall'ultima modifica) e riprovare.
+
 ## 2.5.1 · Correzione per le release su GitHub (14 novembre 2026)
 
 Patch: nessun cambiamento per chi usa l'estensione.

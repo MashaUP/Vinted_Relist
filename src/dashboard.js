@@ -257,7 +257,7 @@ function disegnaStorico(snapshots) {
     box.append(crea("div", { class: "snap" },
       crea("span", { class: "n" }, `#${s.n}`),
       crea("div", { class: "what" },
-        crea("b", {}, s.new.title || s.old.title),
+        crea("b", { "data-vr-noi18n": "" }, s.new.title || s.old.title),
         crea("span", {},
           `${new Date(s.at).toLocaleString("it-IT", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` +
           ` · ${cambioPrezzo}` +
@@ -283,8 +283,8 @@ function confronto(s) {
       const uguale = b == null ? null : a === b;
       return crea("tr", { class: uguale === false ? "changed" : "" },
         crea("th", {}, nome),
-        crea("td", {}, a || "—"),
-        crea("td", {}, b == null ? crea("em", {}, "non registrato") : uguale ? crea("em", {}, "invariato") : b));
+        crea("td", { "data-vr-noi18n": a ? "" : null }, a || "—"),
+        crea("td", { "data-vr-noi18n": b != null && !uguale ? "" : null }, b == null ? crea("em", {}, "non registrato") : uguale ? crea("em", {}, "invariato") : b));
     })));
   return crea("details", { class: "compare-box" },
     crea("summary", {}, cambiati ? `Confronto prima/dopo (${cambiati} ${cambiati === 1 ? "modifica" : "modifiche"})` : "Confronto prima/dopo"),
@@ -296,9 +296,10 @@ function confronto(s) {
 // ----------------------------------------------------------------- ripristino
 
 async function ripristina(s, bottone) {
+  const tr = (x) => window.I18N?.traduci(x) ?? x;
   const ok = window.confirm(
-    `Ripubblico "${s.new.title}" con titolo, descrizione e prezzo di prima (${euro(s.old.price)}).\n\n` +
-    "L'annuncio attuale verrà sostituito. Continuo?"
+    `${tr(`Ripubblico "${s.new.title}" con titolo, descrizione e prezzo di prima (${euro(s.old.price)}).`)}\n\n` +
+    tr("L'annuncio attuale verrà sostituito. Continuo?")
   );
   if (!ok) return;
 
@@ -323,7 +324,7 @@ async function ripristina(s, bottone) {
   } catch (errore) {
     bottone.disabled = false;
     bottone.textContent = "Ripristina";
-    window.alert(`Ripristino non riuscito: ${errore.message}`);
+    window.alert(window.I18N?.traduci(`Ripristino non riuscito: ${errore.message}`) ?? `Ripristino non riuscito: ${errore.message}`);
   }
 }
 

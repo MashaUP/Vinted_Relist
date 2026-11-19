@@ -242,6 +242,40 @@ checkout del tag, test, `scripts/pacchetto.sh <tag>` (versione del tag = `manife
 zip, nessun file di sviluppo), `gh release upload --clobber`, poi (2.5.1) annuncio su Discord via webhook se c'è il secret
 `DISCORD_WEBHOOK_URL`: embed con nome, note e link allo zip, `allowed_mentions` vuoto. Permessi: `contents: write`.
 
+### 2.6: lingue
+
+I testi restano scritti in italiano nel codice. `src/lang/{en,fr,es,de}.json` hanno come chiave
+il testo italiano (con `{0}`, `{1}`… al posto delle parti variabili) e come valore la traduzione.
+`src/i18n.js` (funzioni pure + osservatore DOM) traduce i nodi di testo e gli attributi `title`,
+`placeholder`, `aria-label`, `alt` appena compaiono, ricordando l'originale: il cambio di lingua
+ritraduce dall'italiano senza ricaricare. Ordine di ricerca: testo esatto → spezzato sui
+separatori forti (« — ») → modello con parti variabili (le parti si traducono a loro volta; servono
+almeno 4 lettere fisse) → numero + testo noto → spezzato su « · », «: », «. ». Senza traduzione
+il testo resta in italiano.
+
+- Pagine dell'estensione: tutta la pagina (`src/i18n-pagina.js`, dizionario da `src/lang`).
+- Pagine di Vinted: solo i nodi dentro elementi con classe `vr-…` o `[data-vr-ui]`; il
+  dizionario lo dà il service worker (`vr:lingua`), così i file non sono esposti al sito.
+- Mai tradotti: `[data-vr-noi18n]`, link agli articoli, `.q-title`, `.vr-plan__title`, `textarea`.
+- Service worker: `I18N.traduci()` per le notifiche (`linguaSW()` legge la scelta).
+- Scelta: `chrome.storage.local.lingua` = `"auto"` | `it` | `en` | `fr` | `es` | `de`.
+
+**Aggiungere testi:** scrivili in italiano come sempre, poi `node scripts/i18n-estrai.js`
+elenca quelli senza traduzione; aggiungili ai quattro JSON con gli stessi `{n}`.
+`tests/test-i18n.js` controlla che i quattro dizionari abbiano le stesse voci e gli stessi
+segnaposto, la traduzione del DOM e quanti testi restano scoperti.
+
+### 2.6: modello dei telefoni
+
+`buildDraft` copia `ontology_model_id` / `ontology_collection_id` quando l'annuncio li ha
+(anche ricavandoli da `model {id}` / `collection {id}`); un campo imparato da una richiesta vera
+con «model»/«collection» e `_id` nel nome riceve lo stesso id. I campi imparati si sommano anche
+per categoria (`formatoPerCategoria`), non solo dall'ultima modifica. `VR.chiedeModello(errore)`
+riconosce il rifiuto di Vinted (model, modèle, modello, Modell, modelo) e aggiunge
+`VR.CONSIGLIO_MODELLO`. **Non verificato su Vinted reale:** il nome esatto del campo che Vinted
+vuole per il modello in pubblicazione; se non è `ontology_model_id`, la modifica a mano di un
+telefono su Vinted lo fa imparare.
+
 ### 2.5: Ripubblica da Vintory
 
 Contratto del file: `docs/RELIST_BRIDGE.md` nel repository di Vintory (formato `vintory-relist`,
@@ -560,6 +594,8 @@ Il workflow delle release esegue gli stessi test prima di creare lo zip.
 | `test-permesso` | 2.3: no con codice e motivo (salvataggio, versione, interno), compattazione e nuovo tentativo, pausa della coda su un problema tecnico, report diagnostico senza segreti, confronto, riparazione, aggiornamenti una volta per versione |
 | `test-proprietario` | 2.3: tuo armadio / altrui / sottopagine / annuncio / account non riconosciuto, barre costruite e tolte navigando, la pagina non scrive l'id, controllo di proprietà in `relist()` |
 | `test-240` | 2.4: intervallo per batch (modello e service worker: valori, passaggio di batch, timer mai azzerato da aggiunte, modifiche e rimozioni, pausa, riavvio, stima), venduti saltati senza fermare la coda e mai rimessi in coda, doppioni fra batch con aggiunte simultanee, incerti di sessioni passate |
+| `test-i18n` | 2.6: scelta della lingua, traduzione (esatta, con parti variabili, a pezzi, numeri), dizionari coerenti, DOM (estensione e solo l'estensione su Vinted, cambio al volo, ritorno all'italiano, testi dell'utente esclusi), copertura dei testi del codice |
+| `test-260` | 2.6: modello dei telefoni nel payload, campi imparati per categoria, rifiuto «modello» riconosciuto in cinque lingue, altre categorie invariate |
 | `test-vintory` | 2.5: lettore ZIP (stored, deflate, troncato, nomi pericolosi), formato e schema, controlli per annuncio, decisioni con lo stato su Vinted, sorgente, registro e pulizia, modello della coda, `relist()` da Vintory con API simulate (niente eliminato, ordine delle foto, online, venduto, proprietario, foto mancanti, permesso); con `VINTORY_ZIP` anche un'esportazione vera |
 | `test-vintory-sw` | 2.5: service worker: filtro all'ingresso, riferimento alla pagina, dati e foto in base64, nessuna foto in `chrome.storage`, registro, pulizia, esito incerto, riavvio, «ancora online» saltato |
 | `test-link` | 2.1: `links.json` del pacchetto, validazione, protocolli e siti vietati, precedenza, cache, tempi, timeout |

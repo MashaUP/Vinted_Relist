@@ -31,6 +31,7 @@ module.exports = function completa(chrome) {
       if (/armadio-logica\.js$/.test(f)) global.ArmadioLogica = require(path.join(RADICE, f));
       if (/versione\.js$/.test(f)) global.Versione = require(path.join(RADICE, f));
       if (/vintory-logica\.js$/.test(f)) global.VintoryLogica = require(path.join(RADICE, f));
+      if (/i18n\.js$/.test(f)) global.I18N = require(path.join(RADICE, f));
       // IndexedDB non c'e' in Node: archivio in memoria con la stessa interfaccia (un test puo' metterne uno suo)
       if (/vintory-db\.js$/.test(f) && !global.VintoryDB) global.VintoryDB = archivioMemoria();
     }

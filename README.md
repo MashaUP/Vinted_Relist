@@ -31,7 +31,7 @@ Prima di usarla su tanti articoli, provala su uno a cui tieni poco.
 
 ## Installazione
 
-1. Scarica lo zip **`Vinted_Relist-2.5.1.zip`**: dalla pagina della release su GitHub (tra gli
+1. Scarica lo zip **`Vinted_Relist-2.6.0.zip`**: dalla pagina della release su GitHub (tra gli
    allegati) o dalla radice del repository.
 2. Estrailo **in una cartella stabile** (non nella cartella temporanea che Windows apre con il
    doppio clic). La cartella giusta è quella che contiene `manifest.json`: con lo zip della
@@ -78,6 +78,13 @@ li divide in pronti, con avvisi e bloccati › **Avvia**.
 - Titolo con contatore, descrizione, prezzo, colore; controlli in tempo reale (errori, avvisi e
   note) e punteggio di completezza; anteprima di cosa cambia; bozza salvata da sola.
 - **Scarica le foto** originali, nella qualità più alta, in Download › Vinted Relist.
+
+### Novità 2.6: lingue
+- **Italiano, English, Français, Español, Deutsch.** Pannello «Lingua» (🌐) in alto nel popup e
+  nella dashboard. «Automatica» usa la lingua del browser. Vale subito anche sulle pagine di
+  Vinted, dove si traducono solo i bottoni e i pannelli dell'estensione.
+- **Telefoni:** il modello dell'annuncio passa nella ripubblicazione; prima Vinted chiedeva di
+  sceglierlo di nuovo.
 
 ### Novità 2.5: Ripubblica da Vintory
 [Vintory](https://github.com/MashaUP/Vintory) archivia in locale i tuoi annunci, anche dopo che
@@ -368,6 +375,8 @@ src/queue.js             selezione, opzioni e modelli della coda, controllo prev
 src/ui.js, content.js    bottoni sulle card, finestre, rilevamento articoli e inventario
 src/popup.*              Home, Notifiche, Salute, Impostazioni
 src/dashboard*.{html,js,css}  armadio e gestione della coda
+src/i18n.js, i18n-pagina.js  lingue: traduzione dei testi e pannello «Lingua»
+src/lang/*.json          dizionari (chiave = testo italiano)
 src/vintory-*.js         «Ripubblica da Vintory»: lettore ZIP, controlli del file (funzioni pure), foto in IndexedDB
 src/dashboard-vintory.js anteprima e aggiunta alla coda nella dashboard
 src/link.js              validazione e precedenza dei link (funzioni pure, riusabile)
@@ -391,7 +400,7 @@ Lo zip per gli utenti lo crea GitHub da solo quando pubblichi una release
 
 1. Aggiorna la versione in `manifest.json`, `version.json` (anche `zip`), `src/utils.js`
    (`VR.BUILD`) e `CHANGELOG.md`; fai il commit.
-2. Su GitHub › **Releases** › **Draft a new release**: tag `v` + versione (es. `v2.5.1`),
+2. Su GitHub › **Releases** › **Draft a new release**: tag `v` + versione (es. `v2.6.0`),
    titolo e note › **Publish release**.
 3. Il workflow controlla che il tag coincida con `manifest.json` e `version.json`, esegue i test,
    crea `Vinted_Relist-<versione>.zip` (con `manifest.json` nella radice, solo i file
@@ -417,7 +426,7 @@ errore con il motivo (lo zip resta allegato). Il messaggio non fa ping a nessuno
 
 Permessi del workflow: solo `contents: write` (serve per allegare il file), con il token
 temporaneo di GitHub; nessun segreto da configurare. Lo stesso zip si crea in locale con
-`scripts/pacchetto.sh [v2.5.1] [cartella]`.
+`scripts/pacchetto.sh [v2.6.0] [cartella]`.
 
 «Cerca aggiornamento» per ora legge `version.json` e scarica lo zip dalla radice del repository:
 finché resta così, carica anche lì lo zip della versione nuova.

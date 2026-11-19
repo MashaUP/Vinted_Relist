@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Vinted Relist",
-  "version": "2.5.1",
+  "version": "2.6.0",
   "description": "Ripubblica i tuoi annunci Vinted con un clic o in coda: editor, controllo prima di pubblicare, notifiche e dashboard dell'armadio.",
   "permissions": [
     "storage",
@@ -56,6 +56,7 @@
         "https://www.vinted.hu/*"
       ],
       "js": [
+        "src/i18n.js",
         "src/utils.js",
         "src/api.js",
         "src/editor-logica.js",
@@ -65,7 +66,8 @@
         "src/coda-logica.js",
         "src/queue.js",
         "src/ui.js",
-        "src/content.js"
+        "src/content.js",
+        "src/i18n-pagina.js"
       ],
       "css": [
         "src/styles.css"

@@ -356,3 +356,16 @@ body.in-tab { margin: 24px auto; border: 1px solid var(--border); border-radius:
 .compare { margin: 6px 0 0; padding-left: 16px; font: 11px/1.4 ui-monospace, Consolas, monospace; max-height: 220px; overflow: auto; }
 .compare li { margin-bottom: 4px; word-break: break-word; }
 .compare .uguale { list-style: none; margin-left: -16px; color: var(--ok, inherit); }
+
+/* 2.6.0 — pannello della lingua */
+.vr-i18n-attesa body { visibility: hidden; }
+.vr-lingua { position: relative; display: inline-flex; }
+.vr-lingua__btn { display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 8px; border: 1px solid rgba(0,0,0,.12); border-radius: 8px; background: transparent; color: inherit; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.vr-lingua__btn:hover, .vr-lingua__btn[aria-expanded="true"] { background: rgba(0,0,0,.05); }
+.vr-lingua__panel { position: absolute; top: calc(100% + 6px); right: 0; z-index: 50; min-width: 190px; padding: 8px; border-radius: 12px; background: #fff; color: #1b1f23; box-shadow: 0 10px 30px rgba(0,0,0,.18), 0 0 0 1px rgba(0,0,0,.06); }
+.vr-lingua__title { display: block; padding: 2px 8px 6px; font-size: 12px; color: #5b6470; font-weight: 600; }
+.vr-lingua__list { display: grid; gap: 2px; }
+.vr-lingua__opt { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; width: 100%; padding: 7px 8px; border: 0; border-radius: 8px; background: transparent; color: inherit; font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.vr-lingua__opt small { color: #5b6470; font-size: 11px; }
+.vr-lingua__opt:hover, .vr-lingua__opt:focus-visible { background: rgba(0,128,128,.08); outline: none; }
+.vr-lingua__opt[aria-selected="true"] { background: rgba(0,128,128,.14); font-weight: 600; }
