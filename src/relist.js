@@ -405,6 +405,10 @@
    * se il suo campione e' della stessa categoria. Altrimenti null: confrontare
    * un libro con il payload di una giacca produce soltanto falsi allarmi.
    */
+  /** Vinted ha rifiutato perche' manca il modello? (in qualunque lingua del sito) */
+  VR.chiedeModello = (e) => !e?.incerto && /\bmod(el|èle|ele|ell|elo|ello)\w*|ontology/i.test(`${e?.message || ""} ${(e?.campi || []).join(" ")}`);
+  VR.CONSIGLIO_MODELLO = "Vinted chiede il modello dell'articolo. Apri l'annuncio su Vinted, «Modifica», controlla che il modello sia scelto e salva: l'estensione impara così i campi di questa categoria. Poi riprova; se non basta, manda il report diagnostico (popup › Diagnostica).";
+
   VR.formatoPerCategoria = (catalogId) => {
     const L = VR.editorLogica;
     const perCategoria = VR.settings.itemFormats?.[String(catalogId)];
@@ -549,10 +553,36 @@
   }
 
   /** Costruisce il payload del nuovo annuncio a partire da quello vecchio. */
+  /**
+   * 2.6.0 — Modello (telefoni, console, altra elettronica): Vinted lo chiede in
+   * pubblicazione e lo restituisce in lettura come ontology_model_id (e
+   * ontology_collection_id per le serie), a volte con un oggetto model {id, title}.
+   * Prima non si copiava: «seleziona il modello» anche se l'annuncio lo aveva.
+   * Si mette solo quando l'annuncio ce l'ha: per le altre categorie non cambia nulla.
+   * Se una richiesta vera di Vinted (imparata) usa un altro nome con «model» o
+   * «collection» dentro, riceve lo stesso id.
+   */
+  const intero = (v) => {
+    const n = typeof v === "object" && v ? v.id : v;
+    return n != null && n !== "" && Number.isInteger(Number(n)) && Number(n) > 0 ? Number(n) : null;
+  };
+  function campiModello(src, draft, allowed) {
+    const modello = intero(src.ontology_model_id) ?? intero(src.model_id) ?? intero(src.model);
+    const serie = intero(src.ontology_collection_id) ?? intero(src.collection_id) ?? intero(src.collection);
+    if (modello != null) draft.ontology_model_id = modello;
+    if (serie != null) draft.ontology_collection_id = serie;
+    for (const campo of allowed) {
+      if (campo in draft && draft[campo] != null) continue;
+      if (modello != null && /model/i.test(campo) && /(^|_)id$/.test(campo)) draft[campo] = modello;
+      if (serie != null && /collection/i.test(campo) && /(^|_)id$/.test(campo)) draft[campo] = serie;
+    }
+  }
+
   function buildDraft(source, photoIds, overrides = {}, tempUuid = VR.uuid()) {
     // I campi imparati da una richiesta vera si sommano ai nostri: coprono le
     // categorie che non abbiamo ancora visto senza scartare quelle note.
-    const learned = VR.settings.itemFormat?.fields || [];
+    // 2.6.0: anche quelli imparati per QUESTA categoria, non solo l'ultima modifica.
+    const learned = [...(VR.settings.itemFormat?.fields || []), ...(VR.formatoPerCategoria?.(source.catalog_id)?.campi || [])];
     const allowed = new Set([...ALLOWED_FIELDS, ...learned]);
 
     const draft = {};
@@ -564,6 +594,7 @@
       if (allowed.has(key)) draft[key] = derive(source);
     }
 
+    campiModello(source, draft, allowed);
     draft.id = null;
     draft.temp_uuid = tempUuid;
     draft.assigned_photos = buildAssignedPhotos(photoIds);
@@ -828,6 +859,9 @@
         error.message =
           `Esito incerto: ${error.message} L'annuncio potrebbe essere stato pubblicato: ` +
           "controlla l'armadio prima di riprovare.";
+      } else if (VR.chiedeModello(error)) {
+        error.modello = true;
+        error.message = `${error.message} — ${VR.CONSIGLIO_MODELLO}`;
       }
       throw error;
     }
@@ -957,6 +991,8 @@
    * preventivo e console. Solo questi campi: niente titoli, testi o segreti.
    */
   const CAMPI_DIAGNOSTICA = ["color_ids", "is_unisex", "package_size_id"];
+  // 2.6.0: il modello compare nella diagnostica solo per gli annunci che ce l'hanno (telefoni…)
+  const CAMPI_MODELLO = ["ontology_model_id", "ontology_collection_id"];
   const ASSENTE = "(assente)";
   const mostra = (v) => (v === undefined ? ASSENTE : JSON.stringify(v));
 
@@ -970,7 +1006,8 @@
     // i campi del formato della stessa categoria che a noi mancano
     const extra = (formato?.campi || []).filter((c) => !(c in finale) && !CAMPI_DIAGNOSTICA.includes(c));
 
-    return [...CAMPI_DIAGNOSTICA, ...extra].map((campo) => {
+    const modello = CAMPI_MODELLO.filter((c) => source[c] != null && !extra.includes(c));
+    return [...CAMPI_DIAGNOSTICA, ...modello, ...extra].map((campo) => {
       const originale = campo === "color_ids"
         ? `color1_id=${mostra(source.color1_id)} color2_id=${mostra(source.color2_id)}`
         : mostra(campo in source ? source[campo] : undefined);

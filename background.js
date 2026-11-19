@@ -8,8 +8,40 @@
  */
 
 // Modello della coda: le stesse funzioni pure usate da popup, dashboard e pagina.
-importScripts("src/coda-logica.js", "src/armadio-logica.js", "src/versione.js", "src/vintory-logica.js", "src/vintory-db.js");
+importScripts("src/coda-logica.js", "src/armadio-logica.js", "src/versione.js", "src/vintory-logica.js", "src/vintory-db.js", "src/i18n.js");
 const VL = self.VintoryLogica;
+const I18N = self.I18N;
+
+// ---------------------------------------------------------------- lingua (2.6.0)
+// I dizionari si leggono da src/lang; le schede di Vinted li chiedono qui
+// (cosi' non serve esporre i file al sito). Le notifiche si traducono con I18N.
+
+const dizionari = new Map();
+async function dizionarioLingua(codice) {
+  if (!/^(en|fr|es|de)$/.test(String(codice))) throw new Error("lingua non disponibile");
+  if (!dizionari.has(codice)) {
+    const r = await fetch(chrome.runtime.getURL(`src/lang/${codice}.json`));
+    if (!r.ok) throw new Error(`lingua ${codice}: ${r.status}`);
+    dizionari.set(codice, await r.json());
+  }
+  return dizionari.get(codice);
+}
+async function linguaSW() {
+  try {
+    const { lingua = "auto" } = await chrome.storage.local.get({ lingua: "auto" });
+    const codice = I18N.scegli(lingua, self.navigator?.language);
+    if (codice !== I18N.lingua) await I18N.applica(codice, dizionarioLingua);
+  } catch {
+    // resta la lingua di prima: le notifiche escono comunque
+  }
+}
+const tr = (testo) => I18N.traduci(testo);
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type !== "vr:lingua") return false;
+  dizionarioLingua(String(message.codice || ""))
+    .then((dizionario) => sendResponse({ ok: true, dizionario }), (e) => sendResponse({ ok: false, error: String(e?.message || e) }));
+  return true;
+});
 const C = self.CodaLogica;
 const A = self.ArmadioLogica;
 const V = self.Versione;
@@ -20,7 +52,7 @@ const V = self.Versione;
  * memoria file vecchi dopo un aggiornamento, si vede (e si dice) invece di
  * fallire con un errore generico.
  */
-const BUILD = "2.5.1";
+const BUILD = "2.6.0";
 const AVVIO_SW = Date.now();
 
 // ------------------------------------------------------------ registro errori
@@ -637,12 +669,13 @@ async function chiudiCoda(coda, motivo) {
   if (!notifyOnFinish) return;
 
   // L'id porta con se' la coda: il clic apre il riepilogo di questa, non una pagina generica.
+  await linguaSW();
   chrome.notifications.create(`vr-coda-${coda.startedAt}`, {
     type: "basic",
     iconUrl: chrome.runtime.getURL("icons/icon128.png"),
-    title: problemi ? "Coda finita, con articoli da guardare" : "Coda finita",
-    message: testo,
-    contextMessage: "Clic per il riepilogo",
+    title: tr(problemi ? "Coda finita, con articoli da guardare" : "Coda finita"),
+    message: tr(testo),
+    contextMessage: tr("Clic per il riepilogo"),
     requireInteraction: problemi > 0,
   });
 }
@@ -2033,12 +2066,13 @@ async function controllaAggiornamenti({ manuale = false } = {}) {
     await chrome.storage.local.set({ updateNotified: { versione: decisione.versione, at: Date.now() } });
     const testo = (remota.note || [])[0] || "Le novità sono nel popup, Salute › Versione.";
     await registraEvento({ kind: "info", title: `Disponibile la versione ${decisione.versione}`, text: `Hai la ${installata}. ${testo}` });
+    await linguaSW();
     chrome.notifications.create(`vr-agg-${decisione.versione}`, {
       type: "basic",
       iconUrl: chrome.runtime.getURL("icons/icon128.png"),
-      title: `Vinted Relist ${decisione.versione} disponibile`,
-      message: `Hai la ${installata}. ${testo}`.slice(0, 200),
-      contextMessage: "Clic per scaricarla da Salute",
+      title: tr(`Vinted Relist ${decisione.versione} disponibile`),
+      message: tr(`Hai la ${installata}. ${testo}`).slice(0, 200),
+      contextMessage: tr("Clic per scaricarla da Salute"),
     });
   }
   return { ok: Boolean(remota?.ok), remota, notificata: decisione.notifica ? decisione.versione : null, motivo: decisione.motivo || null };

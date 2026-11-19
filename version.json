@@ -1,12 +1,10 @@
 {
-  "version": "2.5.1",
-  "date": "2026-11-14",
-  "zip": "Vinted_Relist-2.5.1.zip",
+  "version": "2.6.0",
+  "date": "2026-11-20",
+  "zip": "Vinted_Relist-2.6.0.zip",
   "notes": [
-    "Correzione per GitHub: lo zip della release si allega di nuovo da solo (un test della dashboard non partiva su GitHub Actions)",
-    "Ripubblica da Vintory: dalla dashboard scegli lo ZIP «Per Vinted_Relist» esportato da Vintory e rimetti in vendita anche gli annunci già eliminati da Vinted, senza eliminare niente",
-    "Anteprima con foto, prezzo, stato su Vinted e avvisi: venduti esclusi, ancora online esclusi se non scegli la copia di Vintory",
-    "Gli annunci scelti diventano una batch nuova con il Centro di modifica e il suo intervallo; foto in attesa in IndexedDB, mai nello spazio delle impostazioni",
-    "Niente doppioni: riaprendo lo stesso ZIP i già ripubblicati restano fuori"
+    "Lingue: italiano, inglese, francese, spagnolo e tedesco, con il pannello «Lingua» nel popup e nella dashboard (automatica = lingua del browser)",
+    "Telefoni e altra elettronica: il modello dell'annuncio ora passa nella ripubblicazione (prima Vinted chiedeva di sceglierlo)",
+    "Se Vinted chiede comunque il modello, il messaggio spiega cosa fare"
   ]
 }
