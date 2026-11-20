@@ -1,10 +1,10 @@
 {
-  "version": "2.6.0",
+  "version": "2.6.1",
   "date": "2026-11-20",
-  "zip": "Vinted_Relist-2.6.0.zip",
+  "zip": "Vinted_Relist-2.6.1.zip",
   "notes": [
-    "Lingue: italiano, inglese, francese, spagnolo e tedesco, con il pannello «Lingua» nel popup e nella dashboard (automatica = lingua del browser)",
-    "Telefoni e altra elettronica: il modello dell'annuncio ora passa nella ripubblicazione (prima Vinted chiedeva di sceglierlo)",
-    "Se Vinted chiede comunque il modello, il messaggio spiega cosa fare"
+    "Avvertenze in cinque lingue (DISCLAIMER.md): progetto non ufficiale, uso a proprio rischio, nessuna responsabilità per l'account o per abusi",
+    "Guida completa anche in inglese, francese, spagnolo e tedesco (README.en/fr/es/de.md)",
+    "README riscritto: guida rapida, consigli, soluzione dei problemi, privacy e permessi"
   ]
 }

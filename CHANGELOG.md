@@ -6,6 +6,21 @@ ultime tre leggendo questo file dall'estensione installata.
 Numerazione `x.y.z`: **x** quando cambia il modo di usarla o i dati salvati in modo non
 compatibile, **y** per funzioni nuove, **z** per sole correzioni.
 
+## 2.6.1 · Avvertenze e guida in cinque lingue (20 novembre 2026)
+
+Patch: solo documentazione, il codice dell'estensione non cambia.
+
+### Novità
+- **Avvertenze** ([DISCLAIMER.md](DISCLAIMER.md)) in italiano, inglese, francese, spagnolo e
+  tedesco: progetto non ufficiale e non affiliato a Vinted; i termini di Vinted possono vietare
+  l'automazione e Vinted può limitare, sospendere o chiudere gli account; uso a proprio rischio,
+  software fornito «così com'è»; nessuna responsabilità dell'autore per l'account, per annunci
+  persi o duplicati, vendite mancate, dati persi, né per abusi o usi impropri dell'estensione o di
+  sue versioni modificate.
+- **Guida completa in cinque lingue:** README riscritto (guida rapida, consigli, cosa fare se
+  qualcosa non va, privacy e permessi) e tradotto in `README.en.md`, `README.fr.md`,
+  `README.es.md`, `README.de.md`. Avvertenze e guide sono anche nello zip dell'estensione.
+
 ## 2.6.0 · Lingue e modello dei telefoni (20 novembre 2026)
 
 Minor: funzione nuova (lingue) e una correzione, retrocompatibili.

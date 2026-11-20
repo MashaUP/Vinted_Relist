@@ -25,9 +25,9 @@ NOME="Vinted_Relist-${VERSIONE}.zip"
 LAVORO="$(mktemp -d)"
 trap 'rm -rf "$LAVORO"' EXIT
 
-# Solo quello che il browser carica, piu' licenza e istruzioni. Niente test,
+# Solo quello che il browser carica, piu' licenza, avvertenze e guide (5 lingue). Niente test,
 # documentazione di sviluppo, workflow, script, zip vecchi.
-FILE=(manifest.json background.js links.json README.md CHANGELOG.md LICENSE)
+FILE=(manifest.json background.js links.json README.md README.en.md README.fr.md README.es.md README.de.md DISCLAIMER.md CHANGELOG.md LICENSE)
 CARTELLE=(src icons)
 for f in "${FILE[@]}"; do
   [[ -f "$RADICE/$f" ]] || { echo "::error::Manca $f" >&2; exit 1; }

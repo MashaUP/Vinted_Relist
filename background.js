@@ -52,7 +52,7 @@ const V = self.Versione;
  * memoria file vecchi dopo un aggiornamento, si vede (e si dice) invece di
  * fallire con un errore generico.
  */
-const BUILD = "2.6.0";
+const BUILD = "2.6.1";
 const AVVIO_SW = Date.now();
 
 // ------------------------------------------------------------ registro errori

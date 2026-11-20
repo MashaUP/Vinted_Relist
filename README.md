@@ -1,13 +1,37 @@
 # Vinted Relist
 
+**🇮🇹 Italiano** · [🇬🇧 English](README.en.md) · [🇫🇷 Français](README.fr.md) · [🇪🇸 Español](README.es.md) · [🇩🇪 Deutsch](README.de.md)
+
 Estensione per **Brave e Chrome** che ripubblica i tuoi annunci Vinted in un clic, uno alla volta
 o in coda, per riportarli in cima ai risultati senza rifarli a mano.
 
-**Versione 2.3.1** · [Novità](CHANGELOG.md) · [Community su Discord](https://discord.gg/EPsbQCuAkx) ·
+**Versione 2.6.1** · [Novità](CHANGELOG.md) · [Community su Discord](https://discord.gg/EPsbQCuAkx) ·
 [Segnala un problema](https://github.com/MashaUP/Vinted_Relist/issues/new?template=segnalazione-bug.yml) ·
 [Supporta lo sviluppo su Ko-fi](https://ko-fi.com/mashaup)
 
+> [!WARNING]
+> **Progetto non ufficiale, da usare a tuo rischio.** Non è affiliato né approvato da Vinted, e
+> automatizzare azioni sul sito può non essere consentito dai termini di Vinted, che può limitare o
+> sospendere gli account. **L'autore non è responsabile** di ciò che succede al tuo account, di
+> annunci persi o eliminati, di vendite mancate né di abusi o usi impropri dell'estensione.
+> Ripubblicare **elimina** l'annuncio vecchio: visite e preferiti ripartono da zero.
+> Installandola accetti le [avvertenze complete](DISCLAIMER.md#italiano).
+
 ---
+
+## Indice
+
+- [A chi serve](#a-chi-serve)
+- [Installazione](#installazione) · [Aggiornare](#aggiornare)
+- [Guida rapida](#guida-rapida)
+- [Cosa fa](#cosa-fa)
+- [Consigli: quando ripubblicare](#consigli-quando-ripubblicare)
+- [Se qualcosa non va](#se-qualcosa-non-va)
+- [Privacy e permessi](#privacy-e-permessi)
+- [Cosa non fa](#cosa-non-fa)
+- [Aiuto, idee, contributi](#aiuto-idee-contributi)
+- [Per sviluppatori](#per-sviluppatori)
+- [Licenza e avvertenze](#licenza-e-avvertenze)
 
 ## A chi serve
 
@@ -16,176 +40,114 @@ abbigliamento, lotti. Invece di copiare foto e testi in un annuncio nuovo e canc
 premi **Ripubblica** sulla card dell'articolo, oppure selezionane tanti e mettili in **coda** con
 un intervallo tra uno e l'altro.
 
-È un progetto personale, gratuito e senza server: tutto resta nel tuo browser.
-
-## Stato del progetto
+È un progetto personale, gratuito e senza server: tutto resta nel tuo browser. L'interfaccia è in
+**italiano, inglese, francese, spagnolo e tedesco**.
 
 | | |
 |---|---|
 | Distribuzione | zip su GitHub, da caricare come estensione non pacchettizzata. **Non è sul Chrome Web Store** (vedi [perché](docs/SVILUPPO.md#11-chrome-web-store-rischi)) |
-| Verificato su Vinted reale | la ripubblicazione, nelle versioni precedenti usate dall'autore |
-| Verificato solo nei test | le novità dalla 2.1 alla 2.5 (code dinamiche, esiti incerti, batch, intervallo per batch, venduti, marcatori, «Ripubblica da Vintory», «Ripubblica ora», valore dell'armadio): quasi 800 controlli automatici e prove in Chromium con l'estensione caricata su un Vinted finto, senza pubblicazioni vere |
+| Verificato su Vinted reale | la ripubblicazione, nelle versioni usate dall'autore |
+| Verificato solo nei test | molte funzioni recenti (code dinamiche, batch, Vintory, lingue…): oltre 1100 controlli automatici e prove in Chromium su un Vinted simulato, senza pubblicazioni vere |
 | Dipendenze | nessuna libreria, nessun passaggio di build |
 
-Prima di usarla su tanti articoli, provala su uno a cui tieni poco.
+**Prima di usarla su tanti articoli, provala su uno a cui tieni poco.**
 
 ## Installazione
 
-1. Scarica lo zip **`Vinted_Relist-2.6.0.zip`**: dalla pagina della release su GitHub (tra gli
-   allegati) o dalla radice del repository.
-2. Estrailo **in una cartella stabile** (non nella cartella temporanea che Windows apre con il
-   doppio clic). La cartella giusta è quella che contiene `manifest.json`: con lo zip della
-   radice è `Vinted_Relist`, con quello della release è la cartella in cui l'hai estratto.
-3. Apri `brave://extensions` (o `chrome://extensions`) e attiva **Modalità sviluppatore**.
+1. Scarica **`Vinted_Relist-2.6.1.zip`** dalla pagina della
+   [release su GitHub](https://github.com/MashaUP/Vinted_Relist/releases) (tra gli allegati) o
+   dalla radice del repository.
+2. Estrailo **in una cartella stabile**, per esempio `Documenti\Vinted_Relist` (non nella cartella
+   temporanea che Windows apre con il doppio clic sullo zip). La cartella giusta è quella che
+   contiene `manifest.json`.
+3. Apri `brave://extensions` (o `chrome://extensions`) e attiva **Modalità sviluppatore** in alto
+   a destra.
 4. **Carica estensione non pacchettizzata** › scegli la cartella con `manifest.json`.
-5. Apri il tuo armadio su Vinted da loggato e ricarica la pagina: sulle card compaiono i bottoni.
+5. Apri il tuo armadio su Vinted **da loggato** e ricarica la pagina: sulle card compaiono i
+   bottoni **Ripubblica** e **Modifica**.
+
+> Non cancellare né spostare la cartella dopo l'installazione: il browser la usa ogni volta.
 
 ### Aggiornare
 
-1. Popup › **Salute** › **Cerca aggiornamento**: se c'è una versione nuova vedi le note.
+1. Popup › **Salute** › **Cerca aggiornamento** (controlla anche da sola ogni 12 ore e ti avvisa).
 2. **Scarica lo zip** ed estrailo **sopra la cartella attuale**, sostituendo i file.
-3. **Installa l'aggiornamento**: l'estensione si ricarica. Poi ricarica le schede di Vinted.
+3. **Installa l'aggiornamento**: l'estensione si ricarica. Poi ricarica le schede di Vinted (F5).
 
 Un'estensione caricata da cartella non può sostituire i propri file: l'estrazione la fai tu. Se un
 articolo è in pubblicazione il bottone aspetta; una coda attiva risulta «interrotta» e riparte con
-Riprendi.
+**Riprendi**.
 
-## Primi passi
+## Guida rapida
 
-**Un articolo.** Sulla card: **Ripubblica** per farlo subito, **Modifica** per cambiare foto,
-testi o prezzo prima, con l'anteprima di cosa cambia.
+**0. Lingua.** Il pulsante 🌐 in alto nel popup e nella dashboard apre il pannello **Lingua**:
+«Automatica» segue la lingua del browser, oppure scegli Italiano, English, Français, Español o
+Deutsch. Il cambio vale subito ovunque.
 
-**Tanti articoli.** Spunta le caselle sulle card (Shift+clic per un intervallo) › **Coda** › scegli
-le opzioni (prezzo, testi, intervallo, orario) › il controllo legge ogni articolo senza pubblicare e
-li divide in pronti, con avvisi e bloccati › **Avvia**.
+**1. Un articolo.** Sulla card del tuo armadio:
+- **Ripubblica**: clona l'annuncio e cancella il vecchio, subito;
+- **Modifica**: prima cambi foto, titolo, descrizione o prezzo, vedi l'anteprima di cosa cambia e
+  poi pubblichi.
 
-**Con la coda in corso.** Puoi continuare a selezionare articoli e premere **Aggiungi alla coda**
-(in fondo o in cima). **Gestisci** apre la pagina della coda, dove vedi e modifichi tutto.
+**2. Tanti articoli (coda).** Spunta le caselle sulle card (Shift+clic per un intervallo) ›
+**Coda** › scegli le opzioni (prezzo, testi, intervallo tra gli articoli, orario di partenza) ›
+il controllo legge ogni articolo **senza pubblicare** e li divide in pronti, con avvisi e
+bloccati › **Avvia**. Tieni aperta una scheda di Vinted finché la coda lavora.
+
+**3. Con la coda in corso.** Continua a selezionare articoli e premi **Aggiungi alla coda**: si
+apre il **Centro di modifica** e diventano una **batch** nuova, con regole e intervallo suoi. La
+coda non si ferma. **Gestisci** apre la pagina della coda, dove vedi, riordini, metti in pausa e
+correggi tutto.
+
+**4. Annunci già eliminati da Vinted.** Con [Vintory](https://github.com/MashaUP/Vintory) esporta
+gli annunci («Per Vinted_Relist»), poi Dashboard › **Ripubblica da Vintory** › scegli lo ZIP:
+l'anteprima ti dice quali si possono ripubblicare, senza eliminare niente.
+
+**5. Se qualcosa va storto.** Popup › **Salute**: stato dell'estensione, diagnostica da copiare e
+cosa fare. Un esito incerto diventa «da verificare» e non viene mai ripubblicato da solo.
 
 ## Cosa fa
 
 ### Ripubblicazione
 - Clona l'annuncio (foto, titolo, descrizione, categoria, marca, taglia, condizione, colori,
-  prezzo, spedizione) e cancella quello vecchio, con le stesse API interne del sito e la tua
-  sessione: niente clic simulati.
-- **Ordine sicuro:** pubblica, poi elimina (predefinito). In alternativa elimina, poi pubblica, con
-  una copia dei dati salvata prima di cancellare.
+  modello per i telefoni, prezzo, spedizione) e cancella quello vecchio, con le API interne del
+  sito e la tua sessione: niente clic simulati.
+- **Ordine sicuro:** pubblica, poi elimina (predefinito). Se Vinted rifiuta il nuovo, il vecchio
+  resta. In alternativa elimina, poi pubblica, con una copia dei dati salvata prima.
 - **Nel dubbio non ripubblica:** se Vinted non dà una risposta chiara l'articolo diventa «da
-  verificare» e lo confermi tu. Un doppione costa più di un articolo fermo un giro in più.
+  verificare» e lo confermi tu (anche con **Verifica pubblicazione**, che guarda su Vinted senza
+  pubblicare niente). Un doppione costa più di un articolo fermo un giro in più.
+- **Solo i tuoi annunci:** bottoni e azioni compaiono solo nel tuo armadio; i venduti non si
+  ripubblicano e in coda vengono saltati.
 
 ### Editor dell'annuncio
 - Foto: riordino, rotazione, ritaglio (libero, quadrato, 4:5), rimozione e ripristino.
-- Titolo con contatore, descrizione, prezzo, colore; controlli in tempo reale (errori, avvisi e
-  note) e punteggio di completezza; anteprima di cosa cambia; bozza salvata da sola.
+- Titolo con contatore, descrizione, prezzo, colore; controlli in tempo reale e punteggio di
+  completezza; anteprima di cosa cambia; bozza salvata da sola.
 - **Scarica le foto** originali, nella qualità più alta, in Download › Vinted Relist.
 
-### Novità 2.6: lingue
-- **Italiano, English, Français, Español, Deutsch.** Pannello «Lingua» (🌐) in alto nel popup e
-  nella dashboard. «Automatica» usa la lingua del browser. Vale subito anche sulle pagine di
-  Vinted, dove si traducono solo i bottoni e i pannelli dell'estensione.
-- **Telefoni:** il modello dell'annuncio passa nella ripubblicazione; prima Vinted chiedeva di
-  sceglierlo di nuovo.
-
-### Novità 2.5: Ripubblica da Vintory
-[Vintory](https://github.com/MashaUP/Vintory) archivia in locale i tuoi annunci, anche dopo che
-Vinted li ha eliminati. Con «Ripubblica da Vintory» li rimetti in vendita:
-
-1. In Vintory: scheda di un annuncio (o selezione) › **Per Vinted_Relist**: esporti uno ZIP.
-2. Tieni aperta una scheda di Vinted da loggato.
-3. Dashboard › **Ripubblica da Vintory** › scegli (o trascina) lo ZIP.
-4. L'anteprima controlla ogni foto (sha256), che l'annuncio sia tuo e com'è adesso su Vinted
-   (sola lettura): **non più su Vinted** → spuntato; **venduto** → escluso; **ancora online** →
-   escluso, a meno che tu scelga «ripubblica con la copia di Vintory» (elimina il vecchio come
-   «Ripubblica»).
-5. **Aggiungi alla coda**: diventano una batch nuova, con regole e intervallo suoi. Per gli
-   eliminati si crea l'annuncio nuovo **senza eliminare niente**.
-
-Le foto in attesa stanno nell'IndexedDB dell'estensione, non nello spazio delle impostazioni, e
-si cancellano da sole quando non servono più. Riaprendo lo stesso ZIP, i già ripubblicati restano
-fuori («già ripubblicato il …»). Titolo, descrizione e prezzo sono quelli di Vintory; categoria,
-marca, taglia, colori e condizioni quelli che Vinted aveva (se li hai cambiati a mano in Vintory,
-l'anteprima te lo dice).
-
-### Novità 2.4
-- **Intervallo per batch:** ogni batch aggiunta con il Centro di modifica ha il suo «Intervallo tra
-  gli articoli» (proposto uguale alla batch precedente). L'attesa in corso non si azzera mai.
+### Coda
+- **Dinamica:** aggiungi, rimuovi e riordina anche mentre lavora o è in pausa.
+- **Batch:** ogni gruppo aggiunto ha regole proprie (prezzo, descrizione, dati mancanti) e il suo
+  intervallo; l'attesa in corso non si azzera mai.
 - **Marcatori sulle card:** In coda, In attesa, In elaborazione, Da verificare, Completato,
-  Errore, Annullato, dallo stato salvato della coda. Chi è in coda o da verificare non si può
-  selezionare né ripubblicare a mano: niente doppioni, neanche fra batch diverse.
-- **Venduti:** nessun bottone sulle card «Venduto», nessuna ripubblicazione o modifica; in coda
-  vengono saltati senza fermarla.
-- **Notifiche di Vinted pulite:** i bottoni compaiono solo sulle card dell'armadio, non nel
-  pannello delle notifiche, nei menu o nelle finestre.
-
-### Novità 2.3
-- **Coda che non si ferma più in silenzio:** se il permesso di inviare a Vinted non arriva, il
-  motivo è quello vero (salvataggio, errore interno, versioni diverse, estensione ricaricata…), la
-  coda si mette in pausa e l'articolo torna in cima: niente «permesso negato» uguale per tutto.
-- **Report di confronto** in Salute, da generare su due installazioni e confrontare, e
-  **riparazione mirata** dei dati della coda.
-- **Aggiornamenti automatici:** ogni 12 ore controlla il `version.json` del progetto e ti avvisa
-  una volta per ogni versione nuova (si spegne in Impostazioni).
-- **Solo nel tuo armadio:** bottoni, caselle e pannello della coda compaiono solo lì (e sulla
-  pagina di un tuo annuncio), mai negli armadi degli altri; le azioni ricontrollano che l'annuncio
-  sia tuo.
-
-### Novità 2.2
-- **Esiti certi:** dopo 6 minuti senza risposta la coda chiede alla scheda se sta ancora
-  lavorando e, se sì, aspetta. Se la pagina è stata chiusa o ricaricata decide con le prove:
-  **Interrotto** se non era stato inviato niente a Vinted (riprovarlo è sicuro), **Da verificare**
-  se la richiesta era partita. Un esito che arriva in ritardo vale ancora.
-- **«Verifica pubblicazione»** (dashboard e popup, e da sola dopo un esito incerto): guarda su
-  Vinted, senza pubblicare niente, se il nuovo annuncio c'è e se il vecchio è stato eliminato.
-- **Batch:** con una coda in corso, «Aggiungi alla coda» apre il **Centro di modifica** per i nuovi
-  articoli. Diventano una batch con regole proprie (prezzo, descrizione, dati mancanti); quelle già
-  in coda non cambiano e la coda non si ferma. Nella dashboard ogni batch mostra stato, regole e
-  conteggi, e le sue regole si possono cambiare per gli articoli ancora in attesa.
-- **«Ripubblica ora»:** l'articolo scelto diventa il prossimo, con le regole della sua batch, senza
-  interrompere quello in corso.
-- **Valore dell'armadio** aggiornato a ogni pubblicazione confermata, anche nel popup, senza
-  doppioni e senza contare gli esiti incerti.
-
-### Coda (novità 2.1)
-- **Dinamica:** aggiungi, rimuovi e riordina gli articoli anche mentre la coda lavora o è in pausa;
-  alla ripresa vale l'elenco aggiornato.
-- **Pagina di gestione** (Dashboard › Coda, o «Gestisci»): per ogni articolo miniatura, titolo,
-  prezzo, posizione, stato con etichetta e icona, errore e cosa fare. Azioni sulla riga (apri,
-  dettagli, su/giù/cima/fondo, rimuovi, riprova, conferma esito) e su più articoli selezionati.
-  Ricerca, filtri (in attesa, problemi, completati…), ordinamento solo visivo.
-- **Riordino** trascinando, oppure da tastiera con Alt+↑/↓/Home/Fine.
-- **Tre gesti diversi, tre bottoni diversi:**
-  - *Rimuovi dalla coda* toglie un articolo in attesa dalla pianificazione: **non cancella niente
-    su Vinted**;
-  - *Annulla operazione* ferma l'articolo in corso, solo se la richiesta a Vinted non è ancora
-    partita;
-  - *Interrompi la sessione* annulla quelli in attesa e lascia finire quello in corso.
-- **Pausa** subito o dopo l'articolo in corso, anche **a tempo** (15, 30, 60, 120 minuti), con
-  ripresa affidabile anche a popup chiuso.
-- **Avanzamento e stima** dei tempi dalle durate osservate, dichiarata come stima.
-- **Salute della coda:** in corso, in pausa, bloccata, da verificare, con il perché e cosa fare.
-- **Errori per categoria** (temporaneo, dati, sessione, non consentito, rete, incerto) con
-  l'indicazione se riprovare serve. Tre problemi di fila mettono la coda in pausa da sola.
-- **Cronologia** filtrabile (modifiche tue, esiti di Vinted, eventi di sistema); esportazione **CSV
-  e JSON** e resoconto da copiare, senza dati sensibili.
-- **Sessioni precedenti** (ultime 10): riprendi gli articoli non elaborati o riprova i falliti;
-  quelli già ripubblicati non vengono mai ripubblicati di nuovo.
-- **Modelli di opzioni** con nome, da riusare.
+  Errore. Niente doppioni, neanche fra batch diverse.
+- **Pausa** subito, dopo l'articolo in corso o **a tempo**; ripresa affidabile anche a popup chiuso.
+- **Ripubblica ora:** l'articolo scelto diventa il prossimo, senza interrompere quello in corso.
 - **Opzioni in blocco:** prezzo in percentuale, in euro o fisso (mai sotto 0,50 €), cerca e
-  sostituisci, riga in fondo alla descrizione, colore dove manca.
-- **Automazione facoltativa:** fasce orarie di picco, ripubblicazione degli articoli fermi da N
-  giorni, ritmo irregolare e passi solo quando sei al computer.
-- **Protezioni:** un articolo alla volta; davanti a un 429/403 rallenta (5, 15, 45 minuti) e poi si
-  ferma; dopo un'interruzione del browser l'articolo a metà diventa «Interrotto» se non aveva
-  ancora inviato niente, «da verificare» se sì. Un «da verificare» non viene mai ripubblicato da solo.
+  sostituisci, riga in fondo alla descrizione, colore dove manca. **Modelli** da riusare.
+- **Protezioni:** un articolo alla volta; davanti a un 429/403 rallenta e poi si ferma; tre
+  problemi di fila mettono la coda in pausa; dopo un'interruzione del browser decide con le prove
+  («Interrotto» se non era partito niente, «da verificare» se sì).
+- **Automazione facoltativa:** fasce orarie di picco, articoli fermi da N giorni, ritmo irregolare.
+- **Cronologia**, esportazione **CSV/JSON** e sessioni precedenti da riprendere.
 
 ### Popup e dashboard
-- **Popup:** Home con la coda e l'attività, Notifiche, Salute (controlli, diagnostica da copiare,
-  Cerca aggiornamento, novità, link del progetto), Impostazioni con backup.
+- **Popup:** Home (coda e attività), Notifiche, Salute (controlli, diagnostica, Cerca
+  aggiornamento, novità, link), Impostazioni con backup.
 - **Dashboard dell'armadio:** gestione della coda, gruppi (recenti, stagnanti, da ottimizzare…),
-  tabella con ricerca e ordinamento, possibili duplicati, cosa funziona (visite a 48 ore per giorno
-  e fascia), storico con confronto prima/dopo e ripristino.
-- **Avvisi sulla pagina:** 3 s per i successi, 4 s per le informazioni, 7 s per gli avvisi, 6 s per
-  la coda finita; errori ed esiti incerti restano finché non li chiudi.
+  tabella con ricerca, possibili duplicati, cosa funziona (visite a 48 ore per giorno e fascia),
+  storico con confronto prima/dopo e ripristino, **Ripubblica da Vintory**.
 
 ### Scorciatoie (pagina della coda)
 
@@ -194,7 +156,7 @@ l'anteprima te lo dice).
 | `P` | pausa / riprendi |
 | `A` | apri l'articolo in corso |
 | `F` | mostra solo i problemi |
-| `R` | sull'articolo selezionato: ripubblica ora (diventa il prossimo) |
+| `R` | sull'articolo selezionato: ripubblica ora |
 | `S` | seleziona tutti gli articoli in attesa |
 | `Canc` | rimuovi dalla coda i selezionati |
 | `H` | apri la cronologia |
@@ -202,66 +164,23 @@ l'anteprima te lo dice).
 | `Alt` + `↑` `↓` `Home` `Fine` | sposta l'articolo |
 | `?` | elenco delle scorciatoie |
 
-Non scattano mentre scrivi in un campo.
-
-## Cosa non fa
-
-- **Non riporta in vita l'annuncio originale:** visite, preferiti e anzianità ripartono da zero.
-- **Non altera le foto per renderle irriconoscibili** ai controlli di Vinted.
-- **Non tocca ISBN, misure e produttore**, e non sceglie la dimensione del pacco.
-- **Non lavora a browser chiuso:** serve il browser aperto e una scheda su Vinted.
-- **Non si aggiorna da sola** (vedi [Aggiornare](#aggiornare)).
-- **Non usa API pubbliche**, perché Vinted non ne ha: un cambiamento del sito può romperla.
-
-## Privacy e permessi
-
-Bozze, storico, statistiche, coda e notifiche restano nel browser. Nessuna telemetria. Le sole
-richieste fuori da Vinted vanno all'API pubblica di GitHub, senza cookie né dati tuoi:
-
-- **Cerca aggiornamento** legge `version.json`, solo quando premi il bottone;
-- i **link del progetto** (GitHub, Discord, Ko-fi…) si rileggono da `links.json` al massimo ogni
-  12 ore aprendo popup o dashboard. Si spegne in Impostazioni › Avanzate › «Aggiorna i link del
-  progetto».
-
-| Permesso | Perché serve |
-|---|---|
-| `storage` | impostazioni, coda, inventario, storico, notifiche: tutto in locale (le foto importate da Vintory stanno invece nell'IndexedDB dell'estensione, sempre in locale; non serve un permesso in più) |
-| `webRequest` | leggere dalle richieste di Vinted il token di sessione, il tuo id e i formati |
-| `alarms` | svegliare la coda all'orario giusto e riprendere una pausa a tempo a popup chiuso |
-| `notifications` | la notifica di fine coda |
-| `idle` | il ritmo irregolare: niente passi quando non sei al computer |
-| `downloads` | foto scaricate, backup delle impostazioni, esportazioni della coda |
-| siti `vinted.*` e `*.vinted.net` | chiamare le API di Vinted e scaricare le foto dal suo CDN |
-
-## Quando ripubblicare
+## Consigli: quando ripubblicare
 
 Vinted ordina feed e ricerche per data di aggiornamento: ripubblicare rimette l'articolo in cima, e
 l'algoritmo misura l'interesse nelle prime ore.
 
-Indice di rendimento su oltre 12.000 annunci (gennaio–aprile 2026), 100 = media settimanale:
+- **Tra articoli diversi, 15–20 minuti** (l'intervallo predefinito della coda). Pochi articoli
+  alla volta, pause generose.
+- **Lo stesso articolo ogni 5–7 giorni, mai ogni giorno.**
+- **Domenica sera, 20:00–22:00** risulta il momento migliore; **venerdì** il giorno peggiore;
+  meglio evitare 1:00–6:00.
 
-| Giorno | 7–9 | 12–14 | 19–22 | Totale |
-|---|---|---|---|---|
-| Lunedì | **105** | 98 | 102 | 97 |
-| Martedì | **103** | 100 | 99 | 95 |
-| Mercoledì | 98 | **110** | 106 | 104 |
-| Giovedì | 101 | 97 | **108** | 100 |
-| Venerdì | 96 | 95 | 94 | 92 |
-| Sabato | 112 | **115** | 110 | 112 |
-| Domenica | 108 | 118 | **125** | 123 |
-
-- **Domenica sera, 20:00–22:00** è il momento migliore; **venerdì** il giorno peggiore.
-- **Da evitare:** 1:00–6:00, venerdì dopo le 21, sabato prima delle 10.
-- **Tra articoli diversi, 15–20 minuti** (l'intervallo predefinito della coda).
-- **Lo stesso articolo ogni 4–7 giorni, mai ogni giorno.** Su 2,4 milioni di articoli:
-
-| Frequenza | Venduti in 14 giorni | Visite medie |
+| Frequenza per lo stesso articolo | Venduti in 14 giorni | Visite medie |
 |---|---|---|
 | 1× al giorno | 4% | 12 |
 | Ogni 2 giorni | 9% | 28 |
 | **Ogni 5–7 giorni** | **23%** | **94** |
 | Ogni 10 giorni | 17% | 67 |
-| Ogni 14 giorni | 11% | 43 |
 | Mai | 6% | 21 |
 
 Le fonti ([Relisted](https://relisted.io/en/blog/best-time-post-vinted),
@@ -269,7 +188,89 @@ Le fonti ([Relisted](https://relisted.io/en/blog/best-time-post-vinted),
 vendono strumenti di ripubblicazione e i dati vengono dai loro utenti: non sono verificabili. La
 risposta per il tuo armadio te la dà la dashboard, dopo qualche settimana di relist misurati.
 
-## Come funziona
+## Se qualcosa non va
+
+Popup › **Salute** › **Prepara la diagnostica**: versione, impostazioni, stato della coda ed errori
+recenti, senza token, cookie, id o indirizzi. Lo vedi prima di copiarlo e puoi incollarlo su
+Discord o in una segnalazione.
+
+- **I bottoni non compaiono.** Compaiono solo nel tuo armadio (`/member/<tuo id>`) e quando
+  l'estensione ha riconosciuto il tuo account: naviga un po' su Vinted da loggato e ricarica.
+- **«Token CSRF non trovato» o «ricarica questa pagina» dopo un aggiornamento.** Ricarica la
+  scheda di Vinted (F5): le pagine già aperte restano con il codice vecchio.
+- **Telefoni: Vinted chiede di selezionare il modello.** Dalla 2.6 il modello passa da solo. Se
+  succede ancora: apri l'annuncio su Vinted › **Modifica** › controlla il modello › salva, poi
+  riprova (l'estensione impara i campi della categoria). Se non basta, mandaci la diagnostica.
+- **La coda si ferma con «Problema dell'estensione».** Il motivo è nella pausa e nella
+  diagnostica. Di solito basta ricaricare la scheda di Vinted; poi **Riprendi**. Niente era stato
+  inviato a Vinted.
+- **Errore 403 o 429.** È la protezione anti-bot di Vinted: la coda rallenta da sola. Aumenta
+  l'intervallo.
+- **«Errore durante il caricamento della foto».** Carica una foto a mano da `/items/new` per far
+  imparare il formato, poi riprova.
+- **Icona rotta, `ERR_FILE_NOT_FOUND`.** Il browser non trova più la cartella: estrai in una
+  posizione stabile e ricarica l'estensione da lì.
+- **Su due computer va diversamente.** Salute › **Report di confronto** su tutte e due, poi
+  incolla quello dell'altra in «Confronta»: escono solo le differenze.
+
+<details>
+<summary>Strumenti nella console (per utenti esperti)</summary>
+
+Spenti di default (Impostazioni › Avanzate › **Strumenti nella console**), tutti in sola lettura:
+
+```js
+await VR.settings()        // impostazioni, senza id utente né contenuti degli annunci
+await VR.diagnosi(ID)      // colore, unisex, pacco, modello: originale → convertito → inviato
+await VR.source(ID)        // payload grezzo che Vinted restituisce per l'articolo
+await VR.captured()        // payload catturato da una modifica fatta a mano
+await VR.compare(ID)       // confronto con il formato appreso: campi mancanti, di troppo
+await VR.debugDraft(ID)    // cosa verrebbe inviato, senza pubblicare niente
+await VR.canary(ID)        // prova a vuoto: legge e prepara tutto senza pubblicare
+```
+</details>
+
+## Privacy e permessi
+
+Bozze, storico, statistiche, coda e notifiche restano nel browser. **Nessuna telemetria, nessun
+server, nessun dato inviato all'autore.** Le sole richieste fuori da Vinted vanno a GitHub, senza
+cookie né dati tuoi: `version.json` per gli aggiornamenti e `links.json` per i link del progetto
+(si spegne in Impostazioni › Avanzate).
+
+| Permesso | Perché serve |
+|---|---|
+| `storage` | impostazioni, coda, inventario, storico, notifiche, lingua: tutto in locale |
+| `webRequest` | leggere dalle richieste di Vinted il token di sessione, il tuo id e i formati |
+| `alarms` | svegliare la coda all'orario giusto e riprendere una pausa a tempo |
+| `notifications` | la notifica di fine coda e degli aggiornamenti |
+| `idle` | il ritmo irregolare: niente passi quando non sei al computer |
+| `downloads` | foto scaricate, backup delle impostazioni, esportazioni della coda |
+| siti `vinted.*` e `*.vinted.net` | chiamare le API di Vinted e scaricare le foto dal suo CDN |
+
+## Cosa non fa
+
+- **Non riporta in vita l'annuncio originale:** visite, preferiti e anzianità ripartono da zero.
+- **Non altera le foto per renderle irriconoscibili** ai controlli di Vinted.
+- **Non lavora a browser chiuso:** serve il browser aperto e una scheda su Vinted.
+- **Non si aggiorna da sola:** ti avvisa, l'estrazione la fai tu.
+- **Non usa API pubbliche**, perché Vinted non ne ha: un cambiamento del sito può romperla.
+
+## Aiuto, idee, contributi
+
+- **Domande e aiuto:** la [community su Discord](https://discord.gg/EPsbQCuAkx).
+- **Bug:** [apri una segnalazione](https://github.com/MashaUP/Vinted_Relist/issues/new?template=segnalazione-bug.yml)
+  con versione, browser, cosa è successo e la diagnostica. **Non incollare mai cookie, token o
+  dati dell'account.**
+- **Idee:** [proponi una funzione](https://github.com/MashaUP/Vinted_Relist/issues/new?template=proposta.yml),
+  partendo dal problema che risolve.
+- **Supporta lo sviluppo:** Vinted Relist è gratuito; se ti fa risparmiare tempo puoi offrirmi un
+  caffè su [Ko-fi](https://ko-fi.com/mashaup).
+
+## Per sviluppatori
+
+La documentazione tecnica è in italiano: architettura, flussi, stati e decisioni in
+[docs/SVILUPPO.md](docs/SVILUPPO.md), link centralizzati in [docs/LINK.md](docs/LINK.md).
+
+### Come funziona
 
 | Passo | Chiamata |
 |---|---|
@@ -280,175 +281,78 @@ risposta per il tuo armadio te la dà la dashboard, dopo qualche settimana di re
 | Elimina il vecchio | `POST /api/v2/items/{id}/delete` |
 
 La coda la scrive **solo il service worker**, una modifica alla volta: pagina, popup e dashboard
-mandano richieste e mostrano lo stato salvato. Ogni articolo è identificato dal suo id Vinted,
-mai dalla posizione, così aggiunte e spostamenti durante l'esecuzione non scambiano articoli.
-Dettagli, stati e decisioni in [docs/SVILUPPO.md](docs/SVILUPPO.md).
+mandano richieste e mostrano lo stato salvato. Ogni articolo è identificato dal suo id Vinted, mai
+dalla posizione.
 
-### Campi che dipendono dalla categoria
+I campi che dipendono dalla categoria (colore, unisex, pacco, modello) si deducono solo dai tuoi
+articoli con **lo stesso `catalog_id`**; ISBN, misure e produttore non si toccano mai.
 
-Un libro, un manga e una giacca non hanno gli stessi campi. Le prove sono solo i tuoi articoli con
-**lo stesso `catalog_id`**; categorie diverse non si mescolano mai.
+### Lingue
 
-| Campo | Cosa succede |
-|---|---|
-| `color_ids` | Presente: inviato com'è. Assente: riempito solo se tutti gli altri tuoi articoli della categoria (almeno 2) hanno un colore e concordano. Avviso solo se tutta la categoria lo usa, altrimenti nota. Mai dedotto da titolo o copertina. |
-| `is_unisex` | `true` e `false` si conservano. Assente (libri, manga): resta assente. Mai impostato d'ufficio. |
-| `package_size_id` | Solo segnalato. |
-| `isbn`, misure, `manufacturer` | Mai toccati. |
+I testi sono scritti in italiano nel codice; `src/lang/{en,fr,es,de}.json` hanno come chiave il
+testo italiano. Dopo aver aggiunto testi, `node scripts/i18n-estrai.js` elenca quelli da tradurre.
 
-## Se qualcosa non va
-
-Popup › **Salute** › **Prepara la diagnostica**: versione, impostazioni, stato della coda ed errori
-recenti, senza token, cookie, id o indirizzi. Lo vedi prima di copiarlo.
-
-Se su un'installazione qualcosa non va e su un'altra sì: **Salute › Report di confronto** su
-tutte e due, poi incolla il report dell'altra in «Confronta»: escono solo le differenze (versioni dei
-componenti, permessi, spazio, struttura dei dati, schede raggiungibili, errori recenti).
-
-- **La coda si ferma con «Problema dell'estensione».** Il motivo è nella pausa e nel report. Di
-  solito basta ricaricare la scheda di Vinted (versioni diverse, estensione ricaricata); se riguarda
-  il salvataggio, guarda lo spazio nel report; se la struttura della coda non torna, «Ripara i dati
-  della coda». Niente era stato inviato a Vinted: poi Riprendi.
-- **«Token CSRF non trovato» o «ricarica questa pagina» dopo un aggiornamento.** Ricarica la
-  scheda di Vinted (F5): dopo ogni aggiornamento o ricaricamento dell'estensione le pagine già
-  aperte restano con il codice vecchio.
-- **I bottoni non compaiono.** Compaiono solo nel tuo armadio (`/member/<tuo id>`) e quando
-  l'estensione ha riconosciuto il tuo account: ricarica la pagina dopo aver navigato un po' su
-  Vinted da loggato. Il report dice se l'account è riconosciuto (`schede › utenteNoto`).
-- **«Apri armadio» porta alla home.** Apri una pagina qualsiasi di Vinted da loggato.
-- **Icona rotta, `ERR_FILE_NOT_FOUND`.** Il browser non trova più la cartella: estrai in una
-  posizione stabile e ricarica l'estensione da lì.
-- **«Errore durante il caricamento della foto».** Carica una foto a mano da `/items/new` per far
-  imparare il formato, poi riprova.
-- **Errore 403 o 429.** È l'anti-bot: la coda rallenta da sola.
-- **«Repository non trovato» cercando aggiornamenti.** Il repository è privato o ha un altro nome:
-  Impostazioni › Avanzate › Repository per gli aggiornamenti.
-
-### Strumenti nella console
-
-Spenti di default (Impostazioni › Avanzate › **Strumenti nella console**), tutti in sola lettura:
-
-```js
-await VR.settings()        // impostazioni, senza id utente né contenuti degli annunci
-await VR.diagnosi(ID)      // colore, unisex, pacco: originale → convertito → inviato, fonte, motivo
-await VR.source(ID)        // payload grezzo che Vinted restituisce per l'articolo
-await VR.captured()        // payload catturato da una modifica fatta a mano
-await VR.compare(ID)       // confronto con il formato appreso: campi mancanti, di troppo
-await VR.debugDraft(ID)    // cosa verrebbe inviato, senza pubblicare niente
-await VR.canary(ID)        // prova a vuoto: legge e prepara tutto senza pubblicare
-```
-
-## Segnalare un problema, proporre un'idea, contribuire
-
-- **Bug:** [apri una segnalazione](https://github.com/MashaUP/Vinted_Relist/issues/new?template=segnalazione-bug.yml)
-  con versione, browser, cosa è successo e la diagnostica. Non incollare cookie, token o dati
-  dell'account.
-- **Idee:** [proponi una funzione](https://github.com/MashaUP/Vinted_Relist/issues/new?template=proposta.yml),
-  partendo dal problema che risolve.
-- **Domande e aiuto:** la [community su Discord](https://discord.gg/EPsbQCuAkx).
-- **Codice:** fai un fork, modifica, esegui i test e apri una pull request. Niente telemetria,
-  codice scaricato da Internet o alterazioni delle foto per eludere i controlli.
+### Test
 
 ```
 cd tests && npm install && node run.js
 ```
 
-Servono Node 18+ e, per i test dell'interfaccia, jsdom (lo installa `npm install`).
+Servono Node 18+; `npm install` porta jsdom e gli strumenti per i test dell'interfaccia e delle
+lingue. Contributi: fork, modifica, test, pull request. Niente telemetria, codice scaricato da
+Internet o alterazioni delle foto per eludere i controlli.
 
-## Struttura
+### Struttura
 
 ```
 manifest.json            permessi e registrazione degli script
-LICENSE                  licenza MIT
-background.js            service worker: token, formati, coda e inventario (unico scrittore), controllo e verifica degli esiti, archivio, notifiche, download
-links.json               link del progetto (GitHub, Discord, Ko-fi…): predefiniti e remoti, vedi docs/LINK.md
-version.json             (solo nel repository) versione pubblicata, letta da «Cerca aggiornamento»
+background.js            service worker: token, formati, coda e inventario (unico scrittore), esiti, archivio, notifiche
+links.json               link del progetto (GitHub, Discord, Ko-fi…), vedi docs/LINK.md
+version.json             versione pubblicata, letta da «Cerca aggiornamento»
 CHANGELOG.md             novità per versione, mostrate anche nel popup
-docs/SVILUPPO.md         architettura, flussi, decisioni, debito tecnico, registro proposte
-docs/LINK.md             link centralizzati e configurazione remota
-src/coda-logica.js       modello della coda: stati, batch, transizioni, verifica degli esiti, stime, salute, errori (funzioni pure)
-src/armadio-logica.js    inventario dell'armadio: letture delle card e ripubblicazioni (funzioni pure, le applica il service worker)
-src/relist.js            clonazione, foto, campi, controllo preventivo, annullamento
-src/api.js               tutte le chiamate a Vinted
+DISCLAIMER.md            avvertenze in cinque lingue
+README.*.md              guida in inglese, francese, spagnolo, tedesco
+src/coda-logica.js       modello della coda (funzioni pure)
+src/armadio-logica.js    inventario dell'armadio (funzioni pure)
+src/relist.js, api.js    clonazione, foto, campi; chiamate a Vinted
 src/editor*.js           editor dell'annuncio e i suoi controlli
-src/queue.js             selezione, opzioni e modelli della coda, controllo preventivo, pannello
-src/ui.js, content.js    bottoni sulle card, finestre, rilevamento articoli e inventario
-src/popup.*              Home, Notifiche, Salute, Impostazioni
-src/dashboard*.{html,js,css}  armadio e gestione della coda
-src/i18n.js, i18n-pagina.js  lingue: traduzione dei testi e pannello «Lingua»
-src/lang/*.json          dizionari (chiave = testo italiano)
-src/vintory-*.js         «Ripubblica da Vintory»: lettore ZIP, controlli del file (funzioni pure), foto in IndexedDB
-src/dashboard-vintory.js anteprima e aggiunta alla coda nella dashboard
-src/link.js              validazione e precedenza dei link (funzioni pure, riusabile)
-src/link-chrome.js       lettura, cache e collegamento dei link nelle pagine dell'estensione
-src/versione.js          versioni (semver con prerelease), aggiornamenti, diagnostica e confronto dei report (funzioni pure)
-src/impostazioni.js      validazione, backup e ripristino delle impostazioni (funzioni pure)
-src/utils.js, styles.css impostazioni predefinite, avvisi, stile dentro Vinted
-src/page-bridge.js       strumenti di sola lettura nella console (facoltativi)
-tests/                   test automatici e valida-link.js
-scripts/pacchetto.sh     crea lo zip dell'estensione e lo controlla (usato dal workflow delle release)
-.github/workflows/       release.yml: zip allegato in automatico alle release
+src/queue.js, ui.js, content.js   coda, bottoni sulle card, rilevamento articoli
+src/popup.*, dashboard*  popup e dashboard
+src/i18n*.js, src/lang/  lingue e dizionari
+src/vintory-*.js         «Ripubblica da Vintory»
+src/link*.js, versione.js, impostazioni.js   link, versioni e aggiornamenti, impostazioni
+tests/                   test automatici
+scripts/                 pacchetto.sh (zip della release), i18n-estrai.js (testi da tradurre)
+.github/workflows/       release.yml: zip allegato alle release e annuncio su Discord
 ```
 
-Tecnologie: JavaScript senza framework, Chrome Manifest V3 (service worker, `chrome.storage`,
-`chrome.alarms`), HTML e CSS; test con Node e jsdom.
-
-## Pubblicare una versione
-
-Lo zip per gli utenti lo crea GitHub da solo quando pubblichi una release
-(`.github/workflows/release.yml`):
+### Pubblicare una versione
 
 1. Aggiorna la versione in `manifest.json`, `version.json` (anche `zip`), `src/utils.js`
-   (`VR.BUILD`) e `CHANGELOG.md`; fai il commit.
-2. Su GitHub › **Releases** › **Draft a new release**: tag `v` + versione (es. `v2.6.0`),
-   titolo e note › **Publish release**.
+   (`VR.BUILD`), `background.js` (`BUILD`), `src/coda-logica.js` (`VERSIONE`) e `CHANGELOG.md`;
+   fai il commit.
+2. GitHub › **Releases** › **Draft a new release**: tag `v` + versione (es. `v2.6.1`), titolo e
+   note › **Publish release**.
 3. Il workflow controlla che il tag coincida con `manifest.json` e `version.json`, esegue i test,
-   crea `Vinted_Relist-<versione>.zip` (con `manifest.json` nella radice, solo i file
-   dell'estensione: niente `.git`, `.github`, `tests`, `docs`, `scripts`, `node_modules`, zip
-   vecchi) e lo allega alla release. Se fallisce, la release resta senza zip e il motivo è nella
-   scheda **Actions**.
-4. Rilanciarlo non crea doppioni: lo zip con lo stesso nome viene sostituito. Si può rilanciare a
-   mano da **Actions** › «Zip della release» › **Run workflow**, indicando il tag (e, solo se serve,
-   «Allega lo zip anche se i test falliscono»).
+   crea `Vinted_Relist-<versione>.zip` (solo i file dell'estensione, `manifest.json` nella radice)
+   e lo allega alla release; rilanciarlo sostituisce lo zip, non lo duplica. Si rilancia a mano da
+   **Actions** › «Zip della release» › **Run workflow**.
+4. **Annuncio su Discord (facoltativo):** con il secret `DISCORD_WEBHOOK_URL` (Settings › Secrets
+   and variables › Actions) il workflow manda titolo, note e link allo zip al canale del webhook.
+   Senza il secret il passo si salta.
+5. «Cerca aggiornamento» legge `version.json` e scarica lo zip dalla radice del repository: carica
+   anche lì lo zip della versione nuova.
 
-**Annuncio su Discord (facoltativo).** Alla pubblicazione il workflow manda anche un messaggio a
-un canale Discord, con titolo e note della release e il link allo zip:
+Lo stesso zip si crea in locale con `scripts/pacchetto.sh [v2.6.1] [cartella]`. Per cambiare
+l'invito Discord senza una versione nuova basta modificare `links.json` sul repository e aumentare
+`revision` ([docs/LINK.md](docs/LINK.md)).
 
-1. Discord › canale › Modifica canale › Integrazioni › Webhook › copia l'URL del webhook
-   (inizia con `https://discord.com/api/webhooks/`).
-2. GitHub › repository › Settings › Secrets and variables › Actions › **New repository secret**:
-   nome `DISCORD_WEBHOOK_URL`, valore l'URL.
-3. Alla prossima release arriva il messaggio. Per provarlo subito: Actions › «Zip della release» ›
-   Run workflow, tag di una release esistente, spunta «Annuncia la release anche su Discord».
-
-Senza il secret il passo si salta con un avviso; un URL sbagliato o rifiutato da Discord dà un
-errore con il motivo (lo zip resta allegato). Il messaggio non fa ping a nessuno.
-
-Permessi del workflow: solo `contents: write` (serve per allegare il file), con il token
-temporaneo di GitHub; nessun segreto da configurare. Lo stesso zip si crea in locale con
-`scripts/pacchetto.sh [v2.6.0] [cartella]`.
-
-«Cerca aggiornamento» per ora legge `version.json` e scarica lo zip dalla radice del repository:
-finché resta così, carica anche lì lo zip della versione nuova.
-
-## Link del progetto
-
-GitHub, Discord, Ko-fi, guida, segnalazioni e novità stanno in un unico file, `links.json`. Per
-cambiare l'invito Discord senza pubblicare una versione nuova basta modificarlo sul repository e
-aumentare `revision`: le estensioni installate lo leggono entro 12 ore. Procedura completa,
-formato, sicurezza e riuso in altri progetti in [docs/LINK.md](docs/LINK.md).
-
-## Supporta lo sviluppo
-
-Vinted Relist è gratuito. Se ti fa risparmiare tempo puoi offrirmi un caffè su
-[Ko-fi](https://ko-fi.com/mashaup).
-
-## Licenza
+## Licenza e avvertenze
 
 [MIT](LICENSE): puoi usare, modificare e ridistribuire il codice, anche in progetti tuoi, purché
-mantieni l'avviso di copyright. Il software è fornito così com'è, senza garanzie.
+mantieni l'avviso di copyright. Il software è fornito **così com'è, senza garanzie**.
 
-## Nota
-
-Automatizzare azioni sul sito non è previsto dai termini di servizio di Vinted. Uso personale,
-poche richieste, pause generose: è quello per cui questa estensione è scritta.
+Vinted Relist è un progetto indipendente, **non affiliato né approvato da Vinted**. L'uso è a tuo
+rischio: l'autore non risponde di sospensioni o blocchi dell'account, annunci persi, vendite
+mancate, né di abusi o usi impropri. Uso personale, poche richieste, pause generose: è quello per
+cui questa estensione è scritta. Leggi le [avvertenze complete](DISCLAIMER.md) (in cinque lingue).
