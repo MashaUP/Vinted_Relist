@@ -6,6 +6,54 @@ ultime tre leggendo questo file dall'estensione installata.
 Numerazione `x.y.z`: **x** quando cambia il modo di usarla o i dati salvati in modo non
 compatibile, **y** per funzioni nuove, **z** per sole correzioni.
 
+## 2.7.0 · Aggiornamenti verificati e account riconosciuto dalle pagine (20 novembre 2026)
+
+Minor: una funzione nuova e retrocompatibile (verifica dello zip scaricato) più correzioni.
+Nessun permesso nuovo, nessun dato da convertire.
+
+### Novità
+- **«Scarica lo zip» verifica quello che scarica:** lo zip si legge in memoria, se ne calcola lo
+  SHA-256 e si confronta con quello scritto in `version.json` dallo script di pacchetto. Solo se
+  coincide si salva in Download › Vinted Relist; altrimenti non si salva niente e il popup spiega
+  perché (impronta diversa, non è uno zip, file mancante, rete). Prima si apriva solo una scheda
+  di GitHub.
+
+### Corretto
+- **«Profilo Vinted: non ancora rilevato» da loggati, con Vinted aperto** (segnalato da un utente
+  dopo la 2.6). *Causa:* l'account si leggeva dal cookie solo quando il sito chiamava le sue API;
+  le schede aperte prima di installare o ricaricare l'estensione, e le pagine che arrivano già
+  pronte dal server, non ne fanno, quindi con un'installazione nuova il profilo poteva non
+  arrivare mai. *Correzione:* il cookie si legge anche dal caricamento delle pagine di Vinted
+  (stessi siti dei permessi), e anche dal token di rinnovo se quello di accesso manca. Riprodotto
+  in Chromium: la 2.6.1 non riconosce l'account da una pagina senza chiamate alle API, la 2.7.0 sì.
+- **Controllo degli aggiornamenti e dei link fermato dal limite di GitHub.** *Causa:* si leggevano
+  `version.json` e `links.json` dall'API di GitHub, che senza login concede 60 richieste l'ora per
+  rete. *Correzione:* si leggono da `raw.githubusercontent.com` (ramo `main`), che non ha quel
+  limite e non richiede permessi.
+- **Diagnostica:** le righe solo informative uscivano con «ok»; ora con «--».
+- **Traduzioni mancanti** in Salute (formato foto e annuncio, colori) e in alcuni messaggi del
+  popup (verifica, backup, confronto impostazioni) e della console.
+
+### Migliorato
+- **Salute › «Richieste di Vinted»:** quando l'estensione ha visto Vinted l'ultima volta, su quale
+  sito, e se il cookie dell'account c'era (mai il valore). Il **Profilo Vinted** non rilevato dice
+  perché e cosa fare: ricaricare la scheda, accedere, oppure — se il cookie ha un formato nuovo —
+  mandare la diagnostica. Lo stesso nel report completo (`riconoscimento`).
+- **Link del progetto:** chiavi comuni a tutti i progetti, `bugs` e `ideas` al posto di
+  `bug-report` e `feature-request`. Le chiavi vecchie si leggono ancora (cache e file remoti delle
+  versioni precedenti). Chi ha ancora la 2.6 vede «Segnala un problema» e «Proponi un'idea» due
+  volte in Salute finché non aggiorna.
+
+### Repository
+- `ci.yml`: controllo statico (ESLint), test e pacchetto di prova a ogni push e pull request.
+- `package.json` nella radice (solo strumenti di sviluppo: ESLint, jsdom, acorn), `npm test`,
+  `npm run build`, `npm run package`.
+- Pacchetto riproducibile: la cartella `Vinted_Relist/` dentro lo zip, date e ordine fissi; lo
+  script scrive `zip` e `sha256` in `version.json` e aggiorna versione e nome dello zip nei README.
+  La release allega anche il file `.sha256`.
+- `SECURITY.md`; `docs/SVILUPPO.md` ridotto all'essenziale.
+- Tolto codice inutilizzato trovato da ESLint (`titoloDi` nella coda).
+
 ## 2.6.1 · Avvertenze e guida in cinque lingue (20 novembre 2026)
 
 Patch: solo documentazione, il codice dell'estensione non cambia.

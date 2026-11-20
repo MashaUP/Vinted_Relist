@@ -1,5 +1,6 @@
 // Coda 2.0: doppio avvio, esiti incerti/parziali, annullati, riprova falliti,
 // verifica manuale, eventi, badge, clic sulla notifica, avanzamento.
+/* global ricordaFormatoCategoria -- funzioni del service worker, caricato con eval qui sotto */
 const fs = require('fs');
 let store = {}, alarms = {}, tabs = [{ id: 1, status: 'complete' }];
 let notifiche = [], badge = '', aperte = [], contesti = [];

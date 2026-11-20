@@ -15,10 +15,21 @@
   /**
    * Il nome del repository non e' verificabile da qui: si puo' cambiare nelle
    * impostazioni avanzate (updateRepo), e queste funzioni lo ricevono.
+   *
+   * 2.7.0: tutto da raw.githubusercontent.com, ramo main (standard comuni, sez. 3).
+   * L'API di GitHub concede 60 richieste l'ora senza login; raw no, e risponde con
+   * Access-Control-Allow-Origin: *, quindi basta una fetch dalla pagina
+   * dell'estensione, senza permessi su GitHub. Lo zip si legge dallo stesso
+   * indirizzo per verificarne l'impronta (github.com/…/raw/HEAD rimanda a raw con
+   * un redirect senza CORS: da qui non si leggerebbe).
    */
-  const urlVersione = (repo = REPO) => `https://api.github.com/repos/${repo}/contents/version.json`;
+  const RAMO = "main";
+  const urlRaw = (file, repo = REPO) => `https://raw.githubusercontent.com/${repo}/${RAMO}/${encodeURIComponent(file)}`;
+  const urlVersione = (repo = REPO) => urlRaw("version.json", repo);
+  const urlLinks = (repo = REPO) => urlRaw("links.json", repo);
   const urlRepo = (repo = REPO) => `https://github.com/${repo}`;
-  const urlZip = (nome, repo = REPO) => `https://github.com/${repo}/raw/HEAD/${encodeURIComponent(nome)}`;
+  const urlRelease = (repo = REPO) => `https://github.com/${repo}/releases/latest`;
+  const urlZip = (nome, repo = REPO) => urlRaw(nome, repo);
   const URL_VERSIONE = urlVersione();
   const URL_REPO = urlRepo();
 
@@ -29,11 +40,43 @@
   /** Risposta HTTP di GitHub → frase comprensibile. */
   function erroreGithub(status) {
     if (status === 404) {
-      return "Repository non trovato. Il controllo funziona solo se il repository è pubblico e ha un version.json nella radice: verifica il nome in Impostazioni › Avanzate.";
+      return "version.json non trovato. Il controllo funziona solo se il repository è pubblico e ha un version.json nella radice del ramo main: verifica il nome in Impostazioni › Avanzate.";
     }
     if (status === 403 || status === 429) return "GitHub ha limitato le richieste da questa rete: riprova più tardi.";
     if (!status) return "GitHub non è raggiungibile: controlla la connessione.";
     return `GitHub ha risposto con un errore (HTTP ${status}).`;
+  }
+
+  /** Download dello zip: risposta HTTP → frase comprensibile. */
+  function erroreDownload(status) {
+    if (status === 404) return "Lo zip indicato da version.json non è sul repository: scaricalo dalla pagina delle release su GitHub.";
+    if (status === 403 || status === 429) return "GitHub ha limitato le richieste da questa rete: riprova più tardi.";
+    if (!status) return "GitHub non è raggiungibile: controlla la connessione.";
+    return `Download non riuscito (HTTP ${status}).`;
+  }
+
+  /** Impronta SHA-256 in esadecimale minuscolo (crypto.subtle: pagine dell'estensione e Node). */
+  async function sha256(bytes) {
+    const h = await root.crypto.subtle.digest("SHA-256", bytes);
+    return [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+
+  const MAX_ZIP = 50 * 1024 * 1024;
+
+  /**
+   * Lo zip scaricato in memoria si salva solo se e' quello dichiarato: un file
+   * zip vero, non troppo grande, con lo SHA-256 di version.json. Senza impronta
+   * dichiarata (version.json di prima della 2.7.0) si salva, ma «non verificato».
+   * → { ok, verificato, hash, errore? }
+   */
+  async function verificaZip(bytes, atteso = null) {
+    const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    if (!b.length) return { ok: false, errore: "GitHub ha mandato un file vuoto: riprova." };
+    if (b.length > MAX_ZIP) return { ok: false, errore: "Il file è troppo grande per essere lo zip dell'estensione: non viene salvato." };
+    if (!(b[0] === 0x50 && b[1] === 0x4b && b[2] === 0x03 && b[3] === 0x04)) return { ok: false, errore: "Il file scaricato non è uno zip: non viene salvato. Riprova o scaricalo da GitHub." };
+    const hash = await sha256(b);
+    if (atteso && hash !== atteso) return { ok: false, hash, errore: "Lo zip scaricato non corrisponde all'impronta SHA-256 di version.json: non viene salvato. Riprova tra qualche minuto o scaricalo da GitHub." };
+    return { ok: true, verificato: Boolean(atteso), hash };
   }
 
   const SEMVER = /^(\d{1,4})\.(\d{1,4})\.(\d{1,6})(?:-([0-9A-Za-z-]{1,20}(?:\.[0-9A-Za-z-]{1,20}){0,4}))?$/;
@@ -97,24 +140,17 @@
       return { ok: false, errore: "version.json non è un JSON valido" };
     }
     if (!dati || typeof dati !== "object") return { ok: false, errore: "version.json vuoto" };
-    // Se GitHub ignora l'Accept "raw" risponde con i metadati e il file in base64.
-    if (dati.encoding === "base64" && typeof dati.content === "string") {
-      try {
-        dati = JSON.parse(decodeURIComponent(escape(atob(dati.content.replace(/\s/g, "")))));
-      } catch {
-        return { ok: false, errore: "version.json non leggibile" };
-      }
-      if (!dati || typeof dati !== "object") return { ok: false, errore: "version.json vuoto" };
-    }
     if (!SEMVER.test(String(dati.version || ""))) return { ok: false, errore: "numero di versione non valido" };
 
     const zip = /^Vinted_Relist-\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]{1,40})?\.zip$/.test(String(dati.zip || "")) ? dati.zip : null;
     const note = Array.isArray(dati.notes)
-      ? dati.notes.filter((n) => typeof n === "string").map((n) => n.slice(0, 200)).slice(0, 12)
+      ? dati.notes.filter((n) => typeof n === "string").map((n) => n.slice(0, 300)).slice(0, 12)
       : [];
     const data = /^\d{4}-\d{2}-\d{2}$/.test(String(dati.date || "")) ? dati.date : null;
+    // 2.7.0: impronta dello zip, scritta dallo script di pacchetto.
+    const sha256 = /^[a-f0-9]{64}$/i.test(String(dati.sha256 || "")) ? String(dati.sha256).toLowerCase() : null;
 
-    return { ok: true, versione: dati.version, data, zip, note };
+    return { ok: true, versione: dati.version, data, zip, sha256, note };
   }
 
   /** Esito del controllo, pronto da mostrare. */
@@ -190,7 +226,9 @@
     }
 
     righe.push("", "Controlli:");
-    for (const c of controlli) righe.push(`  ${c.ok ? "ok" : "!!"} ${c.nome}: ${ripulisci(c.dettaglio)}`);
+    // 2.7.0: «--» per le righe solo informative (prima uscivano come «ok»)
+    const SEGNO = { ok: "ok", info: "--", warn: "!!" };
+    for (const c of controlli) righe.push(`  ${SEGNO[c.livello] || (c.ok ? "ok" : "!!")} ${c.nome}: ${ripulisci(c.dettaglio)}`);
 
     righe.push("", "Eventi recenti:");
     const recenti = eventi.slice(0, 10);
@@ -233,7 +271,8 @@
   }
 
   const api = {
-    REPO, daNotificare, ePrerelease, differenzeRapporti, URL_VERSIONE, URL_REPO, urlVersione, urlRepo, urlZip, puoControllare, erroreGithub, ATTESA_CONTROLLO_MS,
+    REPO, RAMO, daNotificare, ePrerelease, differenzeRapporti, URL_VERSIONE, URL_REPO, urlRaw, urlVersione, urlLinks, urlRepo, urlRelease, urlZip,
+    puoControllare, erroreGithub, erroreDownload, sha256, verificaZip, MAX_ZIP, ATTESA_CONTROLLO_MS,
     confrontaVersioni, leggiVersioneRemota, statoAggiornamento, sezioniChangelog,
     costruisciDiagnostica, ripulisci,
   };

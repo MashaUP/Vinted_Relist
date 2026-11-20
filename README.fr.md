@@ -5,7 +5,7 @@
 Extension pour **Brave et Chrome** qui republie vos annonces Vinted en un clic, une par une ou en
 file d'attente, pour les remettre en tête des résultats sans les refaire à la main.
 
-**Version 2.6.1** · [Nouveautés (en italien)](CHANGELOG.md) · [Communauté Discord](https://discord.gg/EPsbQCuAkx) ·
+**Version 2.7.0** · [Nouveautés (en italien)](CHANGELOG.md) · [Communauté Discord](https://discord.gg/EPsbQCuAkx) ·
 [Signaler un problème](https://github.com/MashaUP/Vinted_Relist/issues/new?template=segnalazione-bug.yml) ·
 [Soutenir le développement sur Ko-fi](https://ko-fi.com/mashaup)
 
@@ -34,7 +34,7 @@ pas sur le Chrome Web Store**. **Essayez-la d'abord sur un article peu important
 
 ## Installation
 
-1. Téléchargez **`Vinted_Relist-2.6.1.zip`** depuis la
+1. Téléchargez **`Vinted_Relist-2.7.0.zip`** depuis la
    [page des versions sur GitHub](https://github.com/MashaUP/Vinted_Relist/releases) (rubrique
    « Assets ») ou depuis la racine du dépôt.
 2. Extrayez-le **dans un dossier permanent**, par ex. `Documents\Vinted_Relist` (pas dans le
@@ -53,8 +53,9 @@ pas sur le Chrome Web Store**. **Essayez-la d'abord sur un article peu important
 
 1. Popup › **Santé** › **Rechercher une mise à jour** (elle vérifie aussi toute seule toutes les
    12 heures et vous prévient).
-2. **Téléchargez le zip** et extrayez-le **par-dessus le dossier actuel**, en remplaçant les
-   fichiers.
+2. **Téléchargez le zip** : le popup vérifie son empreinte SHA-256 et l'enregistre dans
+   Téléchargements › Vinted Relist. Extrayez-le **dans le dossier qui contient `Vinted_Relist`**, en
+   remplaçant les fichiers (le zip contient déjà le dossier `Vinted_Relist/`).
 3. **Installer la mise à jour** : l'extension se recharge. Rechargez ensuite les onglets Vinted (F5).
 
 ## Guide rapide
@@ -128,9 +129,12 @@ Popup › **Santé** › **Préparer le diagnostic** : version, réglages, état
 récentes, sans jetons, cookies, identifiants ni adresses. Vous le voyez avant de le copier, et vous
 pouvez le coller sur Discord ou dans un signalement.
 
-- **Les boutons n'apparaissent pas.** Ils n'apparaissent que dans votre dressing
-  (`/member/<votre id>`) une fois votre compte reconnu : naviguez un peu sur Vinted en étant
-  connecté, puis rechargez.
+- **Les boutons n'apparaissent pas / « Profil non détecté ».** Ils n'apparaissent que dans votre
+  dressing (`/member/<votre id>`) une fois votre compte reconnu. Rechargez un onglet Vinted (F5) en
+  étant connecté : les onglets ouverts avant d'installer ou de mettre à jour l'extension ne
+  comptent pas. Dans Santé, **« Requêtes Vinted »** indique quand l'extension a vu Vinted pour la
+  dernière fois et si le cookie du compte était présent ; s'il indique « nouveau format », envoyez
+  le diagnostic.
 - **« Jeton CSRF introuvable » ou « rechargez cette page » après une mise à jour.** Rechargez
   l'onglet Vinted (F5) : les pages déjà ouvertes gardent l'ancien code.
 - **Téléphones : Vinted demande de sélectionner le modèle.** Depuis la 2.6, le modèle est repris

@@ -1,6 +1,7 @@
 // 2.5.0 «Ripubblica da Vintory» nel service worker vero: filtro all'ingresso,
 // messaggio alla pagina, registro dei ripubblicati, pulizia delle foto in IndexedDB,
 // foto mai in chrome.storage, duplicati, riavvio, convivenza con una batch normale.
+/* global recuperaCoda, sincronizzaVintory -- funzioni del service worker, caricato con eval qui sotto */
 const fs = require('fs');
 const path = require('path');
 const out = []; const ok = (n, c, extra = '') => out.push(`  ${c ? 'OK  ' : 'FAIL'} ${n}${!c && extra ? ` — ${extra}` : ''}`);
@@ -38,7 +39,7 @@ global.chrome = {
     get: async (id) => ({ id }),
     sendMessage: async (_id, msg) => { inviati.push(cp(msg)); return msg.type === 'vr:relistStatus' ? { inCorso: true } : { accepted: true }; },
   },
-  runtime: { onMessage: { addListener: (f) => L.message.push(f) }, getURL: (p) => p, getManifest: () => ({ version: '2.6.1' }),
+  runtime: { onMessage: { addListener: (f) => L.message.push(f) }, getURL: (p) => p, getManifest: () => ({ version: '2.7.0' }),
     onStartup: { addListener() {} }, onInstalled: { addListener() {} } },
   webRequest: { onSendHeaders: { addListener() {} }, onBeforeRequest: { addListener() {} } },
 };

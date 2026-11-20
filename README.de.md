@@ -6,7 +6,7 @@ Erweiterung für **Brave und Chrome**, die Ihre Vinted-Anzeigen mit einem Klick 
 einzeln oder in einer Warteschlange –, damit sie wieder oben in den Ergebnissen erscheinen, ohne
 dass Sie sie von Hand neu anlegen müssen.
 
-**Version 2.6.1** · [Neuigkeiten (auf Italienisch)](CHANGELOG.md) · [Discord-Community](https://discord.gg/EPsbQCuAkx) ·
+**Version 2.7.0** · [Neuigkeiten (auf Italienisch)](CHANGELOG.md) · [Discord-Community](https://discord.gg/EPsbQCuAkx) ·
 [Problem melden](https://github.com/MashaUP/Vinted_Relist/issues/new?template=segnalazione-bug.yml) ·
 [Entwicklung auf Ko-fi unterstützen](https://ko-fi.com/mashaup)
 
@@ -36,7 +36,7 @@ im Chrome Web Store**. **Probieren Sie sie zuerst an einem unwichtigen Artikel a
 
 ## Installation
 
-1. Laden Sie **`Vinted_Relist-2.6.1.zip`** von der
+1. Laden Sie **`Vinted_Relist-2.7.0.zip`** von der
    [Release-Seite auf GitHub](https://github.com/MashaUP/Vinted_Relist/releases) (unter „Assets“)
    oder aus dem Hauptverzeichnis des Repositorys herunter.
 2. Entpacken Sie sie **in einen dauerhaften Ordner**, z. B. `Dokumente\Vinted_Relist` (nicht in
@@ -55,7 +55,9 @@ im Chrome Web Store**. **Probieren Sie sie zuerst an einem unwichtigen Artikel a
 
 1. Popup › **Status** › **Nach Update suchen** (prüft auch selbst alle 12 Stunden und
    benachrichtigt Sie).
-2. **Zip herunterladen** und **über den aktuellen Ordner** entpacken, die Dateien ersetzend.
+2. **Zip herunterladen**: das Popup prüft den SHA-256-Fingerabdruck und speichert die Datei unter
+   Downloads › Vinted Relist. **In den Ordner entpacken, der `Vinted_Relist` enthält**, die Dateien
+   ersetzend (die Zip-Datei enthält bereits den Ordner `Vinted_Relist/`).
 3. **Update installieren**: die Erweiterung lädt neu. Danach die Vinted-Tabs neu laden (F5).
 
 ## Kurzanleitung
@@ -130,9 +132,12 @@ Popup › **Status** › **Diagnose vorbereiten**: Version, Einstellungen, Statu
 und letzte Fehler, ohne Tokens, Cookies, IDs oder Adressen. Sie sehen sie vor dem Kopieren und
 können sie auf Discord oder in einer Fehlermeldung einfügen.
 
-- **Die Schaltflächen erscheinen nicht.** Sie erscheinen nur in Ihrem Kleiderschrank
-  (`/member/<Ihre ID>`), sobald die Erweiterung Ihr Konto erkannt hat: angemeldet ein wenig auf
-  Vinted surfen, dann neu laden.
+- **Die Schaltflächen erscheinen nicht / „Profil nicht erkannt“.** Sie erscheinen nur in Ihrem
+  Kleiderschrank (`/member/<Ihre ID>`), sobald die Erweiterung Ihr Konto erkannt hat. Einen
+  Vinted-Tab angemeldet neu laden (F5): Tabs, die vor der Installation oder dem Update geöffnet
+  wurden, zählen nicht. Unter Status zeigt **„Vinted-Anfragen“**, wann die Erweiterung Vinted
+  zuletzt gesehen hat und ob das Konto-Cookie da war; steht dort „neues Format“, schicken Sie uns
+  die Diagnose.
 - **„CSRF-Token nicht gefunden“ oder „Seite neu laden“ nach einem Update.** Den Vinted-Tab neu
   laden (F5): bereits geöffnete Seiten laufen noch mit dem alten Code.
 - **Handys: Vinted verlangt, das Modell auszuwählen.** Seit 2.6 wird das Modell automatisch

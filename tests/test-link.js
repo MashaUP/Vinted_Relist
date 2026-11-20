@@ -1,6 +1,5 @@
 // Link del progetto: validazione, precedenza, cache (link.js) e il links.json del pacchetto.
 const fs = require('fs');
-const path = require('path');
 const RADICE = (require('path').join(__dirname, '..') + '/');
 const Lk = require(RADICE + 'src/link.js');
 const V = require(RADICE + 'src/versione.js');
@@ -13,8 +12,8 @@ const base = (links, extra = {}) => ({ schemaVersion: 1, project: 'vinted-relist
 
 // ------------------------------------------------------------- file del pacchetto
 ok('1. links.json del pacchetto valido, nessuna voce scartata', pacchetto.ok && pacchetto.scartati.length === 0);
-ok('   contiene github, discord, kofi, documentation, bug-report, feature-request, changelog',
-  ['github', 'discord', 'kofi', 'documentation', 'bug-report', 'feature-request', 'changelog'].every((id) => pacchetto.links[id]?.enabled));
+ok('   contiene github, discord, kofi, documentation, bugs, ideas, changelog (chiavi comuni, 2.7.0)',
+  ['github', 'discord', 'kofi', 'documentation', 'bugs', 'ideas', 'changelog'].every((id) => pacchetto.links[id]?.enabled));
 ok('   GitHub coincide con il repository del controllo aggiornamenti', pacchetto.links.github.url === V.urlRepo(V.REPO));
 ok('   Ko-fi è quello del progetto', pacchetto.links.kofi.url === 'https://ko-fi.com/mashaup');
 ok('   nessun segreto nel file pubblico', !/token|secret|password|cookie|api[_-]?key|authorization/i.test(testo));
@@ -116,11 +115,27 @@ globalThis.Versione = V;
 require(RADICE + 'src/link-chrome.js');
 const LC = globalThis.LinkChrome;
 
+// 2.7.0 — chiavi comuni bugs/ideas; le vecchie (bug-report, feature-request) si leggono ancora
+{
+  const U = 'https://github.com/MashaUP/Vinted_Relist/issues/new?template=segnalazione-bug.yml';
+  const v = Lk.valida(base({ 'bug-report': { url: U }, 'feature-request': { url: 'https://github.com/MashaUP/Vinted_Relist/issues/new' } }));
+  ok('A1. file con le chiavi vecchie: diventano bugs e ideas', v.ok && v.links.bugs?.url === U && v.links.ideas && !('bug-report' in v.links) && !('feature-request' in v.links));
+  const tutte = Lk.valida(base({ 'bug-report': { url: 'https://github.com/vecchio' }, bugs: { url: 'https://github.com/nuovo' } }));
+  ok('A2. vecchia e nuova insieme: vince la nuova, in qualunque ordine', tutte.links.bugs.url === 'https://github.com/nuovo' && Object.keys(tutte.links).join() === 'bugs');
+  const cache26 = { ok: true, revision: 2, links: { 'bug-report': { url: 'https://github.com/dalla-cache', enabled: true } }, repo: 'MashaUP/Vinted_Relist' };
+  const r = Lk.risolvi({ predefinita: Lk.valida(testo), cache: cache26, repo: 'MashaUP/Vinted_Relist' });
+  ok('A3. cache salvata da una 2.6 (chiave vecchia): si applica a bugs, niente doppioni', r.links.bugs.url === 'https://github.com/dalla-cache' && !('bug-report' in r.links) && Lk.elenco(r).filter((x) => x.id === 'bugs').length === 1);
+  ok('A4. etichetta predefinita conservata per la chiave rinominata', r.links.bugs.label === 'Segnala un problema');
+  ok('A5. link() accetta ancora l\'id vecchio', Lk.link(r, 'bug-report')?.id === 'bugs' && Lk.link(r, 'feature-request')?.id === 'ideas');
+}
+
 (async () => {
-  const b64 = Buffer.from(JSON.stringify(base({ discord: { url: 'https://discord.gg/B64' } }, { revision: 3 }))).toString('base64');
-  risposta = { ok: true, status: 200, text: async () => JSON.stringify({ encoding: 'base64', content: b64 }) };
+  let urlChiesto = null;
+  const fetchPrima = global.fetch;
+  global.fetch = async (url, opz) => { if (url !== 'pkg:links.json') urlChiesto = url; return fetchPrima(url, opz); };
+  risposta = { ok: true, status: 200, text: async () => JSON.stringify(base({ discord: { url: 'https://discord.gg/B64' } }, { revision: 3 })) };
   let e = await LC.aggiorna({ ora: 1e9 });
-  ok('8. risposta in base64 (Accept ignorato) letta', e.aggiornato && (await LC.risolti()).links.discord.url === 'https://discord.gg/B64');
+  ok('8. file remoto letto da raw (ramo main), non dall\'API', e.aggiornato && (await LC.risolti()).links.discord.url === 'https://discord.gg/B64' && urlChiesto === 'https://raw.githubusercontent.com/MashaUP/Vinted_Relist/main/links.json', urlChiesto);
   risposta = { ok: false, status: 500, text: async () => '' };
   e = await LC.aggiorna({ ora: 1e9 + 13 * 3600e3 });
   ok('   errore del server: la cache valida resta', !e.aggiornato && /HTTP 500/.test(e.errore) && (await LC.risolti()).links.discord.url === 'https://discord.gg/B64');

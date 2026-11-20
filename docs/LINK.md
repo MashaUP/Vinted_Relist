@@ -24,8 +24,8 @@ Aggiornato alla **2.1.0**.
 | Alternativa | Pro | Contro | Scelta |
 |---|---|---|---|
 | URL scritti nel codice | semplice | ogni cambio = nuova versione; Ko-fi era ripetuto in 4 punti | superata |
-| **JSON nel repository, letto dall'API di GitHub** | gratuito, già usato per `version.json`, aggiornamento in un minuto (cache dell'API ~60 s), nessun permesso (l'API consente CORS), lo stesso file fa da predefinito | serve validazione e cache; limite di 60 richieste l'ora per IP condiviso col controllo aggiornamenti | **adottata** |
-| `raw.githubusercontent.com` | nessun limite di richieste stretto | cache CDN di ~5 minuti, a volte di più | non serve: con una richiesta ogni 12 ore il limite dell'API non pesa |
+| **JSON nel repository, letto da `raw.githubusercontent.com`** (dalla 2.7.0; prima dall'API) | gratuito, già usato per `version.json`, aggiornamento in qualche minuto (cache di raw ~5 min), nessun permesso (CORS aperto), nessun limite di 60 richieste l'ora, lo stesso file fa da predefinito | serve validazione e cache | **adottata** |
+| API di GitHub (`api.github.com/repos/…/contents`) | cache di ~60 s | 60 richieste l'ora per IP senza login, condivise con altri strumenti sulla stessa rete | usata fino alla 2.6 |
 | Redirect stabile (es. `mashaup.github.io/discord`) | l'estensione non conosce la destinazione finale | serve un sito GitHub Pages o un dominio; un salto in più; dipende da un altro servizio; un link alla volta | **non attivato**, ma predisposto: `mashaup.github.io` è già tra i siti ammessi (vedi sotto) |
 | Cloudflare Workers / backend | controllo totale | un servizio da mantenere, credenziali, costi potenziali | sproporzionato per sette link |
 | Un documento unico per tutti i progetti | un file da curare | un errore in un progetto rompe gli altri; legare repository diversi | **un file per progetto**, nel suo repository; il formato è lo stesso ovunque |
@@ -56,15 +56,18 @@ massimo di utilizzi: nessun limite**. Il JSON serve per quando l'invito va comun
 | `schemaVersion` | sì | intero; un numero più alto di quello che l'estensione conosce (1) rende il file **incompatibile**: viene ignorato e restano i link installati |
 | `project` | sì | deve essere `vinted-relist`: un file di un altro progetto viene rifiutato |
 | `revision` | consigliato | intero ≥ 0, **da aumentare a ogni modifica**. Un remoto con `revision` minore di quella del pacchetto installato è considerato vecchio e ignorato |
-| `links.<id>` | — | id stabile, minuscole, cifre e trattini (`bug-report`), al massimo 20 link |
+| `links.<id>` | — | id stabile, solo lettere minuscole per gli id comuni a tutti i progetti (`bugs`, `ideas`), al massimo 20 link |
 | `url` | se acceso | solo `https://`, niente credenziali né porte, solo siti ammessi (sotto) |
 | `enabled` | no (vero) | `false` spegne il link ovunque; per spegnere non serve l'`url` |
 | `label` | no | testo breve (40 caratteri), mostrato come testo, mai come HTML. Vuoto: resta quello installato |
 | `description` | no | testo breve (120 caratteri), sotto l'etichetta in Salute |
 | altri campi | — | ignorati: un file più nuovo con campi in più resta leggibile |
 
-Id usati oggi: `github`, `discord`, `kofi`, `documentation`, `bug-report`, `feature-request`,
-`changelog`.
+Id usati oggi: `github`, `discord`, `kofi`, `documentation`, `bugs`, `ideas`, `changelog`
+(standard comuni dei progetti, dalla 2.7.0). Le chiavi vecchie `bug-report` e `feature-request` si
+leggono ancora — dalla cache di una 2.6 o da un file remoto vecchio — e valgono come `bugs` e
+`ideas`; se ci sono tutte e due vince la nuova. Le versioni fino alla 2.6 non conoscono le chiavi
+nuove: finché non aggiornano mostrano in Salute «Segnala un problema» e «Proponi un'idea» due volte.
 
 **Siti ammessi** (`HOST_CONSENTITI` in `src/link.js`): `github.com`, `discord.gg`, `discord.com`,
 `ko-fi.com`, `mashaup.github.io`. Per tre id l'host è ancora più stretto: `github` solo
@@ -186,8 +189,9 @@ progetto lo usa davvero; prima sarebbe solo un'astrazione da mantenere.
 
 ## Accorgimenti per Manifest V3
 
-- **Permessi**: nessuno in più. Le pagine dell'estensione possono chiedere `api.github.com` perché
-  risponde con `Access-Control-Allow-Origin: *`; `host_permissions` per GitHub non servono.
+- **Permessi**: nessuno in più. Le pagine dell'estensione leggono
+  `https://raw.githubusercontent.com/<repo>/main/links.json` perché risponde con
+  `Access-Control-Allow-Origin: *`; `host_permissions` per GitHub non servono.
 - **CSP**: quella predefinita (`script-src 'self'`) va bene: niente script remoti, niente `eval`.
 - **Niente codice remoto**: il JSON non può contenere funzioni, HTML o istruzioni; i testi vanno in
   `textContent`, gli indirizzi passano dalla validazione prima di diventare `href`.
@@ -203,8 +207,8 @@ progetto lo usa davvero; prima sarebbe solo un'astrazione da mantenere.
 - **Account GitHub compromesso**: chi modifica `links.json` può puntare i link a un altro
   repository, a un altro server Discord o a un'altra pagina Ko-fi. Non può far aprire siti fuori
   elenco né eseguire codice. Mitigazione: autenticazione a due fattori sull'account.
-- **Limite dell'API di GitHub** (60 richieste l'ora per IP, condiviso con il controllo
-  aggiornamenti): con una richiesta ogni 12 ore non pesa; se scatta, restano i link in cache.
+- **Cache di raw** (~5 minuti): una modifica a `links.json` arriva con qualche minuto di ritardo;
+  se GitHub non risponde restano i link in cache.
 - **Console**: quando GitHub risponde con un errore (per esempio 404 finché il file non è
   pubblicato) Chrome scrive «Failed to load resource» nella console della pagina. Non è un errore
   del codice e non si può silenziare da JavaScript; capita al massimo una volta l'ora.

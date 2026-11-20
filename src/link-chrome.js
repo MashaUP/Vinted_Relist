@@ -5,8 +5,10 @@
  * della pagina. La logica di validazione e precedenza e' in link.js.
  *
  * Non serve nessun permesso in piu': la richiesta parte da una pagina
- * dell'estensione verso api.github.com, che consente CORS; niente cookie
- * (credentials: "omit"), niente dati dell'utente nella richiesta.
+ * dell'estensione verso raw.githubusercontent.com (ramo main), che risponde con
+ * Access-Control-Allow-Origin: *; niente cookie (credentials: "omit"), niente
+ * dati dell'utente nella richiesta. Dalla 2.7.0 non si usa piu' l'API di GitHub,
+ * che senza login concede 60 richieste l'ora.
  *
  * Il service worker e le code non usano i link: se GitHub non risponde, se sei
  * offline o se il file remoto e' rotto, cambiano al massimo i link mostrati.
@@ -29,8 +31,8 @@
     discord: ["M5 5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-7l-4 3v-3H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z", "M8.5 11h.01M12 11h.01M15.5 11h.01"],
     kofi: ["M4 9h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z", "M17 10h1.5a2.5 2.5 0 0 1 0 5H17", "M8 3v3M12 3v3"],
     documentation: ["M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5z", "M5 19.5A1.5 1.5 0 0 0 6.5 21H19", "M9 7h6"],
-    "bug-report": ["M8 10a4 4 0 0 1 8 0v4a4 4 0 0 1-8 0z", "M12 10v8", "M4 13h4M16 13h4M5 8l3 1.5M19 8l-3 1.5M5 19l3-2M19 19l-3-2", "M10 5l-1-2M14 5l1-2"],
-    "feature-request": ["M9 18h6M10 21h4", "M12 3a6 6 0 0 0-3.6 10.8c.7.5 1.1 1.3 1.1 2.2h5c0-.9.4-1.7 1.1-2.2A6 6 0 0 0 12 3z"],
+    bugs: ["M8 10a4 4 0 0 1 8 0v4a4 4 0 0 1-8 0z", "M12 10v8", "M4 13h4M16 13h4M5 8l3 1.5M19 8l-3 1.5M5 19l3-2M19 19l-3-2", "M10 5l-1-2M14 5l1-2"],
+    ideas: ["M9 18h6M10 21h4", "M12 3a6 6 0 0 0-3.6 10.8c.7.5 1.1 1.3 1.1 2.2h5c0-.9.4-1.7 1.1-2.2A6 6 0 0 0 12 3z"],
     changelog: ["M9 6h11M9 12h11M9 18h11", "M4.5 6h.01M4.5 12h.01M4.5 18h.01"],
     _link: ["M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1", "M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"],
   };
@@ -87,17 +89,6 @@
     return { ...risolto, remotoSpento: !attivo };
   }
 
-  /** GitHub a volte ignora l'Accept "raw" e manda il file in base64. */
-  function testoDaGithub(testo) {
-    try {
-      const d = JSON.parse(testo);
-      if (d && d.encoding === "base64" && typeof d.content === "string") {
-        return decodeURIComponent(escape(atob(d.content.replace(/\s/g, ""))));
-      }
-    } catch { /* lo dira' la validazione */ }
-    return testo;
-  }
-
   const motivoHttp = (status) =>
     status === 404 ? "file non ancora pubblicato sul repository"
       : status === 403 || status === 429 ? "GitHub ha limitato le richieste"
@@ -121,15 +112,14 @@
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
     try {
-      const risposta = await fetch(`https://api.github.com/repos/${r}/contents/${FILE}`, {
-        headers: { Accept: "application/vnd.github.raw+json" },
+      const risposta = await fetch(`https://raw.githubusercontent.com/${r}/main/${FILE}`, {
         cache: "no-store",
         credentials: "omit",
         signal: controller.signal,
       });
       if (!risposta.ok) errore = motivoHttp(risposta.status);
       else {
-        const v = L.valida(testoDaGithub(await risposta.text()));
+        const v = L.valida(await risposta.text());
         const p = await predefinita();
         if (!v.ok) errore = v.errore;
         else if (p.ok && v.revision < p.revision) errore = "il file remoto è più vecchio di quello installato";
@@ -225,5 +215,5 @@
     }
   }
 
-  root.LinkChrome = { CHIAVE, ICONE, icona, predefinita, risolti, stato, aggiorna, collega, avvia, testoDaGithub, remotoAttivo };
+  root.LinkChrome = { CHIAVE, ICONE, icona, predefinita, risolti, stato, aggiorna, collega, avvia, remotoAttivo };
 })(typeof window !== "undefined" ? window : globalThis);

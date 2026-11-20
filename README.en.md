@@ -5,7 +5,7 @@
 An extension for **Brave and Chrome** that relists your Vinted listings in one click, one at a
 time or in a queue, to bring them back to the top of the results without redoing them by hand.
 
-**Version 2.6.1** · [Changelog (Italian)](CHANGELOG.md) · [Discord community](https://discord.gg/EPsbQCuAkx) ·
+**Version 2.7.0** · [Changelog (Italian)](CHANGELOG.md) · [Discord community](https://discord.gg/EPsbQCuAkx) ·
 [Report a problem](https://github.com/MashaUP/Vinted_Relist/issues/new?template=segnalazione-bug.yml) ·
 [Support development on Ko-fi](https://ko-fi.com/mashaup)
 
@@ -34,7 +34,7 @@ Chrome Web Store**. **Try it first on an item you don't care much about.**
 
 ## Installation
 
-1. Download **`Vinted_Relist-2.6.1.zip`** from the
+1. Download **`Vinted_Relist-2.7.0.zip`** from the
    [GitHub release page](https://github.com/MashaUP/Vinted_Relist/releases) (under "Assets") or
    from the root of the repository.
 2. Extract it **into a permanent folder**, e.g. `Documents\Vinted_Relist` (not the temporary
@@ -51,7 +51,9 @@ Chrome Web Store**. **Try it first on an item you don't care much about.**
 
 1. Popup › **Health** › **Check for update** (it also checks by itself every 12 hours and lets
    you know).
-2. **Download the zip** and extract it **over the current folder**, replacing the files.
+2. **Download the zip**: the popup checks its SHA-256 fingerprint and saves it in Downloads ›
+   Vinted Relist. Extract it **into the folder that contains `Vinted_Relist`**, replacing the files
+   (the zip already contains the `Vinted_Relist/` folder).
 3. **Install the update**: the extension reloads. Then reload your Vinted tabs (F5).
 
 ## Quick guide
@@ -119,8 +121,11 @@ Popup › **Health** › **Prepare diagnostics**: version, settings, queue statu
 without tokens, cookies, ids or addresses. You see it before copying it, and you can paste it on
 Discord or in a bug report.
 
-- **The buttons don't appear.** They only appear in your own wardrobe (`/member/<your id>`) once
-  the extension has recognised your account: browse Vinted a little while logged in, then reload.
+- **The buttons don't appear / "Profile not detected".** They only appear in your own wardrobe
+  (`/member/<your id>`) once the extension has recognised your account. Reload a Vinted tab (F5)
+  while logged in: tabs opened before installing or updating the extension don't count. In Health,
+  **"Vinted requests"** shows when the extension last saw Vinted and whether the account cookie was
+  there; if it says "new format", send us the diagnostics.
 - **"CSRF token not found" or "reload this page" after an update.** Reload the Vinted tab (F5):
   pages that were already open still run the old code.
 - **Phones: Vinted asks you to select the model.** Since 2.6 the model is copied automatically. If

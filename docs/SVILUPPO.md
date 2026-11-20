@@ -1,640 +1,147 @@
 # Vinted Relist — documentazione tecnica
 
-Documento vivo: va aggiornato a ogni versione insieme a `CHANGELOG.md`. Descrive com'è fatta
-l'estensione, perché è fatta così e cosa resta da verificare. Aggiornato alla **2.3.0**.
-I link del progetto e la configurazione remota hanno un documento a parte: [LINK.md](LINK.md).
+Com'è fatta l'estensione, le regole da non rompere e cosa non è verificato su Vinted reale.
+Aggiornata alla **2.7.0**. La storia delle scelte e dei bug è nel [CHANGELOG](../CHANGELOG.md);
+i link del progetto in [LINK.md](LINK.md); dati trattati e privacy in [SECURITY.md](../SECURITY.md).
 
 ## 1. Architettura
 
-Estensione Manifest V3, nessuna dipendenza esterna, nessun passaggio di build: i file del
-repository sono quelli che il browser carica.
+Manifest V3, nessuna dipendenza a runtime, nessuna build: i file del repository sono quelli che il
+browser carica. `npm` serve solo per ESLint e i test.
 
 | Contesto | File | Ruolo |
 |---|---|---|
-| Service worker | `background.js` (+ `src/coda-logica.js` via `importScripts`) | cattura token, id utente e formati dalle richieste di Vinted; **unico scrittore della coda** (modifiche in fila con `conCoda`); sveglie, watchdog, recupero, rallentamento; archivio code; registro eventi e badge; notifiche; download; apertura pagine |
-| Content script (mondo isolato) | `src/utils.js` → `api.js` → `editor-logica.js` → `relist.js` → `editor.js` → `coda-logica.js` → `queue.js` → `ui.js` → `content.js` | tutto ciò che parla con Vinted e compare nella pagina. L'ordine nel manifest conta: ogni file usa quelli prima |
-| Mondo della pagina | `src/page-bridge.js` | strumenti di sola lettura nella console, solo se `consoleBridge` è attivo |
-| Pagine dell'estensione | `src/popup.*`, `src/dashboard.*`, `src/dashboard-coda.js`, `src/link-chrome.js` | interfaccia; leggono `chrome.storage` e mandano messaggi al service worker; non scrivono mai la coda |
-| Moduli puri | `editor-logica.js`, `analisi.js`, `versione.js`, `impostazioni.js`, `coda-logica.js`, `link.js` | logica senza `chrome.*` né rete: si testano in Node e si caricano nel browser con lo stesso file (`module.exports` o `window.*`) |
+| Service worker | `background.js` (+ `coda-logica.js`, `armadio-logica.js`, `versione.js`, `i18n.js`, `vintory-*.js` via `importScripts`) | legge token, account e formati dalle richieste di Vinted; **unico scrittore** di coda (`conCoda`) e inventario (`conInventario`); sveglie, recupero, esiti incerti, archivio, eventi, notifiche, download |
+| Content script | `utils.js` → `api.js` → `editor-logica.js` → `relist.js` → `editor.js` → `coda-logica.js` → `queue.js` → `ui.js` → `content.js` (+ `i18n*.js`) | tutto ciò che parla con Vinted e compare nella pagina; l'ordine nel manifest conta |
+| Mondo della pagina | `page-bridge.js` | strumenti di sola lettura in console, solo con `consoleBridge` acceso |
+| Pagine dell'estensione | `popup.*`, `dashboard*.js`, `link-chrome.js`, `i18n-pagina.js` | interfaccia: leggono `chrome.storage`, mandano messaggi; non scrivono mai la coda |
+| Moduli puri | `coda-logica`, `armadio-logica`, `editor-logica`, `analisi`, `versione`, `impostazioni`, `link`, `i18n`, `vintory-logica` | niente `chrome.*` né rete: si testano in Node con lo stesso file (`module.exports` o globale) |
 
-Tutto il codice del content script scrive su `window.VR`. Le pagine dell'estensione caricano
-`utils.js` per riusare `VR.DEFAULTS` e `VR.h` senza duplicarli.
+## 2. Regole da non rompere
 
-## 2. Flussi principali
+- **Nel dubbio non si ripubblica.** Un doppione su Vinted costa più di un articolo fermo un giro.
+  Un esito incerto diventa `verify` e non si riprova da solo; «interrotto» solo con la fase
+  `preparazione` registrata (il permesso di invio negato è la prova che niente è arrivato a Vinted).
+- **Un solo scrittore.** `vrQueue` e `inventory` li scrive solo il service worker, una modifica
+  alla volta. Con scritture concorrenti (2.0) un esito si perdeva 11 volte su 40 (`test-gara`).
+- **Identità stabile.** Ogni articolo è il suo id Vinted, mai una posizione nell'elenco.
+- **Regole per batch.** Si leggono con `overridesDi(coda, id)`, mai con `coda.overrides`.
+- **Solo il tuo armadio.** L'account lo scrive solo il service worker dal cookie; la pagina non
+  deduce mai l'id da link o dati. `relist()` ricontrolla il proprietario.
+- **Link solo in `links.json`**, niente URL nell'HTML o nel codice (il README è l'unica copia).
+- Niente telemetria, codice remoto, alterazioni delle foto per eludere i controlli.
 
-### Ripubblicazione di un articolo (`VR.relist`, `src/relist.js`)
+## 3. Flussi
 
-1. `GET /api/v2/item_upload/items/{id}` → bozza nel formato del form.
-2. Applica opzioni (prezzo, testi, colore) e riempimento dei campi vuoti.
-3. Scarica le foto dal CDN tramite il service worker (niente CORS), le ridisegna su canvas con
-   rotazione e ritaglio, le esporta in JPEG e le carica con `POST /api/v2/photos`.
-4. `POST /api/v2/item_upload/items` → nuovo annuncio.
-5. `POST /api/v2/items/{id}/delete` sul vecchio (con ordine «pubblica, poi elimina»).
-6. Snapshot prima/dopo in `vrSnapshots`, riga in `vrHistory`, inventario aggiornato.
+**Ripubblicazione** (`VR.relist`, `relist.js`): `GET /api/v2/item_upload/items/{id}` → bozza →
+regole della batch e campi da riempire → foto scaricate dal service worker, ridisegnate (rotazione,
+ritaglio) e caricate con `POST /api/v2/photos` → permesso di invio (`vr:relistConfirm`) →
+`POST /api/v2/item_upload/items` → `POST /api/v2/items/{id}/delete` sul vecchio. Con «elimina, poi
+pubblica» gli ultimi due si invertono e prima si salva `vrBackup:<id>`.
 
-Con ordine «elimina, poi pubblica» i passi 4 e 5 si invertono e prima di cancellare si salva
-`vrBackup:<id>`.
+**Esiti:** `ok` → `done`; rifiuto esplicito → `error` (riprovabile secondo `sicuroRiprovare`);
+dopo il permesso, rete caduta / 5xx / pagina morta → `verify`; nuovo pubblicato ma vecchio rimasto →
+`verify`; fermato prima del permesso → `interrupted`; venduto → `skipped`. Tre esiti negativi di
+fila mettono in pausa; 403/429: pausa di 5, 15, 45 minuti, poi stop.
 
-### Esiti
+**Coda:** messaggi `vr:queue*` in `MESSAGGI_CODA`, ognuno passa da `conCoda` e da una funzione pura
+di `coda-logica.js`. La pagina scrive il giornale `vrOp:<id>` (fase, foto, id nuovo, esito). A 6
+minuti `controllaLavoro` guarda il giornale e sonda la scheda; `verificaArticolo` cerca il nuovo
+annuncio (id o foto caricate) con sole letture. All'avvio `recupera` riparte da giornale e fase.
+Batch: `coda.batches[]` con regole e intervallo propri; aggiunte e modifiche non toccano l'attesa
+già programmata.
 
-| Esito | Quando | Stato in coda | Riprovabile |
-|---|---|---|---|
-| ok | creato (e vecchio eliminato) | `done` | — |
-| `error` | Vinted ha rifiutato in modo esplicito (4xx con messaggio, campi non validi) | `error` | sì |
-| `uncertain` | dopo il permesso di invio: rete caduta, timeout, 5xx, risposta senza id, pagina morta, browser fermato | `verify` | **no**, finché non è verificato |
-| `partial` | nuovo pubblicato, vecchio non eliminato | `verify` | **no**: riprovare creerebbe un terzo annuncio |
-| `interrupted` (2.2) | pagina chiusa, ricaricata o ferma **prima** del permesso di invio | `interrupted` | sì: la prima volta torna in cima da solo |
-| `skipped` | saltato a mano, già ripubblicato dal bottone, già in lavorazione | `skipped` | — |
-| — | coda interrotta prima del suo turno | `cancelled` | — |
+**Account (2.7.0):** `accountDaCookie(cookie)` → `{ id, fonte }` (`v_uid`, `token`, `nessuno`,
+`illeggibile`, `assente`) da due ascoltatori `webRequest.onSendHeaders` con `extraHeaders`: le
+chiamate `/api/*` (anche token CSRF e formati) e il caricamento delle pagine (`main_frame`,
+`sub_frame`). `vrVisto` registra quando e con quale fonte, mai i valori; Salute e report ne
+ricavano «Richieste di Vinted» e il perché di un profilo mancante.
 
-Regola guida: **nel dubbio non si ripubblica**. Un doppione su Vinted costa più di un articolo
-fermo un giro in più.
+**Campi per categoria:** si copia ogni chiave presente nella lettura (anche `false`/`null`); i
+vuoti si riempiono solo se tutti gli altri tuoi articoli con lo stesso `catalog_id` (almeno 2) li
+hanno e un valore ha almeno il 60%. Il formato appreso è per categoria (`itemFormats`). Telefoni:
+`ontology_model_id` / `ontology_collection_id`.
 
-### Coda (2.1: `coda-logica.js` + `background.js`)
+**Ripubblica da Vintory (2.5):** contratto `vintory-relist` schema 2 (`docs/RELIST_BRIDGE.md` nel
+repository di Vintory). ZIP letto senza librerie (`vintory-zip.js`), controlli puri
+(`vintory-logica.js`), foto in IndexedDB (`vintory-db.js`), stato su Vinted riletto anche al
+momento di pubblicare; registro `vintoryOrigine` contro i doppioni.
 
-**Una sola fonte di verità.** La coda vive in `storage.local.vrQueue` e la scrive **solo** il
-service worker. Ogni modifica (da pagina, popup, dashboard, sveglie, esiti) è un messaggio che
-passa da `conCoda(lavoro)`: una catena di promesse che esegue un lavoro alla volta, legge la coda,
-applica una funzione pura di `coda-logica.js`, scrive (`rev` + 1). Le funzioni interne ricevono la
-coda già letta e non richiamano `conCoda` (niente stalli). Popup, dashboard e pagina leggono e si
-aggiornano con `storage.onChanged`.
+**Lingue (2.6):** testi in italiano nel codice; `src/lang/{en,fr,es,de}.json` con chiave il testo
+italiano e `{0}` per le parti variabili. Ricerca: esatto → « — » → modello → numero + testo →
+pezzi su « · », «: », «. ». Sulle pagine di Vinted si traducono solo gli elementi dell'estensione;
+il dizionario lo dà il service worker. Dopo aver scritto testi nuovi: `node scripts/i18n-estrai.js`.
 
-**Identità stabile.** Nessuna operazione usa indici: ogni elemento è il suo id Vinted, che compare
-una volta per sessione. L'ordine dell'array è l'ordine di esecuzione dei `pending`.
+**Aggiornamenti e link (2.7.0):** `version.json` e `links.json` da
+`raw.githubusercontent.com/<repo>/main/` (CORS aperto, nessun permesso, nessun limite di 60
+richieste l'ora come l'API). Controllo a mano al massimo una volta al minuto, automatico ogni 12
+ore con una notifica per versione. «Scarica lo zip» legge lo zip da raw in memoria, controlla che
+sia uno zip, al massimo 50 MB, con lo SHA-256 di `version.json`; solo allora
+`chrome.downloads.download` in `Download/Vinted Relist/`. `github.com/…/raw/HEAD` non va bene: il
+redirect verso raw non ha CORS. Chiavi dei link: `bugs`, `ideas` (le vecchie `bug-report`,
+`feature-request` valgono ancora, la nuova vince).
 
-| Stato dell'articolo | Etichetta | Terminale | Cosa si può fare |
-|---|---|---|---|
-| `pending` | In attesa | no | spostare, rimuovere dalla coda |
-| `working` | In elaborazione | no | «Annulla operazione» (solo prima dell'invio) |
-| `done` | Completato | sì | niente: l'annuncio vecchio non esiste più |
-| `error` | Fallito | sì | riprovare, se `sicuro` ≠ `no` |
-| `verify` | Da verificare | sì | «Verifica pubblicazione», «È stato pubblicato» / «Non è uscito»; mai riprovato da solo; un esito vero arrivato dopo vale ancora (`attendeEsito`) |
-| `interrupted` | Interrotto (2.2) | sì | riprovare, «Ripubblica ora»; niente era arrivato a Vinted |
-| `skipped` | Saltato | sì | riattivare aggiungendolo di nuovo |
-| `cancelled` | Annullato | sì | riprendere la sessione |
-| `removed` | Rimosso | sì | riaggiungere (non conta nel totale) |
+## 4. Dati salvati
 
-Stati della sessione: `waiting`, `working`, `paused`, `scheduled`, `recovering`, `done`; più i flag
-`stopDopoCorrente`, `pausaDopoCorrente` (+ `pausaMinuti`), `pausaAuto`/`motivoPausa`,
-`riprendiAlle`, `erroriDiFila`, `backoff`.
+`chrome.storage.local`: impostazioni (`VR.DEFAULTS`) con `userId`, `vintedOrigin`, `colorMap`,
+`photoFormat`, `itemFormat`; `itemFormats` (per categoria, max 40); `inventory` e
+`vrInventoryReplaced`; `vrQueue` (modello v3 con batch, le code 2.0/2.1 si migrano alla lettura),
+`vrQueueArchive` (10), `vrQueuePrimaRiparazione`; `vrOp:<id>` (giornali, potati a 14 giorni);
+`vrSnapshots` (60), `vrHistory` (30 giorni), `qualityScores`; `vrEvents` (150), `vrErrori` (50);
+`queueDraft`, `queueTemplates` (20), `editorDrafts`, `vrBackup:<id>`; `updateCheck`,
+`updateNotified`, `vrLinks`, `vrVisto`, `vintoryOrigine`, `lingua`.
 
-Messaggi (`MESSAGGI_CODA` in `background.js`):
+`chrome.storage.session`: `vrTokens` (CSRF, anon-id), `vrQueueStep`. Mai in `local`, nei log,
+negli eventi o nella diagnostica. IndexedDB `vintoryImport`: foto importate da Vintory.
 
-| Messaggio | Effetto |
+## 5. Non verificato su Vinted reale
+
+| Cosa | Se è diverso |
 |---|---|
-| `vr:queueStart` | crea la sessione; stessa selezione già in corso = doppio clic, ignorato; selezione diversa con una coda attiva = rifiutata («usa Aggiungi alla coda») |
-| `vr:queueAdd {items, dove}` | aggiunge in fondo o in cima, anche in esecuzione o in pausa; `valutaAggiunta` dice per ognuno aggiungi / riattiva / rifiuta e perché (già in coda, in elaborazione, già ripubblicato, da verificare, errore definitivo, limite di 500) |
-| `vr:queueRemove {ids}` | solo `pending` → `removed`; l'articolo in corso è rifiutato con il motivo. **Non cancella nulla su Vinted.** Coda vuota → si chiude |
-| `vr:queueMove {ids, dove}` / `vr:queueReorder {ordine}` | su, giù, cima, fondo; riordino completo (trascinamento) rifiutato se l'insieme è cambiato nel frattempo |
-| `vr:queueRetry {ids?, queue?}` | solo `error` riprovabili, in fondo, `tentativi`+1; da una sessione archiviata li aggiunge alla coda attiva o ne avvia una nuova |
-| `vr:queueRestore {queue}` | riprende una sessione archiviata: `cancelled`, `error` riprovabili, `pending`; **mai** `done` né `verify` |
-| `vr:queueResolve` | conferma l'esito di un `verify` (coda corrente e archivio) |
-| `vr:queuePause {minuti?}` / `vr:queueResume` | pausa subito se nessuno è in corso, altrimenti dopo l'articolo corrente; a tempo con la sveglia `vr:queueResume` |
-| `vr:queueCancelCurrent` | annullamento cooperativo (sotto) |
-| `vr:queueStop` | interrompe: i `pending` diventano `cancelled`; se un articolo è in corso aspetta il suo esito (`stopDopoCorrente`) |
-| `vr:queueSkip` | salta il prossimo; rifiutato mentre un articolo è in corso |
-| `vr:queueRecover`, `vr:queueClear` | riprende dopo un'interruzione; nasconde la sessione (resta in archivio) |
-| `vr:relistDone` | esito dalla pagina → `concludiArticolo`; se non è l'articolo in corso (stesso id **e** stesso `avviatoAt`) → `esitoTardivo`, che vale solo per un `verify` dello stesso tentativo |
-| `vr:relistConfirm` (2.2) | permesso di passare il punto di non ritorno: sì solo se l'articolo è ancora quello in lavorazione, con lo stesso avvio e senza annullamento; registra `fase: "invio"`, `invioAt` e la traccia (id delle foto caricate, prezzo, ordine) |
-| `vr:queueAdd {…, batch | batchId}` (2.2) | `batch: {overrides, campi, modello}` = nuova batch con quelle regole; `batchId` = unisciti a una esistente; nessuno dei due (messaggi 2.1) = nuova batch con le regole della prima |
-| `vr:queueBatchEdit` (2.2) | nuove regole per una batch, solo per i suoi `pending` (`modificaBatch`) |
-| `vr:queueNow {id}` (2.2) | «Ripubblica ora»: `pending`, `error` riprovabile o `interrupted` → primo in attesa; avvicina `nextAt` (almeno 1 min dopo la pubblicazione precedente) solo se la coda è in attesa tra due articoli |
-| `vr:queueVerify {itemId, queue}` (2.2) | verifica su Vinted (fuori dal lock), poi `applicaVerifica` su coda e archivio |
-
-**Annullare l'articolo in corso** è diverso da rimuoverlo e da interrompere la sessione.
-`relist()` riceve un `segnale` e controlla prima di ogni foto e prima della prima chiamata
-distruttiva (creazione, o eliminazione con l'ordine «elimina, poi pubblica»): oltre quel punto
-`vr:relistCancel` risponde `troppoTardi` e si aspetta l'esito. La fase (`preparazione` / `invio`)
-sta in `storage.session.vrQueueStep`, così la dashboard sa se il bottone è ancora utile.
-
-**Esiti ed errori.** `classificaErrore` mette ogni esito in una categoria (temporaneo, dati,
-sessione, non consentito, rete, interno, incerto) con `cosaFare` e `sicuroRiprovare`
-(`si` / `dopo-correzione` / `no`). Tre esiti negativi di fila (`error` o `verify`) mettono la
-coda in **pausa prudente** con il motivo. 403/429: l'articolo non si consuma, pausa di 5, 15,
-45 minuti, poi stop.
-
-**Recupero.** All'avvio del service worker (`recupera`), un `working` la cui sveglia di controllo
-è sparita (estensione ricaricata, browser riavviato): esito nel giornale → si applica; `fase`
-`preparazione` → `interrupted` e in cima; `invio` o fase sconosciuta (articolo partito con la 2.1)
-→ `verify` e verifica pianificata. Mai ripetuto alla cieca. Una pausa a tempo con la sveglia
-persa lo dice nella nota.
-
-**Esito incerto (2.2).** Fino alla 2.1 la sveglia `vr:queueWatchdog` dopo 6 minuti scriveva
-`verify` senza guardare niente, e `esitoCoda` scartava un esito arrivato dopo («fuori tempo»).
-Ma 6 minuti non bastano a un tentativo legittimo: ogni chiamata ha un limite di 60 s, l'upload di
-una foto può fare 3 tentativi per 3 formati, il download delle foto non aveva limite, e in una
-scheda in secondo piano i timer del browser rallentano. Così un annuncio pubblicato restava «da
-verificare». Ora:
-
-1. `passoCoda` registra la scheda (`scheda`) e la `fase: "preparazione"`, e manda `avviatoAt`.
-2. La pagina scrive il giornale `vrOp:<id>` (fase, foto, id nuovo, esito) e, subito prima della
-   prima richiesta distruttiva, chiede `vr:relistConfirm`. Un no la ferma senza danni: per questo
-   «interrotto prima dell'invio» è una prova e non una stima.
-3. A 6 minuti `controllaLavoro()` (fuori dal lock): esito nel giornale → applicato; altrimenti
-   `sondaScheda` chiede alla scheda `vr:relistStatus`. In corso o non raggiungibile ma esistente
-   (congelata) → si aspetta (6 o 2 minuti), fino a 30. Scheda chiusa, scaricata o ricaricata, o
-   oltre i 30 minuti: `preparazione` → `interrupted`; `invio` → `verify` con un messaggio che dice
-   ora, motivo e cosa fare, e verifica automatica.
-4. `verificaArticolo()` chiede a una scheda Vinted `vr:verifyRelist` (solo letture: stato del
-   vecchio, del nuovo se se ne conosce l'id, ultimi 20 annunci dell'armadio cercando le foto
-   caricate in quel tentativo); il verdetto lo dà `valutaVerifica` (pura, testata). Stato cambiato
-   solo con una prova; mai «non pubblicato» da un'assenza. Fino a 5 tentativi automatici a 3
-   minuti di distanza (`vr:queueVerify`), poi il bottone.
-5. L'esito della pagina si ritrasmette (0, 2, 5, 15, 30, 60 s) finché il service worker non
-   risponde `ok`.
-
-**Permesso di invio (2.3).** «Fermato prima dell'invio a Vinted: permesso negato» (2.2) nasceva
-in `queue.js`: `fermato(r?.motivo || "permesso negato")`. Il ripiego scattava quando la risposta a
-`vr:relistConfirm` non aveva motivo: o il gestore del service worker lanciava un'eccezione (il
-`catch` di `MESSAGGI_CODA` rispondeva `{ok:false, error}`, senza `motivo`), o la risposta era vuota.
-Riprodotto in Chromium sulla 2.2.0 con un salvataggio della coda rifiutato durante il permesso: esce
-esattamente la frase dello screenshot, l'articolo diventa «Annullato» e la coda passa al successivo.
-Ora: ogni no ha `codice` e `motivo` (`coda-chiusa`, `non-in-lavorazione`, `tentativo-scaduto`,
-`annullato`, `salvataggio`, `versione`, `interno`; lato pagina anche `sw-irraggiungibile`,
-`risposta-vuota`, `estensione-ricaricata`); `chiediPermesso` riprova (4 volte) le risposte vuote, le
-eccezioni di trasporto e i no `ritentabile`; un no tecnico produce `interrupted` con categoria
-`comunicazione` e `esitoCoda` mette la coda in pausa con il motivo. La pagina manda `VR.BUILD`, il
-service worker lo confronta con `BUILD`. Ogni no finisce in `vrErrori` (diagnostica).
-Il percorso singolo e quello in coda usano la stessa `VR.relist()`: l'unica differenza è il
-`segnale` (permesso e giornale) e le regole della batch.
-
-**Diagnostica di confronto (2.3).** `vr:diagnosi` (service worker) + quello che vede solo una pagina
-(versione completa del browser, Brave, tempo di andata e ritorno). `Versione.differenzeRapporti`
-confronta due report ignorando ore e durate. `vr:riparaCoda` = `C.riparaStruttura` (prudente:
-«in elaborazione» impossibile → «da verificare») + giornali orfani + sveglie, con copia in
-`vrQueuePrimaRiparazione`; la stessa riparazione gira all'avvio se `controllaStruttura` trova
-problemi oltre a schema/batch/registro.
-
-**Aggiornamenti periodici (2.3).** Sveglia `vr:updateCheck` (12 ore, `periodInMinutes`), fonte
-`version.json` del repository (la stessa di «Cerca aggiornamento»). `Versione.daNotificare`: solo
-se più recente dell'installata e dell'ultima notificata (`updateNotified`); prerelease solo a chi
-ne ha una. Una versione vista nel popup conta come notificata.
-
-**Solo il tuo armadio (2.3).** `VR.contesto()` in `content.js`: proprietario dall'indirizzo
-(`/member/<id>` senza sottopagine), tu dall'account (`userId` scritto **solo** dal service worker,
-dal cookie `v_uid` delle richieste di Vinted, per quel dominio). Non si deduce più l'id da link o
-dati della pagina. Senza certezza: niente. `VR.puoAgireSu(id)` si ricontrolla al clic;
-`VR.controllaProprieta` dentro `relist()` blocca un annuncio con proprietario diverso o letto dalla
-scheda pubblica senza proprietario verificabile.
-
-**Batch (2.2).** `coda.batches[]` con `{id, n, nome, overrides, campi, modello, rev, storico}`;
-ogni articolo ha `batch`. `passoCoda` manda `overridesDi(coda, id)`: le regole della batch
-dell'articolo, mai quelle della coda. `avviaArticolo` registra `regole: {batch, rev}`;
-`modificaBatch` cambia le regole solo per i `pending` e conserva le revisioni precedenti.
-`coda.overrides` resta uguale alla prima batch per compatibilità. `migra` trasforma una coda 2.1
-in Batch 1. Ripresa e riprova da sessioni passate raggruppano per batch d'origine
-(`rimettiPerBatch`). Regole ripulite da `pulisciOverrides` (solo le chiavi di
-`validaOpzioniCoda`).
-
-**Stima.** `stima()` usa la durata media osservata degli articoli conclusi in questa sessione più
-l'intervallo; con meno di 2 campioni lo dice («stima indicativa»).
-
-**Cronologia.** `coda.log` (max 300, 200 in archivio) con `natura`: `locale` (modifiche della coda:
-niente inviato a Vinted), `vinted` (esiti), `sistema` (pause, recuperi). Esportazione CSV (con BOM,
-protetta dalle formule) e JSON, resoconto da copiare: niente token, cookie, titoli nel resoconto.
-
-**Perché il service worker scrive da solo.** Nella 2.0 popup, pagina e service worker scrivevano la
-coda e `vr:queueProgress` (passo) e `vr:relistDone` (esito) potevano intrecciarsi: in un test che
-li fa arrivare insieme l'esito andava perso **11 volte su 40**, e l'articolo sarebbe stato
-ripubblicato due volte. Con `conCoda` e il passo spostato in `storage.session`: 40 su 40
-(`test-gara`).
-
-### 2.4: intervallo per batch, venduti, marcatori, notifiche
-
-**Intervallo per batch.** `batch.intervalMin` (1–240, `minutiValidi`); una batch senza valore
-(create dalla 2.3) usa `coda.intervalMin`. `C.intervalloPer(coda, id)` è l'attesa prima di
-quell'articolo, `C.intervalloProssimo(coda)` quella del prossimo `pending`: la usa `esitoCoda` per
-`programmaProssimo`, la prudenza e la pausa dopo l'articolo. Aggiunte, modifiche e rimozioni non
-chiamano mai `programmaProssimo`: l'attesa in corso (`nextAt` + sveglia `vr:queueNext`) resta
-quella. `modificaBatch` mette il valore precedente nello `storico` della batch; `stima` somma gli
-intervalli dei singoli articoli. Esportazione e archivio portano `intervalMin` per batch.
-
-**Venduti.** Tre punti, dal più presto al più tardi:
-1. `content.js › eVenduto(card)`: bollino con il testo esatto «Venduto» (e traduzioni) o
-   `data-testid` sold/closed → niente barra, `inventory[id].venduto = true`. `ripulisciBarre()`
-   toglie una barra già messa se la card diventa venduta. Il DOM di Vinted non viene modificato
-   (solo `data-vr-venduto` sulla card, per non rileggerla).
-2. `background.js › bloccatiPerAggiunta()`: sotto il lock, avvio e aggiunta rifiutano i venduti
-   dell'inventario e gli id `verify` di sessioni passate; `valutaAggiunta` rifiuta anche gli
-   `skipped` con `motivoSalto: "venduto"`.
-3. `relist.js › VR.controllaVendibile(source)` (dopo `controllaProprieta`, prima di ogni upload) e
-   `editor.js` all'apertura: `is_sold`, `is_closed`, `item_closing_action` sold → errore
-   `venduto`. In coda diventa `skipped` / `motivoSalto: "venduto"`, la coda continua, l'inventario
-   viene annotato.
-
-**Card e zone escluse.** `cardFor(anchor)` restituisce una card solo se: fuori da `ZONE_ESCLUSE`
-(header, nav, footer, aside, dialog, ruoli banner/navigation/dialog/menu/listbox/tooltip,
-`aria-modal`, `[popover]`, `data-testid`/classi notification/dropdown/popover, gli elementi
-dell'estensione), con una foto, e — se si arriva dal ripiego che risale gli antenati — dentro
-`main`. Il `MutationObserver` ignora le mutazioni dentro le zone escluse e quelle fatte
-dall'estensione.
-
-**Marcatori.** `queue.js › statoArticolo(id)` legge solo `vrQueue` (stesso oggetto dei pannelli,
-aggiornato da `storage.onChanged`): `pending` → «In coda · #n» / «In attesa · parte verso le
-hh:mm», `working`, `verify`, `done` → «Completato», `error` → «Errore: …», `cancelled` →
-«Annullato». `pending`/`working`/`verify` sono bloccanti: casella spenta e deselezionata,
-«Ripubblica» rifiuta con il motivo (`VR.statoInCoda`). Il controllo vero dei doppioni resta nel
-service worker (`valutaAggiunta` sotto `conCoda`), atomico anche con aggiunte simultanee.
-
-**Release.** `.github/workflows/release.yml` su `release: published` (e a mano con il tag):
-checkout del tag, test, `scripts/pacchetto.sh <tag>` (versione del tag = `manifest.json` =
-`version.json`, file del manifest e `importScripts` presenti, `manifest.json` nella radice dello
-zip, nessun file di sviluppo), `gh release upload --clobber`, poi (2.5.1) annuncio su Discord via webhook se c'è il secret
-`DISCORD_WEBHOOK_URL`: embed con nome, note e link allo zip, `allowed_mentions` vuoto. Permessi: `contents: write`.
-
-### 2.6: lingue
-
-I testi restano scritti in italiano nel codice. `src/lang/{en,fr,es,de}.json` hanno come chiave
-il testo italiano (con `{0}`, `{1}`… al posto delle parti variabili) e come valore la traduzione.
-`src/i18n.js` (funzioni pure + osservatore DOM) traduce i nodi di testo e gli attributi `title`,
-`placeholder`, `aria-label`, `alt` appena compaiono, ricordando l'originale: il cambio di lingua
-ritraduce dall'italiano senza ricaricare. Ordine di ricerca: testo esatto → spezzato sui
-separatori forti (« — ») → modello con parti variabili (le parti si traducono a loro volta; servono
-almeno 4 lettere fisse) → numero + testo noto → spezzato su « · », «: », «. ». Senza traduzione
-il testo resta in italiano.
-
-- Pagine dell'estensione: tutta la pagina (`src/i18n-pagina.js`, dizionario da `src/lang`).
-- Pagine di Vinted: solo i nodi dentro elementi con classe `vr-…` o `[data-vr-ui]`; il
-  dizionario lo dà il service worker (`vr:lingua`), così i file non sono esposti al sito.
-- Mai tradotti: `[data-vr-noi18n]`, link agli articoli, `.q-title`, `.vr-plan__title`, `textarea`.
-- Service worker: `I18N.traduci()` per le notifiche (`linguaSW()` legge la scelta).
-- Scelta: `chrome.storage.local.lingua` = `"auto"` | `it` | `en` | `fr` | `es` | `de`.
-
-**Aggiungere testi:** scrivili in italiano come sempre, poi `node scripts/i18n-estrai.js`
-elenca quelli senza traduzione; aggiungili ai quattro JSON con gli stessi `{n}`.
-`tests/test-i18n.js` controlla che i quattro dizionari abbiano le stesse voci e gli stessi
-segnaposto, la traduzione del DOM e quanti testi restano scoperti.
-
-### 2.6: modello dei telefoni
-
-`buildDraft` copia `ontology_model_id` / `ontology_collection_id` quando l'annuncio li ha
-(anche ricavandoli da `model {id}` / `collection {id}`); un campo imparato da una richiesta vera
-con «model»/«collection» e `_id` nel nome riceve lo stesso id. I campi imparati si sommano anche
-per categoria (`formatoPerCategoria`), non solo dall'ultima modifica. `VR.chiedeModello(errore)`
-riconosce il rifiuto di Vinted (model, modèle, modello, Modell, modelo) e aggiunge
-`VR.CONSIGLIO_MODELLO`. **Non verificato su Vinted reale:** il nome esatto del campo che Vinted
-vuole per il modello in pubblicazione; se non è `ontology_model_id`, la modifica a mano di un
-telefono su Vinted lo fa imparare.
-
-### 2.5: Ripubblica da Vintory
-
-Contratto del file: `docs/RELIST_BRIDGE.md` nel repository di Vintory (formato `vintory-relist`,
-schema 2). Il ponte è solo un file: nessun messaggio fra le due estensioni, Vintory resta in sola
-lettura e non riceve niente.
-
-| Pezzo | Dove | Cosa fa |
-|---|---|---|
-| Lettore ZIP | `src/vintory-zip.js` | adattato da `src/shared/zip.js` di Vintory (MIT): stored e deflate (`DecompressionStream`), legge l'indice in fondo e ogni voce solo quando serve, ignora nomi con `..`, `/` iniziale, `\` |
-| Logica | `src/vintory-logica.js` | funzioni pure: `leggiPacchetto` (formato/schema), `valuta` (proprietario, modulo, foto e percorsi, sha256 presente, nomi cambiati, registro, già in coda), `statoVinted`, `decidi`, `sorgente`, `voceCoda`, `registra`, `daConservare`/`daCancellare`/`nominate`, `pubblicati` |
-| Foto | `src/vintory-db.js` | IndexedDB `vintoryImport` › `annunci`, chiave `vintory:<id>:<impronta 16 hex>`; `{ sorgente, foto: [{ blob, tipo, sha256 }] }` |
-| Anteprima | `src/dashboard-vintory.js` | scelta/trascinamento, sha256 di ogni foto (`crypto.subtle`), stato su Vinted a lotti di 8 via service worker, elenco, `CodaUI.proponiAggiunta(items, { sempreModulo, primaDiInviare, dopoInvio })` |
-| Service worker | `background.js` | `filtraVintory` (registro e foto presenti, sotto il lock), `vr:vintoryStato` (inoltra a una scheda Vinted), `vr:vintoryDati`, `vr:vintoryFoto` (base64), `vr:vintoryPulisci`; dopo ogni `scriviCoda` con articoli da Vintory `sincronizzaVintory` scrive il registro e pulisce l'IndexedDB, in fila fuori dal lock |
-| Pagina | `src/api.js › statoVintory`, `src/relist.js › preparaVintory`, `src/queue.js` | letture di stato (`/item_upload/items/:id`, poi `/items/:id`); `relist()` con `overrides.vintory`: dati e foto dal service worker, proprietario (`user_id` = `sellerId`, `pubblica: true`), stato riletto al momento, `deleteOld` falso se non esiste più |
-
-**Stato su Vinted.** Modulo di vendita leggibile → tuo e ancora online (venduto se chiuso).
-Modulo 404 → scheda pubblica: 404 = non esiste più; chiusa/venduta = venduto; visibile ma non
-modificabile o qualunque altro errore = ignoto (escluso). Si rilegge alla pubblicazione: un
-annuncio tornato online nel frattempo si salta (`skipped` / `motivoSalto: "online"`).
-
-**Bozza.** `sorgente()` clona `uploadDraft`, sovrascrive titolo, descrizione e prezzo
-(`{ amount, currency_code }`), toglie foto e campi di stato, mette `user_id`; poi `buildDraft` fa
-quello che fa sempre (campi ammessi, derivazioni, regole della batch). Le condizioni di libri e DVD
-restano in `item_attributes`.
-
-**Articolo in coda.** `vintory: { chiave, elimina, ancora, foto }` (pulito da
-`CodaLogica.pulisciVintory`), passa in archivio; rimesso in coda dall'armadio torna normale. Le
-foto si tengono per gli stati che si possono ancora riprovare o riprendere (in attesa, in corso, da
-verificare, fallito riprovabile, interrotto, annullato; nelle sessioni archiviate per 30 giorni) e
-si cancellano negli altri. Un'importazione che nessun articolo nomina si aspetta 15 minuti.
-
-**Registro `vintoryOrigine`** (`chrome.storage.local`, piccolo): `{ [idOriginale]: { nuovoId, at,
-impronta, volte } }`, scritto per gli articoli `done` e per i `verify` con l'id nuovo.
-
-**Non verificato su Vinted reale:** le risposte di `/item_upload/items/:id` e `/items/:id` per un
-annuncio eliminato (atteso 404) e per uno venduto. Se differiscono, lo stato risulta «non chiaro» e
-l'annuncio resta fuori: nessuna pubblicazione al buio.
-
-### Campi che dipendono dalla categoria (2.0.1)
-
-Percorso di un campo, dalla lettura all'invio, con il punto in cui si decide:
-
-1. **Lettura** `GET item_upload/items/{id}` → `source`. Un campo può esserci con un valore, esserci
-   a `null`, o **mancare del tutto** (i libri non hanno `is_unisex`).
-2. **Copia** (`buildDraft`): ogni chiave di `ALLOWED_FIELDS` presente in `source` viene copiata,
-   `null` e `false` compresi. Una chiave assente resta assente.
-3. **Derivazioni** (`DERIVATIONS`): `color1_id`/`color2_id` → `color_ids` (solo id interi positivi;
-   nessun colore → `[]`).
-4. **Opzioni della coda**: colore scelto, solo dove manca.
-5. **Riempimento** (`valorePrevalente`): solo se il campo c'è su **tutti** gli altri tuoi articoli
-   letti con lo stesso `catalog_id` (almeno 2) e un valore ha almeno il 60%. Altrimenti niente.
-6. **Classificazione** (`VR.diagnosiCampi`, regole pure in `editor-logica.js`):
-   - colore → `statoColore`: avviso solo se tutta la categoria lo usa, altrimenti nota;
-   - campo mancante → `campoMancante`, confrontato **solo** con il formato appreso per la stessa
-     categoria (`VR.formatoPerCategoria`): vuoto/`false` per Vinted = nota, con valore = avviso,
-     nessun formato per la categoria = nota.
-7. Editor, controllo preventivo e `VR.diagnosi(ID)` usano tutti la stessa classificazione.
-
-Livelli: **bloccante** (titolo, prezzo, categoria, foto: Vinted rifiuterebbe), **avviso**
-(differenza reale o dato che la categoria usa sempre), **nota** (assenza legittima, visibile ma
-non conta come problema).
-
-**Causa dei falsi allarmi della 2.0.0** (libri e manga):
-
-- `is_unisex`: il controllo preventivo confrontava ogni articolo con **un solo** formato appreso,
-  quello dell'ultima modifica fatta a mano su Vinted, di qualunque categoria. Se veniva da un
-  articolo che manda `is_unisex` (abbigliamento, o anche un articolo che lo manda `false`), ogni
-  libro — la cui lettura non ha quella chiave — risultava "con campi assenti". Il valore `false`
-  non c'entrava: `buildDraft` copia anche i `false` e i `null`; l'avviso nasceva solo se la chiave
-  mancava proprio.
-- Colore: qualunque `color_ids` vuoto produceva un avviso, senza guardare se la categoria usa
-  i colori. In più il riempimento contava solo gli articoli **con** colore: in una categoria mista
-  avrebbe potuto assegnare un colore a un libro che non l'ha mai avuto. Anche il punteggio di
-  completezza toglieva 10 punti ai libri per il colore.
-
-### Controllo preventivo (`queue.js` → `VR.canary`)
-
-Legge ogni articolo selezionato (foto provata solo sul primo), 400 ms di pausa tra uno e l'altro,
-e lo classifica: pronto, con avvisi, bloccato. Le note si mostrano a parte e non trasformano un
-articolo pronto in uno «con avvisi». Si ferma al primo errore di sessione (401/403).
-Non garantisce l'esito: la decisione finale è di Vinted.
-
-### Notifiche
-
-Un solo registro, `vrEvents` (max 150, doppioni identici entro 60 s ignorati), scritto solo dal
-service worker (`vr:event`). Tipi: `ok`, `info`, `warn`, `end`, `error`, `uncertain`.
-
-| Canale | Cosa mostra |
-|---|---|
-| Avvisi sulla pagina (`VR.toast`) | esito immediato; durate 3/4/7/6 s, errori e incerti fissi; pausa al passaggio del mouse; stessa chiave = stesso avviso aggiornato; si chiudono aprendo le opzioni della coda |
-| Badge sull'icona | numero di `error` e `uncertain` non letti |
-| Popup › Notifiche | il registro completo; aprirlo segna tutto come letto |
-| Notifica di sistema | fine coda; clic → dashboard su quella coda, riusando la scheda |
-
-### Aggiornamenti (`versione.js`, popup › Salute)
-
-1. `GET https://api.github.com/repos/<repo>/contents/version.json` con `Accept: application/vnd.github.raw+json`,
-   senza credenziali, al massimo una volta al minuto, solo su richiesta.
-2. Il JSON è trattato come dato non attendibile: semver obbligatorio, nome dello zip vincolato a
-   `Vinted_Relist-x.y.z.zip`, note troncate e mostrate come testo.
-3. «Scarica lo zip» apre `github.com/<repo>/raw/HEAD/<zip>`; l'utente estrae sopra la cartella;
-   «Installa l'aggiornamento» chiama `chrome.runtime.reload()`. Nessun codice remoto viene
-   eseguito: gira solo quello che è nella cartella.
-
-Formato di `version.json` (nella radice del repository, non dentro l'estensione):
-
-```json
-{ "version": "2.0.0", "date": "2026-10-17", "zip": "Vinted_Relist-2.0.0.zip", "notes": ["…"] }
-```
-
-### Download delle foto (`VR.scaricaFoto`)
-
-Usa le foto già scaricate dall'editor (nessuna richiesta in più), legge i primi 16 byte per
-riconoscere il formato reale (JPEG, PNG, WebP, GIF, AVIF; in mancanza il tipo MIME), non
-ricomprime, passa al service worker un data URL; il service worker accetta solo immagini e nomi
-`[A-Za-z0-9_-]+.ext` e salva in `Download/Vinted Relist/` con `conflictAction: uniquify`.
-Due download alla volta; un errore su una foto non ferma le altre.
-
-## 3. Stato e persistenza
-
-`chrome.storage.local` (resta finché non disinstalli):
-
-| Chiave | Contenuto |
-|---|---|
-| impostazioni (`VR.DEFAULTS`) | scelte dell'utente, più `userId`, `vintedOrigin`, `colorMap`, `itemStats`, `photoFormat`, `itemFormat` imparati |
-| `itemFormats` | dalla 2.0.1: per ogni `catalog_id` (max 40) i nomi dei campi che Vinted manda e quali erano vuoti; nessun contenuto dell'annuncio |
-| `inventory` | articoli visti nell'armadio: titolo, prezzo, visite, preferiti, miniatura, serie storica. Dalla 2.2 lo scrive solo il service worker (`vr:inventarioAnnota`, `vr:inventarioSostituisci`, regole in `armadio-logica.js`); è la base del valore dell'armadio |
-| `vrInventoryReplaced` | dalla 2.2: id sostituiti da una ripubblicazione (max 500): una card vecchia a schermo non li rimette dentro |
-| `vrErrori` | dalla 2.3: ultimi 50 errori tecnici (dove, codice, messaggio ripulito, versione) |
-| `updateNotified` | dalla 2.3: ultima versione già notificata (o vista nel popup) |
-| `autoUpdateCheck` | dalla 2.3: controllo automatico degli aggiornamenti (predefinito sì) |
-| `vrQueuePrimaRiparazione` | dalla 2.3: copia della coda prima dell'ultima riparazione |
-| `vrOp:<id>` | dalla 2.2: giornale del tentativo in corso scritto dalla pagina (fase, id foto, id nuovo, esito); tolto quando l'esito è registrato, potato dopo 14 giorni |
-| `qualityScores` | completezza per articolo |
-| `vrSnapshots` | ultimi 60 relist con prima/dopo |
-| `vrHistory` | relist degli ultimi 30 giorni (statistiche) |
-| `vrQueue` | coda corrente (modello v3 con batch; le code 2.0 e 2.1 si migrano alla lettura) |
-| `vrQueueArchive` | ultime 10 code concluse, compatte |
-| `vrEvents` | registro notifiche |
-| `queueDraft` | opzioni della coda (senza orario di avvio) |
-| `queueTemplates` | dalla 2.1: modelli di opzioni con nome (max 20) |
-| `vrLinks` | dalla 2.1: ultima configurazione dei link valida letta da GitHub, ora dell'ultimo tentativo ed errore (vedi [LINK.md](LINK.md)) |
-| `editorDrafts` | bozze dell'editor |
-| `vrBackup:<id>` | copia di un annuncio cancellato prima che il nuovo fosse pubblicato |
-| `updateCheck` | ultimo controllo aggiornamenti |
-
-`chrome.storage.session` (si svuota alla chiusura del browser): `vrTokens` (CSRF e anon-id),
-`vrQueueStep` (passo e fase dell'articolo in corso).
-Non vengono mai scritti in `local`, nei log, negli eventi o nella diagnostica.
-
-## 4. Sicurezza e privacy
-
-- Nessuna telemetria. Richieste fuori da Vinted, tutte verso `api.github.com`, senza cookie né dati
-  dell'utente: il controllo aggiornamenti (manuale) e la lettura di `links.json` (al massimo ogni
-  12 ore aprendo popup o dashboard; si spegne in Impostazioni › Avanzate).
-- La configurazione remota dei link è un dato non attendibile: solo `https`, host in elenco,
-  testi in `textContent`, nessun codice (vedi [LINK.md](LINK.md)).
-- Token e cookie: letti dal service worker, tenuti in `storage.session`, mai mostrati (il popup
-  dice solo se la sessione c'è), mai nei nomi dei file né nella diagnostica.
-- Diagnostica: elenco bianco delle impostazioni, niente titoli, `ripulisci()` oscura JWT, uuid,
-  email e URL; anteprima obbligatoria prima di copiare.
-- Messaggi al service worker trattati come input non attendibile: pagine apribili limitate a
-  `src/dashboard.html` e `src/popup.html`; immagini scaricabili solo da `*.vinted.net|com`;
-  download solo `data:image/*` con nomi semplici; id negli eventi ridotti a cifre.
-- Ponte della console: sola lettura, spento di default.
-- Backup delle impostazioni: solo le chiavi di `impostazioni.js`, validate anche all'import.
-- Nessuna elusione: nessuna alterazione delle foto per cambiarne l'impronta, nessun
-  aggiramento dei limiti (davanti a 429/403 si rallenta e ci si ferma).
-
-## 5. Deduzioni
-
-| Affermazione | Grado | Base |
-|---|---|---|
-| Le API `item_upload` e `photos` hanno la forma descritta in `DERIVATIONS` | **Confermato** | payload osservati in sessioni reali e funzionamento delle versioni precedenti |
-| L'id utente è nel cookie `v_uid` (HttpOnly) o nel `sub` del token | **Confermato** | letto dal service worker; il link all'armadio funziona |
-| Un annuncio online senza colore è stato accettato così, quindi il colore non è sempre obbligatorio | **Probabile** | deduzione logica; può cambiare per categoria o nel tempo |
-| L'avviso «campi assenti: is_unisex» sui libri nasceva da una chiave **assente** nella lettura, non da un `false` scartato | **Confermato** | `is_unisex` è in `ALLOWED_FIELDS` e `buildDraft` copia ogni chiave presente, anche `false`/`null`: l'unico modo di finire tra i «mancanti» è non esserci nella lettura |
-| Il formato confrontato era di un'altra categoria | **Confermato** | fino alla 2.0.0 c'era un solo `itemFormat`, sovrascritto a ogni modifica fatta a mano, senza categoria |
-| Per i libri `is_unisex` non è richiesto da Vinted | **Probabile** | gli annunci sono online senza; da confermare con una modifica a mano di un libro (`VR.settings()` → `formatiPerCategoria`) e una ripubblicazione di prova |
-| Un campo che il form di Vinted manda `false`/`null` equivale a non mandarlo | **Probabile** | è il valore predefinito; resta una nota, non un'ipotesi usata per riempire |
-| Rete caduta o 5xx durante la creazione possono aver pubblicato comunque | **Probabile** | comportamento tipico di un POST interrotto; per questo diventa «da verificare» |
-| La tabella degli id colore di Vinted | **Da verificare** | fonti pubbliche in contraddizione (es. 12 = bianco o rosso): nessun elenco di riserva, i colori si imparano dagli annunci |
-| Il repository si chiama `MashaUP/Vinted_Relist` ed è pubblico | **Confermato** (2.0.1) | clonato senza credenziali; `version.json` raggiungibile |
-| Il selettore di file chiude il popup prima di restituire il file | **Probabile** | comportamento noto di Chrome; per questo l'import si apre in una scheda |
-| Senza scritture serializzate l'esito di un articolo poteva perdersi (doppia pubblicazione) | **Confermato** (2.1) | `test-gara`: 11 esiti persi su 40 con il codice 2.0, 0 su 40 dopo |
-| «Interrompi» o «Salta» durante una pubblicazione segnavano annullato/saltato un articolo forse già pubblicato | **Confermato** (2.1) | lettura del codice 2.0 e test; ora si aspetta l'esito |
-| `api.github.com` consente richieste CORS dalle pagine dell'estensione senza `host_permissions` | **Confermato** (2.1) | Chromium reale con l'estensione caricata: lettura di `links.json` e `version.json` riuscita |
-| L'invito Discord `EPsbQCuAkx` è valido | **Da verificare** | indicato dall'autore; da qui Discord non è raggiungibile |
-| Le Issues del repository sono attive | **Probabile** | attive di default su GitHub; i link «Segnala» e «Proponi» le usano |
-| Gli alarm non sopravvivono al ricaricamento dell'estensione | **Probabile** | documentazione Chrome e comportamento osservato; il recupero copre entrambi i casi |
-
-## 6. Problemi noti e limiti
-
-- Dipendenza da API interne non documentate: un cambiamento di Vinted può rompere la
-  pubblicazione. Mitigazioni: apprendimento dei formati, controllo preventivo, diagnostica.
-- L'aggiornamento richiede l'estrazione manuale dello zip (limite delle estensioni non
-  pacchettizzate).
-- Con repository privato il controllo aggiornamenti risponde «non trovato».
-- Le miniature dell'inventario possono puntare a foto di annunci cancellati: al primo errore di
-  caricamento compare un riquadro vuoto.
-- Il confronto prima/dopo mostra la descrizione «dopo» solo per i relist dalla 2.0.0.
-- Il confronto con il formato appreso funziona per le categorie in cui hai modificato e salvato
-  a mano almeno un articolo dalla 2.0.1 (o l'ultima modifica prima era della stessa categoria);
-  per le altre resta una nota «nessun formato per questa categoria».
-- Le statistiche per categoria usano il `catalog_id` esatto: due sottocategorie di libri sono
-  categorie diverse e non si prestano dati.
-- Lo storico delle versioni prima della 1.9.0 non è stato conservato.
-- Gli articoli aggiunti dalla dashboard non passano dal controllo preventivo (che legge da Vinted
-  e vive nella pagina): vengono comunque letti e controllati quando arriva il loro turno.
-- Dalla 2.4 l'intervallo è per batch: si sceglie per ogni batch nuova e si cambia con la modifica
-  della batch; l'attesa già programmata non si ricalcola.
-- La verifica di un esito incerto riconosce il nuovo annuncio dall'id restituito da Vinted o dalle
-  foto caricate in quel tentativo, cercandole fra gli ultimi 20 annunci dell'armadio
-  (`/api/v2/wardrobe/<id>/items`, lettura usata dal sito). Endpoint e forma della risposta non
-  sono stati verificati su Vinted reale: se cambiano, la verifica dice «non riesco a leggere» e
-  l'articolo resta da verificare.
-- Il valore dell'armadio conta gli articoli dell'inventario: uno venduto esce dal totale quando la
-  sua card mostra «Venduto» o quando la coda lo salta perché venduto (2.4); uno eliminato a mano
-  solo quando non compare più (o quando una verifica lo trova assente).
-- Il bollino «Venduto» si riconosce dal testo esatto (o da un `data-testid` con «sold»/«closed»),
-  e la notifica di Vinted come zona esclusa da tag, ruoli ARIA e classi: verificato su un Vinted
-  finto modellato sugli screenshot, non sul DOM reale. Se Vinted cambia i nomi, il controllo dei
-  dati dell'articolo (`is_closed`, `item_closing_action`) ferma comunque ripubblica e modifica.
-- Finché `links.json` non è sul ramo `main`, Chrome scrive un 404 nella console delle pagine
-  dell'estensione al massimo una volta l'ora.
-
-## 7. Debito tecnico
-
-| Voce | Impatto | Note |
-|---|---|---|
-| Elenco dei 17 domini ripetuto in manifest, `background.js`, `popup.js`, `dashboard.js` | medio | va tenuto allineato a mano; un modulo condiviso per le pagine è possibile, il manifest resta a parte |
-| Impostazioni predefinite del service worker (`impostazioni()`) separate da `VR.DEFAULTS` | basso | il service worker non carica `utils.js`; valori oggi coincidenti |
-| `background.js` oltre le 1000 righe | medio | la logica della coda è già in `coda-logica.js` (2.1); restano eventi, download, formati |
-| `dashboard.js` ridisegna tutta la pagina a ogni cambio di inventario | basso | accettabile fino a qualche centinaio di articoli |
-| Test non eseguiti in CI | medio | si lanciano a mano con `node tests/run.js` |
-| Link nel README scritti a mano | basso | il README è statico: va allineato a `links.json` quando cambia l'invito |
-| Verifica in Chromium reale fuori dai test automatici | basso | script a parte con un Vinted finto (`context.route`), non nel repository |
-| Pagina della coda (`queue.js`) e dashboard senza moduli | medio | il Centro di modifica esiste in due forme (finestra sulla pagina, modulo nella dashboard) con la stessa validazione (`validaOpzioniCoda`) |
-| Nessun test end-to-end su Vinted reale | alto | vietato per scelta (niente pubblicazioni di prova su larga scala); serve una prova manuale guidata |
-
-## 8. Registro proposte
-
-| # | Proposta | Priorità | Complessità | Stato |
-|---|---|---|---|---|
-| 1 | Popup a schede con centro notifiche e salute | alta | media | **fatto 2.0.0** |
-| 2 | Stato «da verificare» e niente riprova alla cieca | alta | media | **fatto 2.0.0** |
-| 3 | Blocco unico bottone/coda | alta | bassa | **fatto 2.0.0** |
-| 4 | Download delle foto dall'editor | media | media | **fatto 2.0.0** |
-| 5 | Opzioni della coda a sezioni con validazione e persistenza | alta | media | **fatto 2.0.0** |
-| 6 | Controllo preventivo su tutti gli articoli | media | bassa | **fatto 2.0.0** |
-| 7 | Cerca aggiornamento + changelog nel popup | alta | media | **fatto 2.0.0** |
-| 8 | Archivio code e riepilogo in dashboard | media | media | **fatto 2.0.0** |
-| 9 | Ricerca, ordinamento, miniature, confronto in dashboard | media | media | **fatto 2.0.0** |
-| 10 | Backup/ripristino impostazioni | bassa | bassa | **fatto 2.0.0** |
-| 11 | Controllo aggiornamenti automatico | media | bassa | **fatto 2.3.0** (ogni 12 ore, acceso di default, una notifica per versione) |
-| 12 | Modulo unico per l'elenco dei domini | bassa | bassa | proposta |
-| 13 | Dividere `background.js` in moduli | media | media | proposta |
-| 14 | Esportazione CSV dell'inventario e dello storico | bassa | bassa | proposta |
-| 15 | Prova manuale guidata (checklist) prima di ogni rilascio | alta | bassa | proposta |
-| 19 | Classificazione dei campi per categoria (note vs avvisi), formato appreso per categoria | alta | media | **fatto 2.0.1** |
-| 20 | Raggruppare sottocategorie affini (es. tutti i libri) per avere più prove | bassa | media | da valutare: rischio di mescolare categorie con requisiti diversi |
-| 21 | Code dinamiche: aggiunta/rimozione/riordino in esecuzione, menu di gestione, cronologia, esportazione, modelli | alta | alta | **fatto 2.1.0** |
-| 22 | Scritture della coda serializzate nel service worker | alta | media | **fatto 2.1.0** (correzione di un bug reale) |
-| 23 | Link centralizzati in `links.json` con aggiornamento da GitHub | media | media | **fatto 2.1.0** |
-| 24 | Opzioni diverse per gruppi di articoli nella stessa coda | alta | alta | **fatto 2.2.0** (batch) |
-| 25 | Cambiare intervallo e opzioni a sessione avviata | media | media | **opzioni fatto 2.2.0** (per batch); intervallo: proposta |
-| 26 | Controllo preventivo anche per gli articoli aggiunti dalla dashboard | media | media | proposta: richiede una scheda Vinted aperta |
-| 27 | Ripristino di un articolo rimosso per errore («annulla rimozione») | bassa | bassa | proposta; oggi si riaggiunge |
-| 28 | Redirect stabile su GitHub Pages per Discord | bassa | bassa | da valutare: il JSON basta (vedi LINK.md) |
-| 29 | Libreria condivisa dei link per più progetti | bassa | media | rimandata finché un secondo progetto non la usa |
-| 30 | Esito incerto: sonda della scheda, permesso prima dell'invio, giornale, verifica su Vinted, esiti tardivi | alta | alta | **fatto 2.2.0** (correzione di un bug reale) |
-| 31 | «Ripubblica ora» | media | bassa | **fatto 2.2.0** |
-| 32 | Inventario con un solo scrittore e valore dell'armadio con stato provvisorio | media | media | **fatto 2.2.0** |
-| 33 | Timer della pagina non rallentati in secondo piano (pause via service worker) | bassa | media | da valutare dopo la prova reale: oggi la sonda distingue «lento» da «fermo» |
-| 34 | Motivo vero dei no al permesso, pausa su problema tecnico | alta | media | **fatto 2.3.0** (correzione di un bug reale) |
-| 35 | Report di confronto fra installazioni, registro errori, riparazione mirata | alta | media | **fatto 2.3.0** |
-| 36 | Interfaccia solo nel proprio armadio, controllo di proprietà | alta | media | **fatto 2.3.0** |
-| 37 | `unlimitedStorage` | bassa | bassa | da valutare solo se un report mostra lo spazio vicino al limite |
-| 16 | Controllo qualità e ritaglio automatico delle foto | — | alta | **escluso** dall'autore |
-| 17 | Finestra di annullamento dopo la pubblicazione | — | media | **escluso** dall'autore |
-| 18 | Micro-alterazioni delle foto per eludere i controlli di somiglianza | — | — | **rifiutato**: è elusione dei controlli di Vinted |
-
-## 9. Roadmap
-
-- **2.3.x** — correzioni dai report di confronto e dalla prova reale.
-- **2.4** — proposte 26, 12, 14, 33, 37 se servono.
-- **3.0** — solo se cambia il modo di distribuire (per esempio Chrome Web Store, vedi §11).
-
-## 10. Test
-
-Nella cartella `tests/` del repository (non nell'estensione). Requisiti: Node 18+ e, per i test
-dell'interfaccia, `npm install` in `tests/` (installa jsdom).
+| Nome del campo del modello dei telefoni in pubblicazione (`ontology_model_id`) | Vinted chiede il modello; una modifica a mano di un telefono lo fa imparare |
+| Risposta per un annuncio eliminato (404 atteso) e per uno venduto (Vintory) | lo stato risulta «non chiaro» e l'annuncio resta fuori |
+| `/api/v2/wardrobe/<id>/items` per la verifica degli incerti | «non riesco a leggere»: l'articolo resta da verificare |
+| Bollino «Venduto» e zone escluse nel DOM | il controllo dei dati (`is_closed`, `item_closing_action`) ferma comunque |
+| Che il caricamento delle pagine porti `v_uid` o il token nel cookie | lo dice Salute › «Richieste di Vinted» (fonte del cookie) |
+| Tabella degli id colore | nessun elenco di riserva: i colori si imparano dagli annunci |
+
+Verificato sul sito vero nelle versioni passate: forma di `item_upload` e `photos`, id nel cookie
+`v_uid`, `raw.githubusercontent.com` con `Access-Control-Allow-Origin: *` (misurato il 20/11/2026).
+
+## 6. Limiti noti
+
+- API interne non documentate: un cambiamento di Vinted può rompere la pubblicazione (mitigazioni:
+  formati appresi, controllo preventivo, diagnostica).
+- L'aggiornamento richiede di estrarre lo zip a mano (estensione non pacchettizzata).
+- Repository privato: «Cerca aggiornamento» risponde «version.json non trovato».
+- Gli articoli aggiunti dalla dashboard non passano dal controllo preventivo: si controllano al
+  loro turno.
+- Non è pronta per il Chrome Web Store (marchio, API interne, permessi ampi).
+- Debito: elenco dei 17 domini ripetuto in manifest, `background.js`, `popup.js`, `dashboard.js`;
+  `background.js` oltre 2000 righe; README oltre le 200 righe.
+
+## 7. Test
 
 ```
-cd tests && npm install && node run.js
+npm ci && npm test           # ESLint + node tests/run.js (tutte le suite)
+node tests/<suite>.js        # una suite
+node tests/valida-link.js    # controlla un links.json prima di pubblicarlo
 ```
 
-Il workflow delle release esegue gli stessi test prima di creare lo zip.
-
-| Suite | Cosa copre |
+| Area | Suite |
 |---|---|
-| `test-mapping`, `test-sconto`, `test-prezzi`, `test-riempimento` | conversione lettura → scrittura, prezzi, campi vuoti |
-| `test-analisi`, `test-qualita`, `test-geometria` | dashboard, completezza, ritaglio |
-| `test-editor`, `test-flusso` | controlli dell'editor, flusso di ripubblicazione con API finte |
-| `test-campi` | 2.0.1: `is_unisex` vero/falso/assente, colore, formato per categoria, nessun travaso fra libri, manga e abbigliamento, coerenza fra controllo preventivo e invio |
-| `test-13`, `test-14`, `test-17`, `test-coda`, `test-coda2` | service worker: coda, recupero, watchdog, esiti, archivio, eventi, badge, notifiche |
-| `test-coda-logica` | 2.1: modello puro della coda: aggiunta, rimozione, spostamento, riordino, riprova, stima, salute, errori, esportazione, migrazione |
-| `test-coda-dinamica` | 2.1: code dinamiche nel service worker vero: aggiunte e rimozioni in corsa e in pausa, posizioni, stop e pausa dopo l'articolo, prudenza, pausa a tempo, recupero, ripresa di sessioni |
-| `test-gara` | 2.1: passo ed esito che arrivano insieme, 40 volte: l'esito non si perde |
-| `test-annulla` | 2.1: annullamento prima e dopo il punto di non ritorno |
-| `test-esito-incerto` | 2.2: sonda a 6 minuti, giornale, pagina chiusa o congelata, riavvio, esito tardivo, verifica manuale e automatica, permesso negato, niente ripubblicazione degli incerti |
-| `test-pagina-coda` | 2.2: lato pagina: giornale, permesso, esito ritrasmesso, sonda, osservazioni per la verifica, ordine permesso → crea → id → elimina |
-| `test-batch` | 2.2: batch nel modello e nel service worker: regole per batch, aggiunta in corsa, modifica, revisioni, persistenza, ripresa per batch, migrazione 2.1 |
-| `test-ripubblica-ora` | 2.2: priorità, corrente non interrotto, regole della batch, stati non compatibili, pausa, persistenza |
-| `test-armadio` | 2.2: valore progressivo, prezzo cambiato, card vecchie, doppioni, incerti, scritture simultanee (40 giri) |
-| `test-permesso` | 2.3: no con codice e motivo (salvataggio, versione, interno), compattazione e nuovo tentativo, pausa della coda su un problema tecnico, report diagnostico senza segreti, confronto, riparazione, aggiornamenti una volta per versione |
-| `test-proprietario` | 2.3: tuo armadio / altrui / sottopagine / annuncio / account non riconosciuto, barre costruite e tolte navigando, la pagina non scrive l'id, controllo di proprietà in `relist()` |
-| `test-240` | 2.4: intervallo per batch (modello e service worker: valori, passaggio di batch, timer mai azzerato da aggiunte, modifiche e rimozioni, pausa, riavvio, stima), venduti saltati senza fermare la coda e mai rimessi in coda, doppioni fra batch con aggiunte simultanee, incerti di sessioni passate |
-| `test-i18n` | 2.6: scelta della lingua, traduzione (esatta, con parti variabili, a pezzi, numeri), dizionari coerenti, DOM (estensione e solo l'estensione su Vinted, cambio al volo, ritorno all'italiano, testi dell'utente esclusi), copertura dei testi del codice |
-| `test-260` | 2.6: modello dei telefoni nel payload, campi imparati per categoria, rifiuto «modello» riconosciuto in cinque lingue, altre categorie invariate |
-| `test-vintory` | 2.5: lettore ZIP (stored, deflate, troncato, nomi pericolosi), formato e schema, controlli per annuncio, decisioni con lo stato su Vinted, sorgente, registro e pulizia, modello della coda, `relist()` da Vintory con API simulate (niente eliminato, ordine delle foto, online, venduto, proprietario, foto mancanti, permesso); con `VINTORY_ZIP` anche un'esportazione vera |
-| `test-vintory-sw` | 2.5: service worker: filtro all'ingresso, riferimento alla pagina, dati e foto in base64, nessuna foto in `chrome.storage`, registro, pulizia, esito incerto, riavvio, «ancora online» saltato |
-| `test-link` | 2.1: `links.json` del pacchetto, validazione, protocolli e siti vietati, precedenza, cache, tempi, timeout |
-| `test-versione` | versioni, aggiornamenti, diagnostica, impostazioni |
-| `dom/test-ui` | editor in un DOM simulato: controlli, download foto, ritaglio, anteprima, pubblica |
-| `dom/test-opzioni` | opzioni della coda, controllo preventivo, avvio |
-| `dom/test-popup` | popup: coda, notifiche, salute, diagnostica, aggiornamenti, impostazioni; link (remoto valido, offline, JSON rotto, schema nuovo, spento, protocolli vietati, cache, repository diverso, interruttore) |
-| `dom/test-dashboard` | menu di gestione della coda (azioni, selezione, trascinamento e tastiera, filtri, cronologia, esportazione, sessioni), ricerca, ordinamento, miniature, confronto, link nel piede |
+| Ripubblicazione, campi, prezzi, editor | `test-mapping`, `test-sconto`, `test-prezzi`, `test-riempimento`, `test-campi`, `test-editor`, `test-flusso`, `test-260`, `dom/test-ui` |
+| Coda nel service worker | `test-13`, `test-14`, `test-17`, `test-coda`, `test-coda2`, `test-coda-logica`, `test-coda-dinamica`, `test-gara`, `test-annulla`, `test-batch`, `test-ripubblica-ora`, `test-240` |
+| Esiti incerti e permesso | `test-esito-incerto`, `test-pagina-coda`, `test-permesso` |
+| Account e proprietà | `test-proprietario`, `test-account` |
+| Inventario e dashboard | `test-armadio`, `test-analisi`, `test-qualita`, `test-geometria`, `dom/test-dashboard` |
+| Vintory | `test-vintory` (con `VINTORY_ZIP` anche un'esportazione vera), `test-vintory-sw` |
+| Lingue | `test-i18n` |
+| Popup, link, aggiornamenti | `dom/test-popup`, `dom/test-opzioni`, `test-link`, `test-versione` |
+| Pacchetto e `version.json` | `test-pacchetto` (cartella `Vinted_Relist/`, niente file di sviluppo, zip riproducibile, SHA-256) |
 
-`node tests/valida-link.js` controlla un `links.json` prima di pubblicarlo.
-
-**Non eseguibili qui** e da fare a mano su Vinted reale, su uno o due articoli a cui tieni poco:
-pubblicazione vera, upload foto, eliminazione, risposta reale a 403/429, notifica di sistema,
-download effettivo nella cartella, `chrome.runtime.reload()`, controllo aggiornamenti e lettura
-di `links.json` contro il repository vero, annullamento durante una pubblicazione vera, notifica
-di sistema con il service worker sospeso.
-
-## 11. Chrome Web Store: rischi
-
-L'estensione **non è pronta** per il Chrome Web Store, e la distribuzione resta lo zip su GitHub.
-
-- Marchio: nome e icona richiamano Vinted («V»), possibile violazione delle norme sui marchi.
-- API interne non documentate e automazione non prevista dai termini di servizio di Vinted.
-- Permessi ampi (`webRequest` con header, 17 domini) da giustificare in revisione.
-- Mancano informativa sulla privacy e prova end-to-end documentata.
-
-## 12. Note per le sessioni future
-
-- Numerazione: x per cambi incompatibili o di flusso, y per funzioni, z per correzioni. Aggiorna
-  insieme `manifest.json`, `version.json`, `CHANGELOG.md` e il nome dello zip nel README.
-- Rilascio: `Vinted_Relist_GitHub.zip` con dentro la cartella `Vinted_Relist_GitHub` (tutti i file
-  del repository) e lo zip `Vinted_Relist-x.y.z.zip` con la cartella `Vinted_Relist` da installare.
-- Prima di dire che una cosa «funziona su Vinted», distingui: verificata sul sito, verificata nei
-  test, dedotta.
-- I link (Ko-fi `https://ko-fi.com/mashaup`, Discord, GitHub) stanno **solo** in `links.json`:
-  niente URL nell'HTML o nel codice. Il README è l'unica copia a mano.
-- La coda la scrive solo il service worker, attraverso `conCoda`: non aggiungere scritture di
-  `vrQueue` altrove. Lo stesso vale dalla 2.2 per `inventory` (`conInventario`).
-- Mai dare un articolo per «interrotto» senza la fase registrata `preparazione`: è il permesso di
-  invio negato a renderlo sicuro. Senza fase (o con `invio`) è «da verificare».
-- Le regole si leggono sempre con `overridesDi(coda, id)`: mai `coda.overrides` per pubblicare.
-- Non introdurre telemetria, codice remoto o alterazioni delle foto per eludere i controlli.
+Le prove in Chromium vero (Playwright, con un Vinted simulato e, per l'account, un server HTTPS
+locale) non sono nel repository. **Da fare a mano su Vinted reale**, su un articolo a cui tieni
+poco: pubblicazione ed eliminazione vere, 403/429 veri, riconoscimento dell'account dopo
+un'installazione nuova, «Scarica lo zip» contro il repository vero, notifiche di sistema,
+`chrome.runtime.reload()`.

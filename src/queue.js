@@ -8,11 +8,6 @@
   const selezionati = new Set();
   const caselle = new Map();           // id → input, per "tutti" e "deseleziona"
 
-  function titoloDi(id) {
-    const link = document.querySelector(`a[href*="/items/${id}"]`);
-    const testo = (link?.getAttribute("title") || link?.textContent || "").trim();
-    return testo ? testo.slice(0, 60) : `Articolo ${id}`;
-  }
 
   let ultimoIndice = -1;
 

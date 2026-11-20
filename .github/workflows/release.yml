@@ -1,6 +1,6 @@
-# Quando pubblichi una release su GitHub, questo workflow crea lo zip
-# dell'estensione e lo allega alla release. Rilanciarlo (o modificare la
-# release) sostituisce lo zip, non ne aggiunge un secondo.
+# Quando pubblichi una release su GitHub, questo workflow ripete i test, crea lo
+# zip dell'estensione e lo allega alla release con il suo .sha256. Rilanciarlo
+# (o modificare la release) sostituisce i file, non ne aggiunge altri.
 name: Zip della release
 
 on:
@@ -43,23 +43,29 @@ jobs:
         with:
           node-version: 22
 
-      - name: Test
-        if: ${{ !inputs.salta_test }}
-        working-directory: tests
+      - name: Il tag è vX.Y.Z e coincide con manifest.json
         run: |
-          npm install --no-audit --no-fund --ignore-scripts
-          node run.js
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Il tag «$TAG» non è nel formato vX.Y.Z"; exit 1; }
+          versione=$(node -p "require('./manifest.json').version")
+          [ "${TAG#v}" = "$versione" ] || { echo "::error::Il tag è $TAG ma manifest.json dice $versione"; exit 1; }
 
-      - name: Zip (manifest nella radice, solo i file dell'estensione)
+      - name: Dipendenze di sviluppo
+        run: npm ci --no-audit --no-fund --ignore-scripts
+
+      - name: Lint e test
+        if: ${{ !inputs.salta_test }}
+        run: npm test
+
+      - name: Zip (cartella Vinted_Relist/, solo i file dell'estensione) e SHA-256
         id: zip
         run: bash scripts/pacchetto.sh "$TAG" "$RUNNER_TEMP/dist"
 
-      - name: Allega alla release (sostituisce uno zip con lo stesso nome)
+      - name: Allega alla release (sostituisce i file con lo stesso nome)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload "$TAG" "${{ steps.zip.outputs.percorso }}" --clobber --repo "$GITHUB_REPOSITORY"
-          echo "Allegato ${{ steps.zip.outputs.nome }} alla release $TAG" >> "$GITHUB_STEP_SUMMARY"
+          gh release upload "$TAG" "${{ steps.zip.outputs.percorso }}" "${{ steps.zip.outputs.percorso }}.sha256" --clobber --repo "$GITHUB_REPOSITORY"
+          echo "Allegati ${{ steps.zip.outputs.nome }} e .sha256 (${{ steps.zip.outputs.sha256 }}) alla release $TAG" >> "$GITHUB_STEP_SUMMARY"
 
       # Annuncio su Discord: solo se c'e' il secret DISCORD_WEBHOOK_URL (Settings › Secrets and
       # variables › Actions). Alla pubblicazione di una release sempre; rilanciando a mano solo

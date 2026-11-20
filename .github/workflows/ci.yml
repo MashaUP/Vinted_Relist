@@ -1,0 +1,46 @@
+# A ogni push su main e a ogni pull request: controllo statico, test e pacchetto
+# di prova. Lo zip resta tra gli artifact dell'esecuzione per 14 giorni.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Dipendenze di sviluppo
+        run: npm ci --no-audit --no-fund --ignore-scripts
+
+      - name: Lint (ESLint) e test di unità
+        run: npm test
+
+      - name: Pacchetto di prova (versioni, manifest, SHA-256 dello zip nella radice)
+        id: zip
+        run: bash scripts/pacchetto.sh "$RUNNER_TEMP/dist"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.zip.outputs.nome }}
+          path: |
+            ${{ steps.zip.outputs.percorso }}
+            ${{ steps.zip.outputs.percorso }}.sha256
+          retention-days: 14

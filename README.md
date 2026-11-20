@@ -5,7 +5,7 @@
 Estensione per **Brave e Chrome** che ripubblica i tuoi annunci Vinted in un clic, uno alla volta
 o in coda, per riportarli in cima ai risultati senza rifarli a mano.
 
-**Versione 2.6.1** · [Novità](CHANGELOG.md) · [Community su Discord](https://discord.gg/EPsbQCuAkx) ·
+**Versione 2.7.0** · [Novità](CHANGELOG.md) · [Community su Discord](https://discord.gg/EPsbQCuAkx) ·
 [Segnala un problema](https://github.com/MashaUP/Vinted_Relist/issues/new?template=segnalazione-bug.yml) ·
 [Supporta lo sviluppo su Ko-fi](https://ko-fi.com/mashaup)
 
@@ -54,7 +54,7 @@ un intervallo tra uno e l'altro.
 
 ## Installazione
 
-1. Scarica **`Vinted_Relist-2.6.1.zip`** dalla pagina della
+1. Scarica **`Vinted_Relist-2.7.0.zip`** dalla pagina della
    [release su GitHub](https://github.com/MashaUP/Vinted_Relist/releases) (tra gli allegati) o
    dalla radice del repository.
 2. Estrailo **in una cartella stabile**, per esempio `Documenti\Vinted_Relist` (non nella cartella
@@ -71,7 +71,9 @@ un intervallo tra uno e l'altro.
 ### Aggiornare
 
 1. Popup › **Salute** › **Cerca aggiornamento** (controlla anche da sola ogni 12 ore e ti avvisa).
-2. **Scarica lo zip** ed estrailo **sopra la cartella attuale**, sostituendo i file.
+2. **Scarica lo zip**: il popup ne controlla l'impronta SHA-256 e lo salva in Download › Vinted Relist.
+   Estrailo **nella cartella che contiene `Vinted_Relist`**, sostituendo i file (lo zip contiene già
+   la cartella `Vinted_Relist/`).
 3. **Installa l'aggiornamento**: l'estensione si ricarica. Poi ricarica le schede di Vinted (F5).
 
 Un'estensione caricata da cartella non può sostituire i propri file: l'estrazione la fai tu. Se un
@@ -194,8 +196,11 @@ Popup › **Salute** › **Prepara la diagnostica**: versione, impostazioni, sta
 recenti, senza token, cookie, id o indirizzi. Lo vedi prima di copiarlo e puoi incollarlo su
 Discord o in una segnalazione.
 
-- **I bottoni non compaiono.** Compaiono solo nel tuo armadio (`/member/<tuo id>`) e quando
-  l'estensione ha riconosciuto il tuo account: naviga un po' su Vinted da loggato e ricarica.
+- **I bottoni non compaiono / «Profilo non rilevato».** Compaiono solo nel tuo armadio
+  (`/member/<tuo id>`) e quando l'estensione ha riconosciuto il tuo account. Ricarica una scheda di
+  Vinted (F5) da loggato: le schede aperte prima di installare o aggiornare l'estensione non
+  contano. In Salute, **«Richieste di Vinted»** dice quando l'estensione ha visto Vinted l'ultima
+  volta e se c'era il cookie dell'account; se dice «formato nuovo», manda la diagnostica.
 - **«Token CSRF non trovato» o «ricarica questa pagina» dopo un aggiornamento.** Ricarica la
   scheda di Vinted (F5): le pagine già aperte restano con il codice vecchio.
 - **Telefoni: Vinted chiede di selezionare il modello.** Dalla 2.6 il modello passa da solo. Se
@@ -267,8 +272,9 @@ cookie né dati tuoi: `version.json` per gli aggiornamenti e `links.json` per i 
 
 ## Per sviluppatori
 
-La documentazione tecnica è in italiano: architettura, flussi, stati e decisioni in
-[docs/SVILUPPO.md](docs/SVILUPPO.md), link centralizzati in [docs/LINK.md](docs/LINK.md).
+La documentazione tecnica è in italiano: architettura, flussi, dati e limiti in
+[docs/SVILUPPO.md](docs/SVILUPPO.md), link centralizzati in [docs/LINK.md](docs/LINK.md), dati
+trattati e segnalazioni in [SECURITY.md](SECURITY.md).
 
 ### Come funziona
 
@@ -292,60 +298,50 @@ articoli con **lo stesso `catalog_id`**; ISBN, misure e produttore non si toccan
 I testi sono scritti in italiano nel codice; `src/lang/{en,fr,es,de}.json` hanno come chiave il
 testo italiano. Dopo aver aggiunto testi, `node scripts/i18n-estrai.js` elenca quelli da tradurre.
 
-### Test
+### Test e controlli
 
 ```
-cd tests && npm install && node run.js
+npm ci          # solo strumenti di sviluppo: ESLint, jsdom, acorn
+npm test        # ESLint (no-undef, no-unused-vars…) e tutti i test di unità
+npm run build   # dist/Vinted_Relist-x.y.z.zip e .sha256
 ```
 
-Servono Node 18+; `npm install` porta jsdom e gli strumenti per i test dell'interfaccia e delle
-lingue. Contributi: fork, modifica, test, pull request. Niente telemetria, codice scaricato da
-Internet o alterazioni delle foto per eludere i controlli.
+Servono Node 22 e `zip`/`unzip`. Le stesse cose le fa `ci.yml` a ogni push. Contributi: fork,
+modifica, `npm test`, pull request. Niente telemetria, codice scaricato da Internet o alterazioni
+delle foto per eludere i controlli.
 
 ### Struttura
 
 ```
-manifest.json            permessi e registrazione degli script
-background.js            service worker: token, formati, coda e inventario (unico scrittore), esiti, archivio, notifiche
-links.json               link del progetto (GitHub, Discord, Ko-fi…), vedi docs/LINK.md
-version.json             versione pubblicata, letta da «Cerca aggiornamento»
+manifest.json            permessi, script e la versione (fonte unica)
+background.js            service worker: token, account, formati, coda e inventario (unico scrittore), esiti, notifiche
+links.json, version.json link del progetto (docs/LINK.md) e ultima versione pubblicata, letti da raw
 CHANGELOG.md             novità per versione, mostrate anche nel popup
-DISCLAIMER.md            avvertenze in cinque lingue
+DISCLAIMER.md, SECURITY.md   avvertenze in cinque lingue; dati trattati e segnalazioni di sicurezza
 README.*.md              guida in inglese, francese, spagnolo, tedesco
-src/coda-logica.js       modello della coda (funzioni pure)
-src/armadio-logica.js    inventario dell'armadio (funzioni pure)
-src/relist.js, api.js    clonazione, foto, campi; chiamate a Vinted
-src/editor*.js           editor dell'annuncio e i suoi controlli
-src/queue.js, ui.js, content.js   coda, bottoni sulle card, rilevamento articoli
-src/popup.*, dashboard*  popup e dashboard
-src/i18n*.js, src/lang/  lingue e dizionari
-src/vintory-*.js         «Ripubblica da Vintory»
-src/link*.js, versione.js, impostazioni.js   link, versioni e aggiornamenti, impostazioni
-tests/                   test automatici
-scripts/                 pacchetto.sh (zip della release), i18n-estrai.js (testi da tradurre)
-.github/workflows/       release.yml: zip allegato alle release e annuncio su Discord
+src/                     codice dell'estensione (coda, editor, popup, dashboard, lingue, Vintory, link)
+tests/                   test di unità e dell'interfaccia (jsdom)
+scripts/                 pacchetto.sh (zip, SHA-256, consegna), i18n-estrai.js (testi da tradurre)
+.github/workflows/       ci.yml (a ogni push), release.yml (zip allegato e annuncio su Discord)
 ```
 
 ### Pubblicare una versione
 
-1. Aggiorna la versione in `manifest.json`, `version.json` (anche `zip`), `src/utils.js`
-   (`VR.BUILD`), `background.js` (`BUILD`), `src/coda-logica.js` (`VERSIONE`) e `CHANGELOG.md`;
-   fai il commit.
-2. GitHub › **Releases** › **Draft a new release**: tag `v` + versione (es. `v2.6.1`), titolo e
-   note › **Publish release**.
-3. Il workflow controlla che il tag coincida con `manifest.json` e `version.json`, esegue i test,
-   crea `Vinted_Relist-<versione>.zip` (solo i file dell'estensione, `manifest.json` nella radice)
-   e lo allega alla release; rilanciarlo sostituisce lo zip, non lo duplica. Si rilancia a mano da
-   **Actions** › «Zip della release» › **Run workflow**.
-4. **Annuncio su Discord (facoltativo):** con il secret `DISCORD_WEBHOOK_URL` (Settings › Secrets
-   and variables › Actions) il workflow manda titolo, note e link allo zip al canale del webhook.
-   Senza il secret il passo si salta.
-5. «Cerca aggiornamento» legge `version.json` e scarica lo zip dalla radice del repository: carica
-   anche lì lo zip della versione nuova.
+1. Versione in `manifest.json` (fonte unica) e nelle tre costanti che il pacchetto controlla
+   (`BUILD` in `background.js`, `VR.BUILD` in `src/utils.js`, `VERSIONE` in `src/coda-logica.js`),
+   `version.json` (versione, data, note) e la sezione nel `CHANGELOG.md`.
+2. `npm test`, poi `npm run package`: sostituisce lo zip nella radice, scrive `zip` e `sha256` in
+   `version.json`, aggiorna versione e nome dello zip nei README e crea
+   `dist/Vinted_Relist_GitHub.zip`.
+3. Carica i file su `main` e cancella dalla radice lo zip della versione precedente.
+4. GitHub › **Releases** › **Draft a new release**, tag `v` + versione (es. `v2.7.0`) ›
+   **Publish release**. Il workflow controlla il tag, ripete lint e test, allega lo zip e il suo
+   `.sha256` (rilanciandolo si sostituiscono) e, con il secret `DISCORD_WEBHOOK_URL`, annuncia la
+   release su Discord. Si rilancia da **Actions** › «Zip della release» › **Run workflow**.
 
-Lo stesso zip si crea in locale con `scripts/pacchetto.sh [v2.6.1] [cartella]`. Per cambiare
-l'invito Discord senza una versione nuova basta modificare `links.json` sul repository e aumentare
-`revision` ([docs/LINK.md](docs/LINK.md)).
+«Cerca aggiornamento» legge `version.json` da `raw.githubusercontent.com` e scarica lo zip della
+radice, controllandone lo SHA-256. Per cambiare l'invito Discord senza una versione nuova basta
+modificare `links.json` su `main` e aumentare `revision` ([docs/LINK.md](docs/LINK.md)).
 
 ## Licenza e avvertenze
 

@@ -5,7 +5,7 @@
 Extensión para **Brave y Chrome** que republica tus anuncios de Vinted con un clic, de uno en uno
 o en cola, para devolverlos a lo más alto de los resultados sin rehacerlos a mano.
 
-**Versión 2.6.1** · [Novedades (en italiano)](CHANGELOG.md) · [Comunidad en Discord](https://discord.gg/EPsbQCuAkx) ·
+**Versión 2.7.0** · [Novedades (en italiano)](CHANGELOG.md) · [Comunidad en Discord](https://discord.gg/EPsbQCuAkx) ·
 [Informar de un problema](https://github.com/MashaUP/Vinted_Relist/issues/new?template=segnalazione-bug.yml) ·
 [Apoya el desarrollo en Ko-fi](https://ko-fi.com/mashaup)
 
@@ -34,7 +34,7 @@ Web Store**. **Pruébala primero con un artículo poco importante.**
 
 ## Instalación
 
-1. Descarga **`Vinted_Relist-2.6.1.zip`** desde la
+1. Descarga **`Vinted_Relist-2.7.0.zip`** desde la
    [página de versiones en GitHub](https://github.com/MashaUP/Vinted_Relist/releases) (en
    «Assets») o desde la raíz del repositorio.
 2. Extráelo **en una carpeta permanente**, por ejemplo `Documentos\Vinted_Relist` (no en la
@@ -52,7 +52,9 @@ Web Store**. **Pruébala primero con un artículo poco importante.**
 
 1. Popup › **Estado** › **Buscar actualización** (también lo comprueba sola cada 12 horas y te
    avisa).
-2. **Descarga el zip** y extráelo **encima de la carpeta actual**, sustituyendo los archivos.
+2. **Descarga el zip**: el popup comprueba su huella SHA-256 y lo guarda en Descargas › Vinted
+   Relist. Extráelo **en la carpeta que contiene `Vinted_Relist`**, sustituyendo los archivos (el zip
+   ya contiene la carpeta `Vinted_Relist/`).
 3. **Instalar la actualización**: la extensión se recarga. Después recarga las pestañas de Vinted
    (F5).
 
@@ -124,8 +126,11 @@ Popup › **Estado** › **Preparar el diagnóstico**: versión, ajustes, estado
 recientes, sin tokens, cookies, ids ni direcciones. Lo ves antes de copiarlo y puedes pegarlo en
 Discord o en un informe de error.
 
-- **No aparecen los botones.** Solo aparecen en tu armario (`/member/<tu id>`) cuando la
-  extensión ha reconocido tu cuenta: navega un poco por Vinted con la sesión iniciada y recarga.
+- **No aparecen los botones / «Perfil no detectado».** Solo aparecen en tu armario
+  (`/member/<tu id>`) cuando la extensión ha reconocido tu cuenta. Recarga una pestaña de Vinted
+  (F5) con la sesión iniciada: las pestañas abiertas antes de instalar o actualizar la extensión no
+  cuentan. En Estado, **«Solicitudes de Vinted»** indica cuándo vio la extensión Vinted por última
+  vez y si estaba la cookie de la cuenta; si dice «formato nuevo», envíanos el diagnóstico.
 - **«Token CSRF no encontrado» o «recarga esta página» tras una actualización.** Recarga la
   pestaña de Vinted (F5): las páginas ya abiertas siguen con el código antiguo.
 - **Teléfonos: Vinted pide seleccionar el modelo.** Desde la 2.6 el modelo se copia solo. Si

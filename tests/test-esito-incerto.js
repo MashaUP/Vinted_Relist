@@ -5,6 +5,7 @@
 // worker fermato, risposta in ritardo, pubblicato non riconosciuto, non
 // pubblicato, verifica automatica riuscita e impossibile, riprova di un incerto,
 // recupero dopo il riavvio. In piu': la sequenza dello screenshot (2.1).
+/* global recuperaCoda -- funzioni del service worker, caricato con eval qui sotto */
 const fs = require('fs');
 const path = require('path');
 let store = {}, alarms = {}, inviati = [];

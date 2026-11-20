@@ -28,7 +28,6 @@ eval(fs.readFileSync(require('path').join(__dirname, '..', 'background.js'),'utf
 const invia = (m) => new Promise((r) => { for (const f of L.message) if (f(m,{},r)) return; r(null); });
 const sveglia = async (n) => { delete alarms[n]; for (const f of L.alarm) await f({name:n}); };
 const pausa = () => new Promise((r)=>setTimeout(r,15));
-const scriviProva = async (q) => { store.vrQueue = q; };
 const items = (n) => Array.from({length:n},(_,i)=>({id:String(i+1),title:'A'+(i+1)}));
 
 (async () => {

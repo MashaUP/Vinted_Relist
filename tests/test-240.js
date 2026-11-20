@@ -1,5 +1,6 @@
 // 2.4.0 — Intervallo per batch, articoli venduti, duplicati fra batch.
 // Modello (coda-logica) e service worker vero con storage finto e latenze casuali.
+/* global recuperaCoda -- funzioni del service worker, caricato con eval qui sotto */
 const fs = require('fs');
 const path = require('path');
 const C = require(path.join(__dirname, '..', 'src/coda-logica.js'));
@@ -82,7 +83,7 @@ global.chrome = {
     get: async (id) => ({ id }),
     sendMessage: async (_id, msg) => { inviati.push(cp(msg)); return msg.type === 'vr:relistStatus' ? { inCorso: true } : { accepted: true }; },
   },
-  runtime: { onMessage: { addListener: (f) => L.message.push(f) }, getURL: (p) => p, getManifest: () => ({ version: '2.6.1' }),
+  runtime: { onMessage: { addListener: (f) => L.message.push(f) }, getURL: (p) => p, getManifest: () => ({ version: '2.7.0' }),
     onStartup: { addListener() {} }, onInstalled: { addListener() {} } },
   webRequest: { onSendHeaders: { addListener() {} }, onBeforeRequest: { addListener() {} } },
 };

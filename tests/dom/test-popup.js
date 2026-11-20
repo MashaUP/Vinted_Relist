@@ -9,9 +9,12 @@ const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
 const CHANGELOG = '# Changelog\n\n## 2.0.0 · Popup nuovo (17 ottobre 2026)\n- **Popup** a schede\n- Download delle foto\n\n## 1.9.0 · Editor\n- Ritaglio\n';
 
 const LINKS = fs.readFileSync(SRC + '../links.json', 'utf8');
+// Uno zip minimo (intestazione PK\x03\x04) e la sua impronta, per «Scarica lo zip».
+const ZIP_FINTO = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.from('contenuto dello zip di prova')]);
+const SHA_FINTO = require('crypto').createHash('sha256').update(ZIP_FINTO).digest('hex');
 
 async function apri(store, { hash = '', session = {}, versioneRemota = null, statoRemoto = 200, inScheda = false,
-  linkRemoto = null, statoLink = 404, linksPacchetto = LINKS } = {}) {
+  linkRemoto = null, statoLink = 404, linksPacchetto = LINKS, zip = null } = {}) {
   const sorgente = fs.readFileSync(SRC + 'popup.html', 'utf8');
   // Gli script nell'ordine dell'HTML: un file aggiunto alla pagina entra anche nel test.
   const script = [...sorgente.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]);
@@ -59,13 +62,20 @@ async function apri(store, { hash = '', session = {}, versioneRemota = null, sta
     richieste.push(url);
     if (url.endsWith('CHANGELOG.md')) return { ok: true, text: async () => CHANGELOG };
     if (url === 'chrome-extension://abc/links.json') return { ok: true, status: 200, text: async () => linksPacchetto };
-    if (/\/contents\/links\.json$/.test(url)) {
+    if (/^https:\/\/raw\.githubusercontent\.com\/[^/]+\/[^/]+\/main\/links\.json$/.test(url)) {
       richiesteLink.push({ url, opzioni: arguments[1] });
       if (statoLink === 'rete') throw new TypeError('Failed to fetch');
       return { ok: statoLink === 200, status: statoLink, text: async () => (typeof linkRemoto === 'string' ? linkRemoto : JSON.stringify(linkRemoto)) };
     }
+    if (/\.zip$/.test(url)) {
+      // 2.7.0: lo zip dell'aggiornamento si legge in memoria prima di salvarlo
+      const z = zip || { stato: 200, bytes: ZIP_FINTO };
+      if (z.stato === 'rete') throw new TypeError('Failed to fetch');
+      return { ok: z.stato === 200, status: z.stato, arrayBuffer: async () => Uint8Array.from(z.bytes).buffer };
+    }
     return { ok: statoRemoto === 200, status: statoRemoto, text: async () => JSON.stringify(versioneRemota) };
   };
+  if (!w.crypto?.subtle) Object.defineProperty(w, 'crypto', { value: require('crypto').webcrypto });
   let appunti = '';
   Object.defineProperty(w.navigator, 'clipboard', { value: { writeText: async (t) => { appunti = t; } } });
   w.close = () => {};
@@ -188,7 +198,8 @@ const EVENTI = [
   { session: { vrTokens: { csrf: 'SEGRETO-CSRF-123' } } });
   p.tab('salute').click(); await tick(20);
   const checks = p.d.getElementById('checks').textContent;
-  ok('controlli elencati', p.d.querySelectorAll('#checks li').length === 8);
+  ok('controlli elencati', p.d.querySelectorAll('#checks li').length === 9);
+  ok('2.7.0: riga «Richieste di Vinted»', /Richieste di Vinted/.test(checks));
   ok('sessione attiva ma token mai mostrato', /attiva/.test(checks) && !/SEGRETO/.test(p.d.body.innerHTML));
   ok('changelog incluso nel pacchetto', /2\.0\.0 · Popup nuovo/.test(p.d.getElementById('changelog').textContent) && /Popup a schede/.test(p.d.getElementById('changelog').textContent));
   p.btn('Prepara la diagnostica').click(); await tick(20);
@@ -196,6 +207,7 @@ const EVENTI = [
   ok('diagnostica: anteprima prima di copiare', !p.d.getElementById('diagBox').hidden && /Vinted Relist 2\.0\.0/.test(diag));
   ok('diagnostica senza segreti, id, email né titoli', !/SEGRETO|129315368|mario@example|eyJhbGci/.test(diag) && /\[token\]/.test(diag) && !/Mail/.test(diag));
   ok('diagnostica senza dati appresi', !/colorMap|Nero/.test(diag) && /delayMs: 1500/.test(diag));
+  ok('2.7.0: righe informative con «--», non «ok»', /\n {2}-- Colori conosciuti:/.test(diag) || /\n {2}-- Formato foto:/.test(diag), diag.split('Controlli:')[1]?.slice(0, 400));
   p.btn('Copia diagnostica').click(); await tick();
   ok('copiata negli appunti', p.appunti() === diag);
 
@@ -204,11 +216,13 @@ const EVENTI = [
     { versioneRemota: { version: '2.1.0', date: '2026-11-01', zip: 'Vinted_Relist-2.1.0.zip', notes: ['Novità A', '<b>x</b>'] } });
   p.tab('salute').click(); await tick(10);
   p.btn('Cerca aggiornamento').click(); await tick(20);
-  ok('chiede version.json al repository predefinito', p.richieste.includes('https://api.github.com/repos/MashaUP/Vinted_Relist/contents/version.json'));
+  ok('chiede version.json al repository predefinito', p.richieste.includes('https://raw.githubusercontent.com/MashaUP/Vinted_Relist/main/version.json'));
   ok('aggiornamento disponibile', /Disponibile la 2\.1\.0 \(hai la 2\.0\.0\)/.test(p.d.getElementById('updateResult').textContent) && !p.d.getElementById('updateAvailable').hidden);
   ok('note mostrate come testo, non HTML', p.d.querySelectorAll('#updateNotes li').length === 2 && !p.d.querySelector('#updateNotes b'));
-  p.btn('Scarica lo zip').click(); await tick();
-  ok('scarica lo zip dal repository', p.schede.at(-1) === 'https://github.com/MashaUP/Vinted_Relist/raw/HEAD/Vinted_Relist-2.1.0.zip');
+  p.btn('Scarica lo zip').click(); await tick(20);
+  const zipUrl = 'https://raw.githubusercontent.com/MashaUP/Vinted_Relist/main/Vinted_Relist-2.1.0.zip';
+  ok('2.7.0: lo zip si legge da raw e si salva in Download › Vinted Relist', p.richieste.includes(zipUrl) && p.scaricati.at(-1)?.url === zipUrl && p.scaricati.at(-1)?.filename === 'Vinted Relist/Vinted_Relist-2.1.0.zip', JSON.stringify(p.scaricati.at(-1)));
+  ok('   senza sha256 in version.json: salvato ma «senza verifica», detto chiaro', /senza verifica/.test(p.d.getElementById('downloadResult').textContent) && !p.d.getElementById('downloadResult').hidden);
   ok('installazione bloccata con un articolo in pubblicazione', p.btn('Installa l\'aggiornamento').disabled && /in pubblicazione/.test(p.d.getElementById('reloadWarn').textContent));
   const prima = p.richieste.length;
   p.btn('Cerca aggiornamento').click(); await tick(20);
@@ -218,11 +232,32 @@ const EVENTI = [
   p.btn('Installa l\'aggiornamento').click();
   ok('installa = ricarica dei file locali', p.ricaricata());
 
+  // 2.7.0: verifica dello SHA-256 prima di salvare
+  const conImpronta = (sha) => ({ version: '2.1.0', zip: 'Vinted_Relist-2.1.0.zip', sha256: sha, notes: ['x'] });
+  const prova = async (opz) => {
+    const q = await apri({}, opz);
+    q.tab('salute').click(); await tick(10);
+    q.btn('Cerca aggiornamento').click(); await tick(20);
+    q.btn('Scarica lo zip').click(); await tick(30);
+    return { q, testo: q.d.getElementById('downloadResult').textContent, salvati: q.scaricati.filter((x) => /\.zip$/.test(x.url)).length };
+  };
+  let z = await prova({ versioneRemota: conImpronta(SHA_FINTO) });
+  ok('Z1. impronta giusta: «verificato (SHA-256)» e salvato', /verificato \(SHA-256\)/.test(z.testo) && z.salvati === 1 && z.q.d.getElementById('downloadResult').classList.contains('ok'), z.testo);
+  z = await prova({ versioneRemota: conImpronta('0'.repeat(64)) });
+  ok('Z2. impronta diversa: non salvato, spiegato', z.salvati === 0 && /non corrisponde all'impronta SHA-256/.test(z.testo) && z.q.d.getElementById('downloadResult').classList.contains('error'), z.testo);
+  z = await prova({ versioneRemota: conImpronta(SHA_FINTO), zip: { stato: 200, bytes: Buffer.from('<html>errore</html>') } });
+  ok('Z3. non è uno zip (pagina d\'errore): non salvato', z.salvati === 0 && /non è uno zip/.test(z.testo), z.testo);
+  z = await prova({ versioneRemota: conImpronta(SHA_FINTO), zip: { stato: 404 } });
+  ok('Z4. zip mancante (404): non salvato, rimanda alle release', z.salvati === 0 && /pagina delle release/.test(z.testo), z.testo);
+  z = await prova({ versioneRemota: conImpronta(SHA_FINTO), zip: { stato: 'rete' } });
+  ok('Z5. rete assente: non salvato, spiegato', z.salvati === 0 && /non è raggiungibile/.test(z.testo), z.testo);
+  ok('Z6. il pulsante torna attivo dopo l\'errore', !z.q.btn('Scarica lo zip').disabled);
+
   p = await apri({ updateRepo: 'MashaUP/Altro' }, { statoRemoto: 404 });
   p.tab('salute').click(); await tick(10);
   p.btn('Cerca aggiornamento').click(); await tick(20);
-  ok('repository personalizzato', p.richieste.includes('https://api.github.com/repos/MashaUP/Altro/contents/version.json'));
-  ok('404: spiega privato o nome sbagliato', /Repository non trovato/.test(p.d.getElementById('updateResult').textContent));
+  ok('repository personalizzato', p.richieste.includes('https://raw.githubusercontent.com/MashaUP/Altro/main/version.json'));
+  ok('404: spiega privato o nome sbagliato', /version\.json non trovato/.test(p.d.getElementById('updateResult').textContent));
 
   p = await apri({}, { versioneRemota: { version: '2.0.0' } });
   p.tab('salute').click(); await tick(10);
@@ -276,11 +311,11 @@ const EVENTI = [
   ok('    nessun link visibile senza destinazione, nessun href vuoto o «#»', [...vis(p)].every((x) => /^https:\/\//.test(x.getAttribute('href'))) && !p.d.querySelector('a[href=""], a[href="#"]'));
   ok('    raggiungibili da tastiera (veri link con href)', chip(p, 'github').tabIndex === 0 && chip(p, 'discord').tabIndex === 0);
   ok('    icone decorative nascoste ai lettori di schermo', [...p.d.querySelectorAll('.link-chip svg')].every((x) => x.getAttribute('aria-hidden') === 'true') && p.d.querySelectorAll('.link-chip svg').length === 2);
-  ok('L2. Salute: elenco del progetto senza doppioni di Ko-fi', elencoIds(p).join() === 'github,discord,documentation,bug-report,feature-request,changelog');
+  ok('L2. Salute: elenco del progetto senza doppioni di Ko-fi', elencoIds(p).join() === 'github,discord,documentation,bugs,ideas,changelog');
   ok('    nessun URL duplicato nell\'HTML del popup', !/https:\/\/(github\.com|discord|ko-fi)/.test(fs.readFileSync(SRC + 'popup.html', 'utf8')));
   ok('    remoto non ancora pubblicato (404): una riga discreta, nessuna notifica', /versione installata/.test(p.d.getElementById('linksState').textContent) && /non ancora pubblicato/.test(p.d.getElementById('linksState').textContent) && !p.messaggi.some((m) => /notif/i.test(m.type || '')));
   const richiesta = p.richiesteLink[0];
-  ok('    richiesta: API del repository, senza credenziali, senza cache del browser', richiesta.url === 'https://api.github.com/repos/MashaUP/Vinted_Relist/contents/links.json' && richiesta.opzioni.credentials === 'omit' && richiesta.opzioni.cache === 'no-store' && !JSON.stringify(richiesta.opzioni).match(/cookie|token|authorization/i));
+  ok('    richiesta: raw del ramo main, senza credenziali, senza cache del browser', richiesta.url === 'https://raw.githubusercontent.com/MashaUP/Vinted_Relist/main/links.json' && richiesta.opzioni.credentials === 'omit' && richiesta.opzioni.cache === 'no-store' && !JSON.stringify(richiesta.opzioni).match(/cookie|token|authorization/i));
 
   p = await apri({}, { statoLink: 200, linkRemoto: remota({ discord: { url: DISCORD2, enabled: true } }) });
   ok('L3. remoto valido: Discord cambia senza una nuova versione', chip(p, 'discord').href === DISCORD2 && chip(p, 'github').href === 'https://github.com/MashaUP/Vinted_Relist');
@@ -312,9 +347,9 @@ const EVENTI = [
   p = await apri({}, { statoLink: 200, linkRemoto: remota({ discord: { enabled: false } }) });
   ok('L8. Discord spento dal remoto: sparisce ovunque, senza href', chip(p, 'discord').hidden && !chip(p, 'discord').hasAttribute('href') && !elencoIds(p).includes('discord'));
 
-  p = await apri({}, { statoLink: 200, linkRemoto: remota({ discord: { url: 'javascript:alert(1)' }, github: { url: 'https://evil.example/x' }, 'bug-report': { url: 'https://github.com/MashaUP/Vinted_Relist/issues' } }) });
+  p = await apri({}, { statoLink: 200, linkRemoto: remota({ discord: { url: 'javascript:alert(1)' }, github: { url: 'https://evil.example/x' }, bugs: { url: 'https://github.com/MashaUP/Vinted_Relist/issues' } }) });
   ok('L9. protocolli e siti non consentiti scartati voce per voce', chip(p, 'discord').href === 'https://discord.gg/EPsbQCuAkx' && chip(p, 'github').href === 'https://github.com/MashaUP/Vinted_Relist');
-  ok('    le voci valide dello stesso file si applicano', p.d.querySelector('[data-link-id="bug-report"]').href === 'https://github.com/MashaUP/Vinted_Relist/issues' && p.store.vrLinks.cache.scartati.length === 2);
+  ok('    le voci valide dello stesso file si applicano', p.d.querySelector('[data-link-id="bugs"]').href === 'https://github.com/MashaUP/Vinted_Relist/issues' && p.store.vrLinks.cache.scartati.length === 2);
   ok('    nessun javascript: nella pagina', !p.d.querySelector('a[href^="javascript"]'));
 
   p = await apri({}, { statoLink: 200, linkRemoto: remota({ discord: { url: DISCORD2 } }, 0) });
@@ -324,7 +359,7 @@ const EVENTI = [
   ok('L11. cache più vecchia del pacchetto installato: vince il pacchetto', chip(p, 'discord').href === 'https://discord.gg/EPsbQCuAkx');
 
   p = await apri({ updateRepo: 'altro/Fork' });
-  ok('L12. repository personalizzato: i link si leggono da lì', p.richiesteLink[0].url === 'https://api.github.com/repos/altro/Fork/contents/links.json');
+  ok('L12. repository personalizzato: i link si leggono da lì', p.richiesteLink[0].url === 'https://raw.githubusercontent.com/altro/Fork/main/links.json');
   p = await apri({ updateRepo: 'altro/Fork', vrLinks: cacheValida });
   ok('    la cache di un altro repository non si usa', chip(p, 'discord').href === 'https://discord.gg/EPsbQCuAkx');
 

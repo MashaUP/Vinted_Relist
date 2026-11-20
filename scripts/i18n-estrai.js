@@ -59,12 +59,11 @@ for (const f of file) {
     if (n.type !== 'BinaryExpression' || n.operator !== '+' || fuori(n)) return;
     const pezzi = [];
     let k = 0;
-    let soloTesto = true;
     const piatta = (e) => {
       if (e.type === 'BinaryExpression' && e.operator === '+') { piatta(e.left); piatta(e.right); return; }
       if (e.type === 'Literal' && typeof e.value === 'string') { pezzi.push(e.value); return; }
       if (e.type === 'TemplateLiteral') { e.quasis.forEach((q, i) => { pezzi.push(q.value.cooked ?? q.value.raw); if (i < e.expressions.length) pezzi.push(`{${k++}}`); }); return; }
-      soloTesto = false; pezzi.push(`{${k++}}`);
+      pezzi.push(`{${k++}}`);
     };
     piatta(n);
     const t = pezzi.join('');

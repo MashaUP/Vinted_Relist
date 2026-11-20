@@ -52,7 +52,7 @@ const V = self.Versione;
  * memoria file vecchi dopo un aggiornamento, si vede (e si dice) invece di
  * fallire con un errore generico.
  */
-const BUILD = "2.6.1";
+const BUILD = "2.7.0";
 const AVVIO_SW = Date.now();
 
 // ------------------------------------------------------------ registro errori
@@ -89,21 +89,80 @@ const apiDi = (coda) => DOMINI.map((d) => `https://www.vinted.${d}/api/${coda}`)
 
 // ---------------------------------------------------------------- token sniff
 
-/** v_uid dal cookie; in mancanza, il "sub" del token di accesso (stesso valore). */
-function idDaCookie(cookie) {
-  if (!cookie) return null;
-  const diretto = cookie.match(/(?:^|;\s*)v_uid=(\d+)/);
-  if (diretto) return diretto[1];
-
-  const token = cookie.match(/(?:^|;\s*)access_token_web=[^.;]+\.([^.;]+)\./);
-  if (!token) return null;
+/** Il "sub" (id numerico) di un token JWT in un cookie, o null. */
+function subDalToken(cookie, nome) {
+  const token = cookie.match(new RegExp(`(?:^|;\\s*)${nome}=[^.;]+\\.([^.;]+)\\.`));
+  if (!token) return { presente: new RegExp(`(?:^|;\\s*)${nome}=`).test(cookie), id: null };
   try {
     const base64 = token[1].replace(/-/g, "+").replace(/_/g, "/");
     const sub = JSON.parse(atob(base64 + "===".slice((base64.length + 3) % 4)))?.sub;
-    return /^\d+$/.test(String(sub)) ? String(sub) : null;
+    return { presente: true, id: /^\d+$/.test(String(sub)) ? String(sub) : null };
   } catch {
-    return null;
+    return { presente: true, id: null };
   }
+}
+
+/**
+ * Da dove si riconosce l'account, dal cookie che il browser manda a Vinted
+ * (HttpOnly: la pagina non lo vede, il service worker si').
+ * fonte: "v_uid" | "token" | "nessuno" (cookie senza account: non connesso)
+ *        | "illeggibile" (c'e' un cookie dell'account ma non nel formato atteso:
+ *        Vinted l'ha cambiato) | "assente" (nessun cookie nella richiesta).
+ * Mai il valore: solo id (che resta in locale) e il nome della fonte.
+ */
+function accountDaCookie(cookie) {
+  if (!cookie) return { id: null, fonte: "assente" };
+  const diretto = cookie.match(/(?:^|;\s*)v_uid=(\d+)/);
+  if (diretto) return { id: diretto[1], fonte: "v_uid" };
+  // 2.7.0: anche il token di rinnovo, se quello di accesso manca o e' scaduto.
+  const accesso = subDalToken(cookie, "access_token_web");
+  if (accesso.id) return { id: accesso.id, fonte: "token" };
+  const rinnovo = subDalToken(cookie, "refresh_token_web");
+  if (rinnovo.id) return { id: rinnovo.id, fonte: "token" };
+  const traccia = /(?:^|;\s*)v_uid=/.test(cookie) || accesso.presente || rinnovo.presente;
+  return { id: null, fonte: traccia ? "illeggibile" : "nessuno" };
+}
+
+/**
+ * 2.7.0 — Cosa ha visto il service worker di Vinted, per la diagnostica:
+ * quando ha visto l'ultima pagina e l'ultima chiamata alle API, e se il cookie
+ * dell'account c'era. Senza, «profilo non rilevato» non dice se il browser non
+ * ha fatto richieste (schede da ricaricare), se non sei connesso, o se Vinted
+ * ha cambiato i cookie. Si scrive solo quando cambia qualcosa, o al massimo
+ * ogni due minuti: le richieste sono tante.
+ */
+const VISTO_KEY = "vrVisto";
+const VISTO_OGNI_MS = 2 * 60 * 1000;
+let vistoScritto = null;
+function registraVisto(url, tipo, fonte) {
+  const ora = Date.now();
+  let dominio = "";
+  try { dominio = new URL(url).hostname.replace(/^www\./, ""); } catch { /* resta vuoto */ }
+  const prima = vistoScritto || {};
+  const dopo = {
+    ...prima,
+    at: ora,
+    [tipo === "api" ? "atApi" : "atPagina"]: ora,
+    cookie: fonte,
+    dominio,
+    build: BUILD,
+  };
+  const cambiato = prima.cookie !== fonte || prima.dominio !== dominio || !prima[tipo === "api" ? "atApi" : "atPagina"];
+  if (!cambiato && ora - (prima.scrittoAt || 0) < VISTO_OGNI_MS) {
+    vistoScritto = { ...dopo, scrittoAt: prima.scrittoAt };
+    return;
+  }
+  vistoScritto = { ...dopo, scrittoAt: ora };
+  const { scrittoAt, ...daSalvare } = vistoScritto;
+  chrome.storage.local.set({ [VISTO_KEY]: daSalvare }).catch(() => {});
+}
+
+/** Cookie della richiesta (servono "requestHeaders" ed "extraHeaders"). */
+function cookieDi(details) {
+  for (const header of details.requestHeaders || []) {
+    if (header.name.toLowerCase() === "cookie" && header.value) return header.value;
+  }
+  return null;
 }
 
 let ultimoUtente = null;
@@ -132,8 +191,9 @@ chrome.webRequest.onSendHeaders.addListener(
 
     // Il tuo id utente sta nel cookie v_uid, che e' HttpOnly: la pagina non lo
     // vede, il service worker si'. Senza, "Apri il tuo armadio" non sa dove andare.
-    const userId = idDaCookie(cookie);
-    if (userId) ricordaUtente(userId, details.url);
+    const account = accountDaCookie(cookie);
+    if (account.id) ricordaUtente(account.id, details.url);
+    registraVisto(details.url, "api", account.fonte);
 
     if (!csrf && !anonId) return;
 
@@ -149,6 +209,20 @@ chrome.webRequest.onSendHeaders.addListener(
     });
   },
   { urls: apiDi("*") },
+  ["requestHeaders", "extraHeaders"]
+);
+
+// 2.7.0 — Anche dal caricamento delle pagine: il cookie viaggia gia' con la
+// pagina stessa, quindi l'account si riconosce subito, senza aspettare che il
+// sito chiami le sue API (con le pagine fatte dal server puo' non farlo
+// affatto). Stessi siti dei permessi: nessun permesso nuovo.
+chrome.webRequest.onSendHeaders.addListener(
+  (details) => {
+    const account = accountDaCookie(cookieDi(details));
+    if (account.id) ricordaUtente(account.id, details.url);
+    registraVisto(details.url, "pagina", account.fonte);
+  },
+  { urls: SITI, types: ["main_frame", "sub_frame"] },
   ["requestHeaders", "extraHeaders"]
 );
 
@@ -1984,6 +2058,12 @@ async function rapportoDiagnostico() {
     permessi,
     archivio: await sicuro(async () => { const u = await usoArchivio(); return { totale: u.totale, quota: u.quota, percento: u.percento, gruppi: u.gruppi }; }),
     sessione,
+    // 2.7.0: cosa ha visto il service worker di Vinted (mai il valore dei cookie)
+    riconoscimento: (() => {
+      const v = dati[VISTO_KEY] || null;
+      const da = (t) => (t ? Math.round((ora - t) / 1000) : null);
+      return { utenteNoto: dati.userId != null, ultimaRichiestaDaS: da(v?.at), ultimaPaginaDaS: da(v?.atPagina), ultimaApiDaS: da(v?.atApi), cookie: v?.cookie || null, dominio: v?.dominio || null, build: v?.build || null };
+    })(),
     coda: coda ? {
       schema: coda.v ?? null, batch: Array.isArray(coda.batches) ? coda.batches.length : 0, attiva: Boolean(coda.running), stato: coda.state ?? null,
       articoli: (coda.items || []).length, perStato: conta, campiArticolo: campi, problemiStruttura: C.controllaStruttura(coda).map((p) => p.codice),
@@ -1993,7 +2073,7 @@ async function rapportoDiagnostico() {
     giornali: Object.keys(dati).filter((k) => k.startsWith(GIORNALE)).length,
     copieSicurezza: Object.keys(dati).filter((k) => k.startsWith("vrBackup:")).length,
     inventario: { articoli: Object.keys(dati.inventory || {}).length, sostituiti: Object.keys(dati.vrInventoryReplaced || {}).length },
-    aggiornamenti: { ultimoControllo: dati.updateCheck?.at ? new Date(dati.updateCheck.at).toISOString() : null, esito: dati.updateCheck?.remota?.ok ? dati.updateCheck.remota.versione : dati.updateCheck?.remota?.errore || null, notificata: dati.updateNotified?.versione || null },
+    aggiornamenti: { ultimoControllo: dati.updateCheck?.at ? new Date(dati.updateCheck.at).toISOString() : null, esito: dati.updateCheck?.remota?.ok ? dati.updateCheck.remota.versione : dati.updateCheck?.remota?.errore || null, impronta: Boolean(dati.updateCheck?.remota?.sha256), notificata: dati.updateNotified?.versione || null },
     sveglie,
     schede,
     impostazioni,
@@ -2050,7 +2130,7 @@ async function controllaAggiornamenti({ manuale = false } = {}) {
   let remota = recente ? d.updateCheck.remota : null;
   if (!recente) {
     try {
-      const risposta = await fetch(V.urlVersione(repo), { headers: { Accept: "application/vnd.github.raw+json" }, cache: "no-store", credentials: "omit" });
+      const risposta = await fetch(V.urlVersione(repo), { cache: "no-store", credentials: "omit" });
       remota = risposta.ok ? V.leggiVersioneRemota(await risposta.text()) : { ok: false, errore: V.erroreGithub(risposta.status) };
     } catch {
       remota = { ok: false, errore: V.erroreGithub(0) };

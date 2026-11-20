@@ -1,4 +1,5 @@
 // Recupero coda, fasce di picco, scansione automatica.
+/* global dentroFascia, leggiFasce, recuperaCoda, scansione -- funzioni del service worker, caricato con eval qui sotto */
 const fs = require('fs');
 let store = {}, alarms = {}, tabs = [{id:1,status:'complete'}];
 let idle = 'active', notifiche = [];

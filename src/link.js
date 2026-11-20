@@ -37,7 +37,24 @@
   };
 
   /** Ordine di presentazione dei link noti; quelli nuovi vanno in fondo. */
-  const ORDINE = ["github", "discord", "kofi", "documentation", "bug-report", "feature-request", "changelog"];
+  const ORDINE = ["github", "discord", "kofi", "documentation", "bugs", "ideas", "changelog"];
+
+  /**
+   * 2.7.0: chiavi comuni a tutti i progetti (standard comuni, sez. 1). Le vecchie
+   * si leggono ancora — dal links.json di main letto da una 2.6, dalla cache
+   * salvata da una 2.6 — e valgono come le nuove; se ci sono tutte e due vince
+   * la nuova.
+   */
+  const ALIAS = { "bug-report": "bugs", "feature-request": "ideas" };
+  function senzaAlias(links) {
+    const fuori = { ...links };
+    for (const [vecchio, nuovo] of Object.entries(ALIAS)) {
+      if (!Object.prototype.hasOwnProperty.call(fuori, vecchio)) continue;
+      if (!Object.prototype.hasOwnProperty.call(fuori, nuovo)) fuori[nuovo] = fuori[vecchio];
+      delete fuori[vecchio];
+    }
+    return fuori;
+  }
 
   const MAX_LINK = 20;
   const MAX_URL = 500;
@@ -130,7 +147,7 @@
       if (!u.ok) { scartati.push({ id, motivo: u.motivo }); continue; }
       links[id] = { url: u.url, enabled: true, label, description };
     }
-    return { ok: true, revision, links, scartati };
+    return { ok: true, revision, links: senzaAlias(links), scartati };
   }
 
   /**
@@ -146,11 +163,11 @@
   function risolvi({ predefinita, cache = null, repo = null } = {}) {
     const base = predefinita?.ok ? predefinita : { revision: 0, links: {} };
     const usabile = cache?.ok && cache.revision >= base.revision && (!repo || !cache.repo || cache.repo === repo);
-    const links = { ...base.links };
+    const links = senzaAlias(base.links);
     if (usabile) {
-      for (const [id, v] of Object.entries(cache.links)) {
+      for (const [id, v] of Object.entries(senzaAlias(cache.links))) {
         // Un'etichetta vuota nella voce remota non cancella quella predefinita.
-        const prima = Object.prototype.hasOwnProperty.call(base.links, id) ? base.links[id] : null;
+        const prima = Object.prototype.hasOwnProperty.call(links, id) ? links[id] : null;
         links[id] = { ...v, label: v.label || prima?.label || "", description: v.description || prima?.description || "" };
       }
     }
@@ -171,6 +188,7 @@
 
   /** Il link per id, o null se manca o e' spento: chi lo usa nasconde l'elemento. */
   function link(risolti, id) {
+    id = ALIAS[id] || id;
     const tutti = risolti?.links;
     const v = tutti && Object.prototype.hasOwnProperty.call(tutti, id) ? tutti[id] : null;
     return v && v.enabled && v.url ? { id, ...v, label: v.label || id } : null;
@@ -208,7 +226,7 @@
   }
 
   const api = {
-    SCHEMA, PROGETTO, HOST_CONSENTITI, HOST_PER_ID, ORDINE, TTL_MS, ATTESA_DOPO_ERRORE_MS, ATTESA_FORZATA_MS,
+    SCHEMA, PROGETTO, HOST_CONSENTITI, HOST_PER_ID, ORDINE, ALIAS, senzaAlias, TTL_MS, ATTESA_DOPO_ERRORE_MS, ATTESA_FORZATA_MS,
     urlSicuro, valida, risolvi, elenco, link, daAggiornare, descriviStato,
   };
 

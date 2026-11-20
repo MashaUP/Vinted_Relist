@@ -65,7 +65,7 @@ async function apri({ hash = '', store = {}, risposte = {}, sessione = {}, linkR
   const richiesteLink = [];
   w.fetch = async (url) => {
     if (url === 'chrome-extension://abc/links.json') return { ok: true, status: 200, text: async () => fs.readFileSync(SRC + '../links.json', 'utf8') };
-    if (/\/contents\/links\.json$/.test(url)) {
+    if (/^https:\/\/raw\.githubusercontent\.com\/[^/]+\/[^/]+\/main\/links\.json$/.test(url)) {
       richiesteLink.push(url);
       return { ok: statoLink === 200, status: statoLink, text: async () => JSON.stringify(linkRemoto) };
     }
@@ -285,7 +285,7 @@ async function apri({ hash = '', store = {}, risposte = {}, sessione = {}, linkR
   ok('piede: cerca aggiornamento, Ko-fi, versione', p.schede.at(-1) === 'chrome-extension://abc/src/popup.html#salute' && p.d.querySelector('.foot a').href === 'https://ko-fi.com/mashaup' && p.d.getElementById('version').textContent === '2.1.0');
 
   const piede = (id) => p.d.querySelector(`.foot [data-link="${id}"]`);
-  ok('piede: GitHub, Discord e «Segnala un problema» da links.json', piede('github').href === 'https://github.com/MashaUP/Vinted_Relist' && piede('discord').href === 'https://discord.gg/EPsbQCuAkx' && /issues\/new/.test(piede('bug-report').href));
+  ok('piede: GitHub, Discord e «Segnala un problema» da links.json', piede('github').href === 'https://github.com/MashaUP/Vinted_Relist' && piede('discord').href === 'https://discord.gg/EPsbQCuAkx' && /issues\/new/.test(piede('bugs').href));
   ok('   con etichetta visibile e icona decorativa', piede('discord').textContent.trim() === 'Discord' && piede('discord').querySelector('svg').getAttribute('aria-hidden') === 'true');
   ok('2.5: pannello «Ripubblica da Vintory» con il suo pulsante e la scelta dello ZIP', Boolean(p.d.getElementById('vintoryApri')) && p.d.getElementById('vintoryFile')?.accept.includes('.zip') && typeof p.w.VintoryUI?.apri === 'function' && !p.errori.length);
   ok('   nessun URL scritto nell\'HTML della dashboard', !/https:\/\/(github\.com|discord|ko-fi)/.test(fs.readFileSync(SRC + 'dashboard.html', 'utf8')));

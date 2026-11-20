@@ -1,6 +1,7 @@
 // 2.1.0 — Code dinamiche nel service worker: modifiche durante l'esecuzione e la pausa,
 // messaggi concorrenti, annullamento del corrente, prudenza, pausa a tempo, recupero.
 // Storage con latenze casuali, come in Chrome: e' qui che si vedono le gare.
+/* global recuperaCoda -- funzioni del service worker, caricato con eval qui sotto */
 const fs = require('fs');
 let store = {}, alarms = {}, tabs = [{ id: 1, status: 'complete' }];
 let inviati = [], notifiche = [], rispostaAnnulla = { ok: true };

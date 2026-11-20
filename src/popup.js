@@ -384,8 +384,34 @@ el("clearEvents").addEventListener("click", async () => {
  * Controlli locali, senza chiamate a Vinted. "info" non e' un problema:
  * per esempio non avere una scheda Vinted aperta va bene finche' non c'e' una coda.
  */
+/**
+ * 2.7.0 — Perche' il profilo non e' rilevato, da quello che il service worker
+ * ha visto (vrVisto): nessuna richiesta (schede aperte prima di installare o
+ * ricaricare l'estensione), nessun cookie dell'account (non connesso), o un
+ * cookie in un formato che non conosciamo (Vinted l'ha cambiato: va segnalato).
+ */
+const COOKIE_ACCOUNT = {
+  v_uid: "trovato (v_uid)",
+  token: "trovato (token)",
+  nessuno: "assente, non sei connesso",
+  assente: "nessun cookie nella richiesta",
+  illeggibile: "presente ma in un formato nuovo",
+};
+function dettaglioProfilo(visto) {
+  if (userId) return "rilevato";
+  if (!visto) return "non ancora rilevato: ricarica una scheda di Vinted (F5) da loggato";
+  if (visto.cookie === "illeggibile") return "non rilevato: il cookie dell'account ha un formato nuovo, manda la diagnostica su Discord";
+  if (visto.cookie === "nessuno" || visto.cookie === "assente") return "non rilevato: Vinted non risulta connesso in questo browser, accedi e ricarica la pagina";
+  return "non ancora rilevato: ricarica una scheda di Vinted (F5) da loggato";
+}
+function dettaglioVisto(visto) {
+  if (!visto) return "nessuna vista finora: ricarica una scheda di Vinted (F5)";
+  const quando = `vista ${fa(visto.at)} su ${visto.dominio || "Vinted"}`;
+  return `${quando} · cookie dell'account: ${COOKIE_ACCOUNT[visto.cookie] || "sconosciuto"}`;
+}
+
 async function controlli() {
-  const d = await chrome.storage.local.get(["photoFormat", "itemFormat", "colorMap", "inventory"]);
+  const d = await chrome.storage.local.get(["photoFormat", "itemFormat", "colorMap", "inventory", "vrVisto"]);
   let csrf = false;
   try {
     const { vrTokens } = await chrome.storage.session.get("vrTokens");
@@ -399,9 +425,11 @@ async function controlli() {
   const colori = Object.keys(d.colorMap || {}).length;
   const articoli = Object.keys(d.inventory || {}).length;
 
+  const visto = d.vrVisto?.at ? d.vrVisto : null;
+
   return [
-    { nome: "Profilo Vinted", livello: userId ? "ok" : "warn",
-      dettaglio: userId ? "rilevato" : "non ancora rilevato: apri Vinted da loggato" },
+    { nome: "Profilo Vinted", livello: userId ? "ok" : "warn", dettaglio: dettaglioProfilo(visto) },
+    { nome: "Richieste di Vinted", livello: visto ? "ok" : "info", dettaglio: dettaglioVisto(visto) },
     { nome: "Scheda Vinted aperta", livello: schede ? "ok" : codaViva ? "warn" : "info",
       dettaglio: schede ? `${schede} aperte` : codaViva ? "la coda ne ha bisogno per pubblicare" : "nessuna (serve solo durante la coda)" },
     { nome: "Sessione", livello: csrf ? "ok" : codaViva ? "warn" : "info",
@@ -488,7 +516,7 @@ el("makeDiag").addEventListener("click", async () => {
     impostazioni,
     coda,
     eventi: vrEvents,
-    controlli: c.map((x) => ({ ok: x.livello !== "warn", nome: x.nome, dettaglio: x.dettaglio })),
+    controlli: c.map((x) => ({ ok: x.livello !== "warn", livello: x.livello, nome: x.nome, dettaglio: x.dettaglio })),
     ambiente: navigator.userAgent,
   });
   el("diagText").value = testo;
@@ -620,8 +648,50 @@ async function mostraAggiornamento() {
     const zip = updateCheck.remota.zip;
     el("downloadZip").disabled = !zip;
     el("downloadZip").title = zip || "Il version.json non indica lo zip";
-    el("downloadZip").onclick = () => zip && apriScheda(V.urlZip(zip, updateCheck.repo));
+    el("downloadZip").onclick = () => zip && scaricaAggiornamento(updateCheck);
     avvisoRicarica();
+  }
+}
+
+/**
+ * 2.7.0 — «Scarica lo zip»: lo zip si legge in memoria da raw.githubusercontent.com,
+ * se ne controlla l'impronta SHA-256 con quella di version.json e solo se torna
+ * si salva in Download › Vinted Relist. Se non torna non si salva niente.
+ */
+const ATTESA_ZIP_MS = 60_000;
+async function scaricaAggiornamento(updateCheck) {
+  const r = updateCheck?.remota;
+  if (!r?.ok || !r.zip) return;
+  const b = el("downloadZip");
+  const esito = el("downloadResult");
+  const url = V.urlZip(r.zip, updateCheck.repo);
+  b.disabled = true;
+  esito.hidden = false;
+  esito.className = "desc";
+  esito.textContent = "Scarico lo zip e ne controllo l'impronta…";
+  try {
+    const controllo = new AbortController();
+    const timer = setTimeout(() => controllo.abort(), ATTESA_ZIP_MS);
+    let bytes;
+    try {
+      const risposta = await fetch(url, { credentials: "omit", cache: "no-store", signal: controllo.signal });
+      if (!risposta.ok) throw new Error(V.erroreDownload(risposta.status));
+      bytes = new Uint8Array(await risposta.arrayBuffer());
+    } finally {
+      clearTimeout(timer);
+    }
+    const v = await V.verificaZip(bytes, r.sha256);
+    if (!v.ok) throw new Error(v.errore);
+    await chrome.downloads.download({ url, filename: `Vinted Relist/${r.zip}`, conflictAction: "uniquify", saveAs: false });
+    esito.className = v.verificato ? "desc ok" : "desc warn";
+    esito.textContent = v.verificato
+      ? "Zip verificato (SHA-256) e salvato in Download › Vinted Relist."
+      : "Zip salvato in Download › Vinted Relist, ma senza verifica: questo version.json non dichiara l'impronta SHA-256.";
+  } catch (e) {
+    esito.className = "desc error";
+    esito.textContent = e?.name === "AbortError" ? "Nessuna risposta da GitHub in 60 secondi: riprova." : e?.message?.startsWith("Failed to fetch") ? V.erroreDownload(0) : e?.message || V.erroreDownload(0);
+  } finally {
+    b.disabled = false;
   }
 }
 
@@ -653,11 +723,7 @@ el("checkUpdate").addEventListener("click", async () => {
   b.textContent = "Controllo…";
   let remota;
   try {
-    const risposta = await fetch(V.urlVersione(repo), {
-      headers: { Accept: "application/vnd.github.raw+json" },
-      cache: "no-store",
-      credentials: "omit",
-    });
+    const risposta = await fetch(V.urlVersione(repo), { cache: "no-store", credentials: "omit" });
     remota = risposta.ok
       ? V.leggiVersioneRemota(await risposta.text())
       : { ok: false, errore: V.erroreGithub(risposta.status) };

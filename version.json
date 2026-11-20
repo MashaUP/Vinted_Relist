@@ -1,10 +1,13 @@
 {
-  "version": "2.6.1",
+  "version": "2.7.0",
   "date": "2026-11-20",
-  "zip": "Vinted_Relist-2.6.1.zip",
+  "zip": "Vinted_Relist-2.7.0.zip",
+  "sha256": "e4bf52fcd0c97a75fd3cc6d2dd281130f9ead32d51b19459a411eae6e255d7a3",
   "notes": [
-    "Avvertenze in cinque lingue (DISCLAIMER.md): progetto non ufficiale, uso a proprio rischio, nessuna responsabilità per l'account o per abusi",
-    "Guida completa anche in inglese, francese, spagnolo e tedesco (README.en/fr/es/de.md)",
-    "README riscritto: guida rapida, consigli, soluzione dei problemi, privacy e permessi"
+    "«Scarica lo zip» controlla l'impronta SHA-256 prima di salvare: se lo zip non è quello pubblicato non viene salvato",
+    "Aggiornamenti e link letti da raw.githubusercontent.com invece dell'API di GitHub (niente più limite di 60 richieste l'ora)",
+    "Account Vinted riconosciuto anche dal caricamento delle pagine: corretto «Profilo non rilevato» da loggati",
+    "Salute › «Richieste di Vinted»: quando l'estensione ha visto Vinted e se c'era il cookie dell'account",
+    "Traduzioni mancanti in Salute e in alcuni messaggi"
   ]
 }

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "vinted-relist",
-  "revision": 1,
+  "revision": 2,
   "links": {
     "github": {
       "url": "https://github.com/MashaUP/Vinted_Relist",
@@ -27,13 +27,13 @@
       "label": "Guida",
       "description": "Come si installa e come si usa"
     },
-    "bug-report": {
+    "bugs": {
       "url": "https://github.com/MashaUP/Vinted_Relist/issues/new?template=segnalazione-bug.yml",
       "enabled": true,
       "label": "Segnala un problema",
       "description": "Apre una segnalazione su GitHub"
     },
-    "feature-request": {
+    "ideas": {
       "url": "https://github.com/MashaUP/Vinted_Relist/issues/new?template=proposta.yml",
       "enabled": true,
       "label": "Proponi un'idea",
