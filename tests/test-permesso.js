@@ -9,7 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 let store = {}, alarms = {}, inviati = [], notifiche = [], scritturaRotta = null, risposteFetch = [];
-const sessione = { vrTokens: { csrf: 'SEGRETO-CSRF-1234567890', anonId: 'anon-xyz' } };
+const sessione = { vrTokens: { 'https://www.vinted.it': { csrf: 'SEGRETO-CSRF-1234567890', anonId: 'anon-xyz', at: 1 } } };
 const L = { alarm: [], message: [], changed: [] };
 const tardi = (v) => new Promise((r) => setTimeout(() => r(v), Math.random() * 3));
 const copia = (x) => (x === undefined ? undefined : JSON.parse(JSON.stringify(x)));
@@ -45,12 +45,12 @@ global.chrome = {
     get: async (id) => ({ id }),
     sendMessage: async (_id, m) => {
       inviati.push(m);
-      if (m.type === 'vr:ping') return { build: '2.7.0', manifest: '2.7.0', pagina: 'armadio-mio', utenteNoto: true, lavorazioni: 1 };
+      if (m.type === 'vr:ping') return { build: '2.7.1', manifest: '2.7.1', pagina: 'armadio-mio', utenteNoto: true, lavorazioni: 1 };
       if (m.type === 'vr:relistStatus') return { inCorso: true, passo: 'Foto' };
       return { accepted: true };
     },
   },
-  runtime: { onMessage: { addListener: (f) => L.message.push(f) }, getURL: (p) => p, getManifest: () => ({ version: '2.7.0', permissions: ['storage', 'webRequest', 'alarms', 'notifications', 'idle', 'downloads'], host_permissions: ['https://www.vinted.it/*'] }),
+  runtime: { onMessage: { addListener: (f) => L.message.push(f) }, getURL: (p) => p, getManifest: () => ({ version: '2.7.1', permissions: ['storage', 'webRequest', 'alarms', 'notifications', 'idle', 'downloads'], host_permissions: ['https://www.vinted.it/*'] }),
     onStartup: { addListener() {} }, onInstalled: { addListener() {} } },
   webRequest: { onSendHeaders: { addListener() {} }, onBeforeRequest: { addListener() {} } },
 };
@@ -64,7 +64,7 @@ const calma = () => new Promise((r) => setTimeout(r, 40));
 const art = (...ids) => ids.map((id) => ({ id: String(id), title: `Titolo privato ${id}`, price: 10 }));
 const q = () => store.vrQueue;
 const a = (id) => q().items.find((i) => i.id === String(id));
-const permesso = (id, extra = {}) => invia({ type: 'vr:relistConfirm', itemId: String(id), avviatoAt: a(id).startedAt, traccia: { fotoIds: ['1'] }, build: '2.7.0', ...extra });
+const permesso = (id, extra = {}) => invia({ type: 'vr:relistConfirm', itemId: String(id), avviatoAt: a(id).startedAt, traccia: { fotoIds: ['1'] }, build: '2.7.1', ...extra });
 const out = []; const ok = (n, c) => out.push(`  ${c ? 'OK  ' : 'FAIL'} ${n}`);
 
 (async () => {
@@ -112,9 +112,9 @@ const out = []; const ok = (n, c) => out.push(`  ${c ? 'OK  ' : 'FAIL'} ${n}`);
   store.showOnOtherProfiles = true;
   const rep = await invia({ type: 'vr:diagnosi' });
   const testo = JSON.stringify(rep);
-  ok('5. report: formato, versioni dei tre componenti, permessi', rep.formato === 'vinted-relist-diagnosi' && rep.versioni.serviceWorker === '2.7.0' && rep.versioni.codaLogica === '2.7.0' && rep.permessi.mancanti.length === 0 && rep.permessi.hostRichiesti === 1);
+  ok('5. report: formato, versioni dei tre componenti, permessi', rep.formato === 'vinted-relist-diagnosi' && rep.versioni.serviceWorker === '2.7.1' && rep.versioni.codaLogica === '2.7.1' && rep.permessi.mancanti.length === 0 && rep.permessi.hostRichiesti === 1);
   ok('   spazio usato e gruppi di chiavi (solo misure)', rep.archivio.totale > 0 && rep.archivio.gruppi['vrBackup:*'].chiavi === 1 && rep.copieSicurezza === 1);
-  ok('   struttura della coda, sveglie, schede che rispondono e con quale codice', rep.coda.schema === 3 && rep.coda.batch === 1 && rep.sveglie.length > 0 && rep.schede.dettaglio[0].build === '2.7.0' && rep.schede.dettaglio[0].pagina === 'armadio-mio');
+  ok('   struttura della coda, sveglie, schede che rispondono e con quale codice', rep.coda.schema === 3 && rep.coda.batch === 1 && rep.sveglie.length > 0 && rep.schede.dettaglio[0].build === '2.7.1' && rep.schede.dettaglio[0].pagina === 'armadio-mio');
   ok('   dati di versioni vecchie segnalati', rep.datiVecchi.includes('showOnOtherProfiles'));
   ok('   errori recenti con i codici', rep.erroriRecenti.some((e) => e.codice === 'salvataggio') && rep.erroriRecenti.some((e) => e.codice === 'versione'));
   ok('   niente token, id utente, titoli', !/SEGRETO-CSRF|anon-xyz|129315368|Titolo privato/.test(testo) && rep.sessione.tokenCsrf === true);

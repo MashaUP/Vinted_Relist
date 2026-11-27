@@ -29,7 +29,7 @@ const cambi = [];
 const ridisegna = async () => { for (const f of cambi) f({ userId: { newValue: VR.settings.userId } }, 'local'); await new Promise((r) => setTimeout(r, 300)); };
 global.chrome = {
   storage: { local: { get: async () => ({}), set: async (o) => scritte.push(o) }, onChanged: { addListener: (f) => cambi.push(f) } },
-  runtime: { onMessage: { addListener: (f) => ascolto.push(f) }, getManifest: () => ({ version: '2.7.0' }), sendMessage: async () => ({ ok: true }) },
+  runtime: { onMessage: { addListener: (f) => ascolto.push(f) }, getManifest: () => ({ version: '2.7.1' }), sendMessage: async () => ({ ok: true }) },
 };
 let cookie = null;
 let benvenuto = 0;
@@ -42,7 +42,7 @@ const VR = {
   buildActionBar: (id) => { costruite.push(id); return { classList: { add() {} }, addEventListener() {} }; },
   showOnboarding: () => { benvenuto++; },
   selection: { nessuno: () => { VR.svuotate = (VR.svuotate || 0) + 1; } },
-  log() {}, warn() {}, BUILD: '2.7.0',
+  log() {}, warn() {}, BUILD: '2.7.1',
 };
 global.window = { VR, addEventListener() {}, postMessage() {} };
 const corpo = leggi('content.js');
@@ -114,7 +114,7 @@ const card = (id) => {
   // ping della diagnostica
   let risposta = null;
   for (const f of ascolto) f({ type: 'vr:ping' }, {}, (x) => { if (x) risposta = x; });
-  ok('10. la diagnostica sa che codice e che tipo di pagina, senza indirizzo né id', risposta?.build === '2.7.0' && risposta.pagina === 'armadio-mio' && !JSON.stringify(risposta).includes('77'));
+  ok('10. la diagnostica sa che codice e che tipo di pagina, senza indirizzo né id', risposta?.build === '2.7.1' && risposta.pagina === 'armadio-mio' && !JSON.stringify(risposta).includes('77'));
 
   // relist(): controllo di proprietà dentro la funzione comune a bottone e coda
   const VR2 = { uuid: () => 'u', settings: { userId: '77' }, log() {}, warn() {}, sleep: async () => {}, editorLogica: require(path.join(__dirname, '..', 'src/editor-logica.js')) };

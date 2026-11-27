@@ -410,15 +410,50 @@ function dettaglioVisto(visto) {
   return `${quando} · cookie dell'account: ${COOKIE_ACCOUNT[visto.cookie] || "sconosciuto"}`;
 }
 
+/**
+ * 2.7.1 — «Sessione»: pronta solo se il token di sessione si legge davvero nella
+ * scheda di Vinted (la scheda attiva, se e' di Vinted, altrimenti la prima).
+ * La prova la fa la pagina stessa, senza richieste a Vinted e senza mostrare il
+ * token. Profilo e cookie dell'account non bastano: fino alla 2.7.0 la riga
+ * guardava solo i token visti nelle richieste e diceva «si attiva navigando».
+ */
+const FONTE_TOKEN = {
+  richieste: "dalle richieste di Vinted",
+  pagina: "dalla pagina aperta",
+  "pagina-pubblicazione": "dalla pagina di pubblicazione",
+};
+const SESSIONE_NON_PRONTA = {
+  "sessione-scaduta": "sessione scaduta o non attiva: accedi di nuovo a Vinted in questa scheda",
+  "pagina-non-letta": "pagina di pubblicazione non letta (rete o errore di Vinted): riprova tra poco",
+  "token-assente": "token di sessione non trovato nelle forme conosciute: manda la diagnostica",
+  comunicazione: "il service worker non ha risposto: ricarica l'estensione, poi la scheda di Vinted",
+};
+const dominioDi = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return "Vinted"; } };
+async function provaSessione(schede, codaViva) {
+  if (!schede.length) {
+    return { livello: codaViva ? "warn" : "info", dettaglio: codaViva ? "nessuna scheda di Vinted aperta: la coda ne ha bisogno per pubblicare" : "nessuna scheda di Vinted aperta: serve per pubblicare" };
+  }
+  const scheda = schede.find((t) => t.active) || schede[0];
+  const sito = dominioDi(scheda.url);
+  let r = null;
+  try {
+    r = await Promise.race([chrome.tabs.sendMessage(scheda.id, { type: "vr:provaSessione" }), new Promise((res) => setTimeout(() => res(null), 3000))]);
+  } catch { r = null; }
+  if (!r) return { livello: "warn", dettaglio: `la scheda di ${sito} non risponde (ancora in caricamento o con il codice di prima dell'aggiornamento): ricaricala (F5)` };
+  if (r.categoria === "scollegata") return { livello: "warn", dettaglio: `la scheda di ${sito} ha il codice di prima dell'aggiornamento: ricaricala (F5)` };
+  if (r.ok) return { livello: "ok", dettaglio: `pronta su ${sito}: token letto ${FONTE_TOKEN[r.fonte] || "dalla pagina"} (non viene mostrato)` };
+  let ultima = null;
+  try { ultima = (await chrome.storage.session.get("vrSessione")).vrSessione?.[new URL(scheda.url).origin] || null; } catch { /* non disponibile */ }
+  if (ultima?.esito === "ok") return { livello: "ok", dettaglio: `pronta su ${sito}: token letto ${FONTE_TOKEN[ultima.fonte] || "dalla pagina"} (non viene mostrato)` };
+  if (ultima?.esito === "errore" && SESSIONE_NON_PRONTA[ultima.categoria]) return { livello: "warn", dettaglio: `non pronta su ${sito}: ${SESSIONE_NON_PRONTA[ultima.categoria]}` };
+  return { livello: codaViva ? "warn" : "info", dettaglio: `da verificare su ${sito}: il token non è nella pagina aperta; al primo invio si cerca nella pagina di pubblicazione` };
+}
+
 async function controlli() {
   const d = await chrome.storage.local.get(["photoFormat", "itemFormat", "colorMap", "inventory", "vrVisto"]);
-  let csrf = false;
-  try {
-    const { vrTokens } = await chrome.storage.session.get("vrTokens");
-    csrf = Boolean(vrTokens?.csrf);      // solo se c'e', mai il valore
-  } catch { /* storage.session non disponibile */ }
-  let schede = 0;
-  try { schede = (await chrome.tabs.query({ url: SITI })).length; } catch { /* ignora */ }
+  let tabs = [];
+  try { tabs = await chrome.tabs.query({ url: SITI }); } catch { /* ignora */ }
+  const schede = tabs.length;
 
   const codaViva = Boolean(coda?.running);
   const r = coda?.items ? conta(coda) : null;
@@ -426,14 +461,14 @@ async function controlli() {
   const articoli = Object.keys(d.inventory || {}).length;
 
   const visto = d.vrVisto?.at ? d.vrVisto : null;
+  const sessione = await provaSessione(tabs, codaViva);
 
   return [
     { nome: "Profilo Vinted", livello: userId ? "ok" : "warn", dettaglio: dettaglioProfilo(visto) },
     { nome: "Richieste di Vinted", livello: visto ? "ok" : "info", dettaglio: dettaglioVisto(visto) },
     { nome: "Scheda Vinted aperta", livello: schede ? "ok" : codaViva ? "warn" : "info",
       dettaglio: schede ? `${schede} aperte` : codaViva ? "la coda ne ha bisogno per pubblicare" : "nessuna (serve solo durante la coda)" },
-    { nome: "Sessione", livello: csrf ? "ok" : codaViva ? "warn" : "info",
-      dettaglio: csrf ? "attiva (il token non viene mostrato)" : "si attiva navigando su Vinted" },
+    { nome: "Sessione", livello: sessione.livello, dettaglio: sessione.dettaglio },
     { nome: "Formato foto", livello: d.photoFormat ? "ok" : "info",
       dettaglio: d.photoFormat ? "imparato da Vinted" : "predefinito: si aggiorna quando carichi una foto su Vinted" },
     { nome: "Formato annuncio", livello: d.itemFormat?.fields?.length ? "ok" : "info",

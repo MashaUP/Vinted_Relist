@@ -5,7 +5,7 @@
 Extension pour **Brave et Chrome** qui republie vos annonces Vinted en un clic, une par une ou en
 file d'attente, pour les remettre en tête des résultats sans les refaire à la main.
 
-**Version 2.7.0** · [Nouveautés (en italien)](CHANGELOG.md) · [Communauté Discord](https://discord.gg/EPsbQCuAkx) ·
+**Version 2.7.1** · [Nouveautés (en italien)](CHANGELOG.md) · [Communauté Discord](https://discord.gg/EPsbQCuAkx) ·
 [Signaler un problème](https://github.com/MashaUP/Vinted_Relist/issues/new?template=segnalazione-bug.yml) ·
 [Soutenir le développement sur Ko-fi](https://ko-fi.com/mashaup)
 
@@ -34,7 +34,7 @@ pas sur le Chrome Web Store**. **Essayez-la d'abord sur un article peu important
 
 ## Installation
 
-1. Téléchargez **`Vinted_Relist-2.7.0.zip`** depuis la
+1. Téléchargez **`Vinted_Relist-2.7.1.zip`** depuis la
    [page des versions sur GitHub](https://github.com/MashaUP/Vinted_Relist/releases) (rubrique
    « Assets ») ou depuis la racine du dépôt.
 2. Extrayez-le **dans un dossier permanent**, par ex. `Documents\Vinted_Relist` (pas dans le
@@ -135,8 +135,12 @@ pouvez le coller sur Discord ou dans un signalement.
   comptent pas. Dans Santé, **« Requêtes Vinted »** indique quand l'extension a vu Vinted pour la
   dernière fois et si le cookie du compte était présent ; s'il indique « nouveau format », envoyez
   le diagnostic.
-- **« Jeton CSRF introuvable » ou « rechargez cette page » après une mise à jour.** Rechargez
-  l'onglet Vinted (F5) : les pages déjà ouvertes gardent l'ancien code.
+- **« Rechargez cette page » après une mise à jour.** Rechargez l'onglet Vinted (F5) : les pages
+  déjà ouvertes gardent l'ancien code.
+- **Erreurs de session** (depuis la 2.7.1, le message dit laquelle). Dans Santé, la ligne
+  **« Session »** indique si l'onglet Vinted est prêt. « Session expirée » : reconnectez-vous à
+  Vinted dans cet onglet. « Jeton introuvable sous une forme connue » : Vinted a peut-être changé
+  la page, envoyez-nous le diagnostic sur Discord. Un profil détecté ne suffit pas pour publier.
 - **Téléphones : Vinted demande de sélectionner le modèle.** Depuis la 2.6, le modèle est repris
   automatiquement. Si cela arrive encore : ouvrez l'annonce sur Vinted › **Modifier** › vérifiez
   le modèle › enregistrez, puis réessayez (l'extension apprend les champs de cette catégorie). Si

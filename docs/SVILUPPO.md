@@ -1,7 +1,7 @@
 # Vinted Relist — documentazione tecnica
 
 Com'è fatta l'estensione, le regole da non rompere e cosa non è verificato su Vinted reale.
-Aggiornata alla **2.7.0**. La storia delle scelte e dei bug è nel [CHANGELOG](../CHANGELOG.md);
+Aggiornata alla **2.7.1**. La storia delle scelte e dei bug è nel [CHANGELOG](../CHANGELOG.md);
 i link del progetto in [LINK.md](LINK.md); dati trattati e privacy in [SECURITY.md](../SECURITY.md).
 
 ## 1. Architettura
@@ -57,6 +57,18 @@ chiamate `/api/*` (anche token CSRF e formati) e il caricamento delle pagine (`m
 `sub_frame`). `vrVisto` registra quando e con quale fonte, mai i valori; Salute e report ne
 ricavano «Richieste di Vinted» e il perché di un profilo mancante.
 
+**Token di sessione (2.7.1):** `getCsrf` in `api.js` prova, in ordine: il token visto nelle
+chiamate `/api/*` di Vinted (il service worker lo tiene in `vrTokens` **per sito** e lo dà solo
+alla scheda di quel sito, `vr:getTokens`), la pagina aperta (`<meta name="csrf-token">`,
+`__NEXT_DATA__`, dati negli `<script>`), poi `GET /items/new`. Le espressioni riconoscono
+`"CSRF_TOKEN":"…"` anche con le virgolette precedute da `\` (dati di Next.js). Errori:
+`sessione-scaduta` (rimando all'accesso o 401), `pagina-non-letta`, `token-assente`,
+`comunicazione`, più `scollegata`; tutti con `e.sessione` (in coda «Sessione di Vinted non letta»,
+riprovabile). Su 403 si riprova una sola volta con un token diverso (`vr:tokenRifiutato` lo toglie
+al service worker). L'esito va al service worker (`vr:statoSessione` → `vrSessione`, senza
+valori); `VR.provaSessione()` lo prova senza rete per la Salute (`vr:provaSessione`). Le forme
+osservate o dedotte sono in [SITE_NOTES.md](SITE_NOTES.md).
+
 **Campi per categoria:** si copia ogni chiave presente nella lettura (anche `false`/`null`); i
 vuoti si riempiono solo se tutti gli altri tuoi articoli con lo stesso `catalog_id` (almeno 2) li
 hanno e un valore ha almeno il 60%. Il formato appreso è per categoria (`itemFormats`). Telefoni:
@@ -91,7 +103,7 @@ redirect verso raw non ha CORS. Chiavi dei link: `bugs`, `ideas` (le vecchie `bu
 `queueDraft`, `queueTemplates` (20), `editorDrafts`, `vrBackup:<id>`; `updateCheck`,
 `updateNotified`, `vrLinks`, `vrVisto`, `vintoryOrigine`, `lingua`.
 
-`chrome.storage.session`: `vrTokens` (CSRF, anon-id), `vrQueueStep`. Mai in `local`, nei log,
+`chrome.storage.session`: `vrTokens` (CSRF, anon-id, per sito), `vrSessione` (esito dell'ultima lettura per sito, senza valori), `vrQueueStep`. Mai in `local`, nei log,
 negli eventi o nella diagnostica. IndexedDB `vintoryImport`: foto importate da Vintory.
 
 ## 5. Non verificato su Vinted reale
@@ -103,6 +115,8 @@ negli eventi o nella diagnostica. IndexedDB `vintoryImport`: foto importate da V
 | `/api/v2/wardrobe/<id>/items` per la verifica degli incerti | «non riesco a leggere»: l'articolo resta da verificare |
 | Bollino «Venduto» e zone escluse nel DOM | il controllo dei dati (`is_closed`, `item_closing_action`) ferma comunque |
 | Che il caricamento delle pagine porti `v_uid` o il token nel cookie | lo dice Salute › «Richieste di Vinted» (fonte del cookie) |
+| Forma del token CSRF nelle pagine (`\"CSRF_TOKEN\":\"…\"` nei dati di Next.js) | «token non trovato nelle forme conosciute»: la diagnostica dice da quali fonti si è provato |
+| Indirizzo a cui `/items/new` rimanda chi non è connesso | l'errore è «token non trovato» invece di «sessione scaduta» |
 | Tabella degli id colore | nessun elenco di riserva: i colori si imparano dagli annunci |
 
 Verificato sul sito vero nelle versioni passate: forma di `item_upload` e `photos`, id nel cookie
@@ -134,6 +148,7 @@ node tests/valida-link.js    # controlla un links.json prima di pubblicarlo
 | Coda nel service worker | `test-13`, `test-14`, `test-17`, `test-coda`, `test-coda2`, `test-coda-logica`, `test-coda-dinamica`, `test-gara`, `test-annulla`, `test-batch`, `test-ripubblica-ora`, `test-240` |
 | Esiti incerti e permesso | `test-esito-incerto`, `test-pagina-coda`, `test-permesso` |
 | Account e proprietà | `test-proprietario`, `test-account` |
+| Token di sessione | `test-sessione` (fonti, forme, errori, 403/401, prova della Salute), `test-sessione-sw` (per sito, rifiutati, esiti, report, domini) |
 | Inventario e dashboard | `test-armadio`, `test-analisi`, `test-qualita`, `test-geometria`, `dom/test-dashboard` |
 | Vintory | `test-vintory` (con `VINTORY_ZIP` anche un'esportazione vera), `test-vintory-sw` |
 | Lingue | `test-i18n` |
@@ -142,6 +157,6 @@ node tests/valida-link.js    # controlla un links.json prima di pubblicarlo
 
 Le prove in Chromium vero (Playwright, con un Vinted simulato e, per l'account, un server HTTPS
 locale) non sono nel repository. **Da fare a mano su Vinted reale**, su un articolo a cui tieni
-poco: pubblicazione ed eliminazione vere, 403/429 veri, riconoscimento dell'account dopo
+poco: lettura del token (Salute › «Sessione» dopo aver aperto il proprio armadio); pubblicazione ed eliminazione vere, 403/429 veri, riconoscimento dell'account dopo
 un'installazione nuova, «Scarica lo zip» contro il repository vero, notifiche di sistema,
 `chrome.runtime.reload()`.

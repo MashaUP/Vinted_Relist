@@ -7,7 +7,7 @@ tratta, dove restano, cosa non fa mai e come segnalare un problema di sicurezza.
 
 | Dato | Da dove arriva | Dove resta |
 |---|---|---|
-| Token di sessione di Vinted (CSRF, anon-id) | letti dal service worker nelle richieste che il browser fa a Vinted | `chrome.storage.session`: si svuota alla chiusura del browser |
+| Token di sessione di Vinted (CSRF, anon-id) | letti dal service worker nelle richieste che il browser fa a Vinted, oppure dalla pagina di Vinted aperta | `chrome.storage.session`, per sito: si svuota alla chiusura del browser; ogni scheda riceve solo quelli del proprio sito |
 | Id del tuo account Vinted | cookie `v_uid` (o `sub` del token `access_token_web` / `refresh_token_web`), letto dal service worker | `chrome.storage.local`, solo l'id; il valore dei cookie non si salva mai |
 | Annunci (titolo, descrizione, prezzo, campi, miniature, statistiche) | API di Vinted, con la tua sessione | `chrome.storage.local`: inventario, storico, bozze, coda, confronti prima/dopo |
 | Foto | CDN di Vinted (`*.vinted.net`), o lo ZIP di Vintory che scegli tu | in memoria durante la pubblicazione; quelle di Vintory in IndexedDB (`vintoryImport`) finché servono |

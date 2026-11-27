@@ -5,7 +5,7 @@
 Estensione per **Brave e Chrome** che ripubblica i tuoi annunci Vinted in un clic, uno alla volta
 o in coda, per riportarli in cima ai risultati senza rifarli a mano.
 
-**Versione 2.7.0** · [Novità](CHANGELOG.md) · [Community su Discord](https://discord.gg/EPsbQCuAkx) ·
+**Versione 2.7.1** · [Novità](CHANGELOG.md) · [Community su Discord](https://discord.gg/EPsbQCuAkx) ·
 [Segnala un problema](https://github.com/MashaUP/Vinted_Relist/issues/new?template=segnalazione-bug.yml) ·
 [Supporta lo sviluppo su Ko-fi](https://ko-fi.com/mashaup)
 
@@ -54,7 +54,7 @@ un intervallo tra uno e l'altro.
 
 ## Installazione
 
-1. Scarica **`Vinted_Relist-2.7.0.zip`** dalla pagina della
+1. Scarica **`Vinted_Relist-2.7.1.zip`** dalla pagina della
    [release su GitHub](https://github.com/MashaUP/Vinted_Relist/releases) (tra gli allegati) o
    dalla radice del repository.
 2. Estrailo **in una cartella stabile**, per esempio `Documenti\Vinted_Relist` (non nella cartella
@@ -201,8 +201,12 @@ Discord o in una segnalazione.
   Vinted (F5) da loggato: le schede aperte prima di installare o aggiornare l'estensione non
   contano. In Salute, **«Richieste di Vinted»** dice quando l'estensione ha visto Vinted l'ultima
   volta e se c'era il cookie dell'account; se dice «formato nuovo», manda la diagnostica.
-- **«Token CSRF non trovato» o «ricarica questa pagina» dopo un aggiornamento.** Ricarica la
-  scheda di Vinted (F5): le pagine già aperte restano con il codice vecchio.
+- **«Ricarica questa pagina» dopo un aggiornamento.** Ricarica la scheda di Vinted (F5): le pagine
+  già aperte restano con il codice vecchio.
+- **Errori di sessione** (dalla 2.7.1 il messaggio dice quale). In Salute la riga **«Sessione»**
+  dice se la scheda di Vinted è pronta. «Sessione scaduta»: accedi di nuovo a Vinted in quella
+  scheda. «Token non trovato nelle forme conosciute»: Vinted potrebbe aver cambiato la pagina,
+  manda la diagnostica su Discord. Il profilo rilevato da solo non basta per pubblicare.
 - **Telefoni: Vinted chiede di selezionare il modello.** Dalla 2.6 il modello passa da solo. Se
   succede ancora: apri l'annuncio su Vinted › **Modifica** › controlla il modello › salva, poi
   riprova (l'estensione impara i campi della categoria). Se non basta, mandaci la diagnostica.

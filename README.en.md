@@ -5,7 +5,7 @@
 An extension for **Brave and Chrome** that relists your Vinted listings in one click, one at a
 time or in a queue, to bring them back to the top of the results without redoing them by hand.
 
-**Version 2.7.0** · [Changelog (Italian)](CHANGELOG.md) · [Discord community](https://discord.gg/EPsbQCuAkx) ·
+**Version 2.7.1** · [Changelog (Italian)](CHANGELOG.md) · [Discord community](https://discord.gg/EPsbQCuAkx) ·
 [Report a problem](https://github.com/MashaUP/Vinted_Relist/issues/new?template=segnalazione-bug.yml) ·
 [Support development on Ko-fi](https://ko-fi.com/mashaup)
 
@@ -34,7 +34,7 @@ Chrome Web Store**. **Try it first on an item you don't care much about.**
 
 ## Installation
 
-1. Download **`Vinted_Relist-2.7.0.zip`** from the
+1. Download **`Vinted_Relist-2.7.1.zip`** from the
    [GitHub release page](https://github.com/MashaUP/Vinted_Relist/releases) (under "Assets") or
    from the root of the repository.
 2. Extract it **into a permanent folder**, e.g. `Documents\Vinted_Relist` (not the temporary
@@ -126,8 +126,12 @@ Discord or in a bug report.
   while logged in: tabs opened before installing or updating the extension don't count. In Health,
   **"Vinted requests"** shows when the extension last saw Vinted and whether the account cookie was
   there; if it says "new format", send us the diagnostics.
-- **"CSRF token not found" or "reload this page" after an update.** Reload the Vinted tab (F5):
-  pages that were already open still run the old code.
+- **"Reload this page" after an update.** Reload the Vinted tab (F5): pages that were already open
+  still run the old code.
+- **Session errors** (since 2.7.1 the message says which one). In Health, the **"Session"** row
+  shows whether the Vinted tab is ready. "Session expired": log in to Vinted again in that tab.
+  "Token not found in any known form": Vinted may have changed the page, send us the diagnostics
+  on Discord. A detected profile alone isn't enough to publish.
 - **Phones: Vinted asks you to select the model.** Since 2.6 the model is copied automatically. If
   it still happens: open the listing on Vinted › **Edit** › check the model › save, then try again
   (the extension learns the fields of that category). If that's not enough, send us the

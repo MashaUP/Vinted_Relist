@@ -6,6 +6,44 @@ ultime tre leggendo questo file dall'estensione installata.
 Numerazione `x.y.z`: **x** quando cambia il modo di usarla o i dati salvati in modo non
 compatibile, **y** per funzioni nuove, **z** per sole correzioni.
 
+## 2.7.1 · Token di sessione letto dalle pagine di Vinted (27 novembre 2026)
+
+Patch: correzione di un bug, nessuna funzione nuova, nessun permesso nuovo.
+
+### Corretto
+- **«Token CSRF non trovato» con il profilo rilevato** (segnalato su vinted.fr con la 2.7.0).
+  *Sintomo:* Salute diceva «Profilo Vinted: rilevato» e «cookie dell'account trovato», ma la
+  ripubblicazione si fermava subito con «Token CSRF non trovato: la sessione di Vinted non è stata
+  letta». *Causa:* account e token di sessione vengono da posti diversi. L'account si legge dal
+  cookie (dalla 2.7.0 anche al caricamento delle pagine); il token solo dalle chiamate che il sito
+  fa alle sue API, dal tag `<meta name="csrf-token">` o da `"CSRF_TOKEN":"…"` nella pagina. Quando
+  il sito non fa chiamate alle API (pagine già pronte dal server) il token va cercato nei dati che
+  Next.js mette negli script, dove le virgolette sono precedute da `\` (`\"CSRF_TOKEN\":\"…\"`):
+  le espressioni di prima non lo riconoscevano, né nella pagina aperta né nella pagina di
+  pubblicazione. La 2.7.0 non ha cambiato la lettura del token: riconoscendo l'account, ha solo
+  reso visibili i bottoni a chi prima non li aveva. *Correzione:* il token si riconosce anche in
+  quella forma (dedotta da progetti pubblici che leggono Vinted, da confermare sul sito vero).
+- **Token di un altro sito o già rifiutato.** I token visti nelle richieste erano uno solo per
+  tutti i siti: un token di vinted.it poteva essere usato su vinted.fr. Dopo un 403 si riprovava
+  con lo stesso token e l'errore diventava «probabile antibot». Ora i token sono tenuti per sito,
+  ogni scheda riceve solo quelli del proprio, e un token rifiutato non si riusa: si riprova una
+  volta con uno diverso, se c'è.
+- **Lingua delle richieste:** senza i cookie della lingua si mandava sempre `it-IT`; ora quella della
+  pagina aperta (per esempio `fr-FR` su vinted.fr).
+
+### Migliorato
+- **Errori di sessione distinti**, ciascuno con cosa fare: sessione scaduta o non attiva (la
+  pagina di pubblicazione rimanda all'accesso, oppure Vinted risponde 401), pagina di
+  pubblicazione non letta (rete o errore HTTP), token non trovato in nessuna forma conosciuta,
+  service worker che non risponde, estensione aggiornata con la pagina aperta. In coda diventano
+  «Sessione di Vinted non letta» (prima «Errore interno»); riprovare è sicuro, niente è stato
+  inviato.
+- **Salute › «Sessione»:** prima diceva solo se un token era stato visto nelle richieste. Ora la
+  scheda di Vinted (quella attiva, se è di Vinted) prova a leggere il token senza fare richieste e
+  la riga dice «pronta su vinted.fr», «da verificare», «non pronta» con il motivo dell'ultimo
+  tentativo, oppure che la scheda va ricaricata o non c'è. Il report completo elenca per sito se
+  c'è un token, da quanto, e l'esito dell'ultima lettura con la fonte o la categoria. Mai i valori.
+
 ## 2.7.0 · Aggiornamenti verificati e account riconosciuto dalle pagine (20 novembre 2026)
 
 Minor: una funzione nuova e retrocompatibile (verifica dello zip scaricato) più correzioni.

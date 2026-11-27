@@ -27,7 +27,7 @@
  */
 (function (root) {
   /** Versione del codice di questo file: la diagnostica la confronta con pagina e service worker. */
-  const VERSIONE = "2.7.0";
+  const VERSIONE = "2.7.1";
 
   const ETICHETTE = {
     pending: "In attesa",
@@ -895,6 +895,10 @@
     }
     if (e.incerto) {
       return { categoria: "incerto", etichetta: "Esito incerto", cosaFare: "Vinted potrebbe averlo pubblicato: controlla l'armadio e conferma l'esito.", sicuroRiprovare: "no" };
+    }
+    // 2.7.1: il token di sessione non si e' potuto leggere (prima di ogni invio).
+    if (e.sessione) {
+      return { categoria: "sessione", etichetta: "Sessione di Vinted non letta", cosaFare: e.message || "Accedi a Vinted in questa scheda e riprova.", sicuroRiprovare: "si" };
     }
     if (e.blocked || status === 429) {
       return { categoria: "temporaneo", etichetta: "Vinted sta limitando le richieste", cosaFare: "La coda rallenta da sola; se si ferma, riprova più tardi.", sicuroRiprovare: "si" };

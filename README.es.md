@@ -5,7 +5,7 @@
 Extensión para **Brave y Chrome** que republica tus anuncios de Vinted con un clic, de uno en uno
 o en cola, para devolverlos a lo más alto de los resultados sin rehacerlos a mano.
 
-**Versión 2.7.0** · [Novedades (en italiano)](CHANGELOG.md) · [Comunidad en Discord](https://discord.gg/EPsbQCuAkx) ·
+**Versión 2.7.1** · [Novedades (en italiano)](CHANGELOG.md) · [Comunidad en Discord](https://discord.gg/EPsbQCuAkx) ·
 [Informar de un problema](https://github.com/MashaUP/Vinted_Relist/issues/new?template=segnalazione-bug.yml) ·
 [Apoya el desarrollo en Ko-fi](https://ko-fi.com/mashaup)
 
@@ -34,7 +34,7 @@ Web Store**. **Pruébala primero con un artículo poco importante.**
 
 ## Instalación
 
-1. Descarga **`Vinted_Relist-2.7.0.zip`** desde la
+1. Descarga **`Vinted_Relist-2.7.1.zip`** desde la
    [página de versiones en GitHub](https://github.com/MashaUP/Vinted_Relist/releases) (en
    «Assets») o desde la raíz del repositorio.
 2. Extráelo **en una carpeta permanente**, por ejemplo `Documentos\Vinted_Relist` (no en la
@@ -131,8 +131,12 @@ Discord o en un informe de error.
   (F5) con la sesión iniciada: las pestañas abiertas antes de instalar o actualizar la extensión no
   cuentan. En Estado, **«Solicitudes de Vinted»** indica cuándo vio la extensión Vinted por última
   vez y si estaba la cookie de la cuenta; si dice «formato nuevo», envíanos el diagnóstico.
-- **«Token CSRF no encontrado» o «recarga esta página» tras una actualización.** Recarga la
-  pestaña de Vinted (F5): las páginas ya abiertas siguen con el código antiguo.
+- **«Recarga esta página» tras una actualización.** Recarga la pestaña de Vinted (F5): las páginas
+  ya abiertas siguen con el código antiguo.
+- **Errores de sesión** (desde la 2.7.1 el mensaje dice cuál). En Estado, la fila **«Sesión»**
+  indica si la pestaña de Vinted está lista. «Sesión caducada»: vuelve a iniciar sesión en Vinted en
+  esa pestaña. «Token no encontrado en ninguna forma conocida»: quizá Vinted ha cambiado la página,
+  envíanos el diagnóstico en Discord. Un perfil detectado no basta para publicar.
 - **Teléfonos: Vinted pide seleccionar el modelo.** Desde la 2.6 el modelo se copia solo. Si
   vuelve a pasar: abre el anuncio en Vinted › **Editar** › comprueba el modelo › guarda, y vuelve
   a intentarlo (la extensión aprende los campos de esa categoría). Si no basta, envíanos el

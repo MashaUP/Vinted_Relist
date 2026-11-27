@@ -24,58 +24,158 @@
   }
   VR.paginaScollegata = () => !chrome.runtime?.id;
 
+  /**
+   * Token di sessione (CSRF) — 2.7.1.
+   *
+   * Tre fonti, in ordine:
+   *  1. «richieste»: l'intestazione x-csrf-token delle chiamate che Vinted fa da
+   *     se', letta dal service worker e tenuta per sito (vinted.fr ≠ vinted.it);
+   *  2. «pagina»: la pagina aperta (meta csrf-token, __NEXT_DATA__, dati negli script);
+   *  3. «pagina-pubblicazione»: GET /items/new, solo se le prime due non bastano.
+   *
+   * Fino alla 2.7.0 la 2 e la 3 cercavano solo "CSRF_TOKEN":"…". Nei dati che
+   * Next.js mette negli <script> le virgolette sono precedute da «\»
+   * (\"CSRF_TOKEN\":\"…\"): forma dedotta da progetti pubblici che leggono Vinted,
+   * da confermare sul sito vero. Se il sito non fa chiamate con x-csrf-token
+   * (pagine gia' pronte dal server), nessuna fonte trovava il token: «Token CSRF
+   * non trovato» con il profilo rilevato.
+   *
+   * Il valore del token non esce mai da qui se non nell'intestazione verso
+   * Vinted: al service worker si riferiscono solo fonte ed esito.
+   */
   async function tokensFromBackground() {
     if (VR.paginaScollegata()) throw erroreScollegata();
     try {
-      const response = await chrome.runtime.sendMessage({ type: "vr:getTokens" });
-      return response?.ok ? response.tokens || {} : {};
+      const response = await chrome.runtime.sendMessage({ type: "vr:getTokens", origine: ORIGIN });
+      return { tokens: response?.ok ? response.tokens || {} : {}, comunicazione: response?.ok ? "ok" : "errore" };
     } catch (e) {
       if (scollegata(e)) throw erroreScollegata();
-      return {};
+      return { tokens: {}, comunicazione: "errore" };
     }
   }
 
-  function csrfFromDom() {
-    const meta = document.querySelector('meta[name="csrf-token"]');
-    if (meta?.content) return meta.content;
+  /** Riferisce al service worker l'esito della lettura (mai il token). */
+  function segnalaSessione(stato) {
+    try {
+      chrome.runtime.sendMessage({ type: "vr:statoSessione", origine: ORIGIN, ...stato })?.catch?.(() => {});
+    } catch { /* pagina scollegata: lo dira' la prossima richiesta */ }
+  }
 
-    const nextData = document.getElementById("__NEXT_DATA__");
-    const haystacks = [nextData?.textContent, document.documentElement.innerHTML];
-    const patterns = [
-      /"csrfToken"\s*:\s*"([^"]{16,})"/i,
-      /"CSRF_TOKEN"\s*:\s*"([^"]{16,})"/i,
-      /csrf[-_]?token["'\s:=]+([A-Za-z0-9_\-+/=]{16,})/i,
-    ];
-    for (const text of haystacks) {
-      if (!text) continue;
-      for (const pattern of patterns) {
-        const match = text.match(pattern);
-        if (match) return match[1];
-      }
+  const TOKEN_VALIDO = /^[A-Za-z0-9_\-+/=.:]{16,200}$/;
+  /**
+   * Il token in un testo HTML o in uno script. Accetta le virgolette semplici
+   * ("CSRF_TOKEN":"…") e quelle precedute da una o piu' «\» (dati di Next.js).
+   * Volutamente stretto: un valore preso per sbaglio produce un 403 che sembra
+   * antibot, peggio di nessun valore.
+   */
+  const FORME_CSRF = [
+    /<meta[^>]*\bname=["']csrf-token["'][^>]*\bcontent=["']([^"']+)["']/i,
+    /<meta[^>]*\bcontent=["']([^"']+)["'][^>]*\bname=["']csrf-token["']/i,
+    /\bCSRF_TOKEN\\*"\s*:\s*\\*"([^"\\]+)\\*"/,
+    /\bcsrf_?token\\*"\s*:\s*\\*"([^"\\]+)\\*"/i,
+  ];
+  function csrfDaTesto(testo) {
+    if (!testo) return null;
+    for (const forma of FORME_CSRF) {
+      const m = testo.match(forma);
+      if (m && TOKEN_VALIDO.test(m[1])) return m[1];
     }
     return null;
   }
 
-  async function csrfFromUploadPage() {
-    const html = await fetch(`${ORIGIN}/items/new`, { credentials: "include" }).then((r) => r.text());
-    const match =
-      html.match(/name="csrf-token"\s+content="([^"]+)"/i) ||
-      html.match(/"csrfToken"\s*:\s*"([^"]{16,})"/i);
-    return match ? match[1] : null;
+  function csrfFromDom() {
+    const meta = document.querySelector('meta[name="csrf-token"]')?.content;
+    if (meta && TOKEN_VALIDO.test(meta)) return meta;
+    // Prima gli script (dati di Next.js, __NEXT_DATA__), poi l'HTML intero.
+    for (const script of document.scripts) {
+      const t = csrfDaTesto(script.textContent);
+      if (t) return t;
+    }
+    return csrfDaTesto(document.documentElement.innerHTML);
   }
 
-  async function getCsrf(force = false) {
-    if (cachedCsrf && !force) return cachedCsrf;
+  /** La pagina di pubblicazione, con la tua sessione. → { token } | { errore: categoria, motivo } */
+  async function csrfFromUploadPage() {
+    const controllo = new AbortController();
+    const scadenza = setTimeout(() => controllo.abort(), 15000);
+    let risposta;
+    try {
+      risposta = await fetch(`${ORIGIN}/items/new`, { credentials: "include", headers: { Accept: "text/html" }, signal: controllo.signal });
+    } catch (e) {
+      return { errore: "pagina-non-letta", motivo: e?.name === "AbortError" ? "nessuna risposta in 15 secondi" : "rete non raggiungibile" };
+    } finally {
+      clearTimeout(scadenza);
+    }
+    // Rimandata altrove (accesso, registrazione): non sei connesso in questa scheda.
+    // Percorso esatto della pagina d'accesso: dedotto, non misurato.
+    let finale = "/items/new";
+    try { finale = new URL(risposta.url || `${ORIGIN}/items/new`).pathname; } catch { /* resta /items/new */ }
+    if (risposta.status === 401 || (finale !== "/items/new" && /login|signup|signin|sign_in|auth|session/i.test(finale))) {
+      return { errore: "sessione-scaduta" };
+    }
+    if (!risposta.ok) return { errore: "pagina-non-letta", motivo: `HTTP ${risposta.status}` };
+    const token = csrfDaTesto(await risposta.text());
+    return token ? { token } : { errore: "token-assente" };
+  }
 
-    const sniffed = (await tokensFromBackground()).csrf;
-    cachedCsrf = sniffed || csrfFromDom() || (await csrfFromUploadPage());
+  const MESSAGGI_SESSIONE = {
+    "sessione-scaduta": "La sessione di Vinted è scaduta o non è attiva in questa scheda: accedi di nuovo a Vinted e riprova. Niente è stato pubblicato.",
+    "pagina-non-letta": "Non riesco a leggere la pagina di pubblicazione di Vinted per prendere il token di sessione ({0}). Riprova tra poco. Niente è stato pubblicato.",
+    "token-assente": "Account rilevato, ma il token di sessione non è nella pagina di Vinted nelle forme conosciute: forse Vinted l'ha cambiato. Niente è stato pubblicato: prepara la diagnostica (Salute) e mandala su Discord.",
+    comunicazione: "Il service worker dell'estensione non ha risposto e il token di sessione non è nella pagina di Vinted: ricarica l'estensione da chrome://extensions, poi questa pagina. Niente è stato pubblicato.",
+  };
+  function erroreSessione(categoria, motivo = "") {
+    const e = new Error(MESSAGGI_SESSIONE[categoria].replace("{0}", motivo));
+    e.categoria = categoria;
+    e.sessione = true;   // prima di ogni invio: niente è arrivato a Vinted
+    return e;
+  }
 
-    if (!cachedCsrf) throw new Error("Token CSRF non trovato: la sessione di Vinted non è stata letta. Ricarica la pagina di Vinted da loggato e riprova.");
+  let fonteCsrf = null;
+  /**
+   * escludi: un token appena rifiutato da Vinted (403), da non riusare.
+   * rete: false per la prova della Salute (niente richieste a Vinted).
+   */
+  async function trovaCsrf({ escludi = null, rete = true } = {}) {
+    const { tokens, comunicazione } = await tokensFromBackground();
+    const buono = (t) => t && t !== escludi && TOKEN_VALIDO.test(t);
+    if (buono(tokens.csrf)) return { token: tokens.csrf, fonte: "richieste" };
+    const dallaPagina = csrfFromDom();
+    if (buono(dallaPagina)) return { token: dallaPagina, fonte: "pagina" };
+    if (!rete) return { errore: "non-nella-pagina", comunicazione };
+    const nuova = await csrfFromUploadPage();
+    if (buono(nuova.token)) return { token: nuova.token, fonte: "pagina-pubblicazione" };
+    if (nuova.token) return { errore: "token-assente", comunicazione };   // solo quello rifiutato
+    return { errore: nuova.errore === "token-assente" && comunicazione !== "ok" ? "comunicazione" : nuova.errore, motivo: nuova.motivo, comunicazione };
+  }
+
+  async function getCsrf({ force = false, escludi = null } = {}) {
+    if (cachedCsrf && !force && cachedCsrf !== escludi) return cachedCsrf;
+    const r = await trovaCsrf({ escludi });
+    if (!r.token) {
+      cachedCsrf = null;
+      segnalaSessione({ esito: "errore", categoria: r.errore, comunicazione: r.comunicazione });
+      throw erroreSessione(r.errore, r.motivo);
+    }
+    cachedCsrf = r.token;
+    fonteCsrf = r.fonte;
+    segnalaSessione({ esito: "ok", fonte: r.fonte });
     return cachedCsrf;
   }
 
+  /** Salute: la sessione di questa scheda e' pronta? Senza rete, senza valori. */
+  VR.provaSessione = async () => {
+    try {
+      if (cachedCsrf) return { ok: true, fonte: fonteCsrf || "pagina", origine: ORIGIN };
+      const r = await trovaCsrf({ rete: false });
+      return r.token ? { ok: true, fonte: r.fonte, origine: ORIGIN } : { ok: false, categoria: r.errore, comunicazione: r.comunicazione, origine: ORIGIN };
+    } catch (e) {
+      return { ok: false, categoria: e?.scollegata ? "scollegata" : "errore", origine: ORIGIN };
+    }
+  };
+
   async function anonId() {
-    return (await tokensFromBackground()).anonId || VR.cookie("anon_id") || null;
+    return (await tokensFromBackground()).tokens.anonId || VR.cookie("anon_id") || null;
   }
 
   async function baseHeaders() {
@@ -84,7 +184,8 @@
     const headers = {
       Accept: "application/json,text/plain,*/*,image/webp",
       "X-CSRF-Token": await getCsrf(),
-      locale: VR.cookie("user-iso-locale") || VR.cookie("anonymous-iso-locale") || "it-IT",
+      // La lingua del sito aperto (vinted.fr → fr-FR) se i cookie non la dicono.
+      locale: VR.cookie("user-iso-locale") || VR.cookie("anonymous-iso-locale") || document.documentElement.lang || "it-IT",
     };
     const anon = await anonId();
     if (anon) headers["X-Anon-Id"] = anon;
@@ -136,13 +237,28 @@
     }
 
     if (response.status === 403) {
+      // Token scaduto o cambiato: uno e un solo nuovo tentativo, con un token
+      // DIVERSO da quello rifiutato (fino alla 2.7.0 si riprendeva lo stesso dal
+      // service worker). Se non ce n'e' un altro, non e' la sessione: antibot.
+      const rifiutato = headers["X-CSRF-Token"];
+      cachedCsrf = null;
+      try { chrome.runtime.sendMessage({ type: "vr:tokenRifiutato", origine: ORIGIN, csrf: rifiutato })?.catch?.(() => {}); } catch { /* scollegata */ }
       if (retryOn403) {
-        cachedCsrf = null;                        // token scaduto: uno e un solo retry
-        await getCsrf(true);
-        return request(method, path, { body, formData, referrer, retryOn403: false, timeoutMs });
+        let nuovo = null;
+        try { nuovo = await getCsrf({ force: true, escludi: rifiutato }); } catch (e) { if (e?.scollegata) throw e; }
+        if (nuovo) return request(method, path, { body, formData, referrer, retryOn403: false, timeoutMs });
       }
-      // gia' riprovato con un token nuovo: non e' la sessione, e' l'antibot
       throw bloccato(new Error("Vinted ha rifiutato la richiesta (403): probabile antibot."));
+    }
+
+    // 401: Vinted non riconosce piu' la sessione. Non e' un dato sbagliato.
+    if (response.status === 401) {
+      cachedCsrf = null;
+      segnalaSessione({ esito: "errore", categoria: "sessione-scaduta" });
+      const e = new Error("Vinted dice che la sessione non è più valida (401): accedi di nuovo a Vinted in questa scheda e riprova.");
+      e.status = 401;
+      e.categoria = "sessione-scaduta";
+      throw e;
     }
 
     // 429 = troppe richieste, 403 persistente = antibot. In coda vanno trattati
@@ -489,6 +605,10 @@
       return new Blob([bytes], { type: mime });
     },
   };
+
+  /** Dimentica il token in memoria (cambio di account, prove): il prossimo si rilegge. */
+  api.dimenticaToken = () => { cachedCsrf = null; fonteCsrf = null; };
+  api.csrfDaTesto = csrfDaTesto;
 
   VR.api = api;
 })();

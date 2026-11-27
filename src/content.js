@@ -408,6 +408,11 @@
 
   // Il service worker chiede come sta la pagina (diagnostica): niente URL, niente id.
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    // 2.7.1: la Salute chiede se il token di sessione si legge in questa scheda (senza rete).
+    if (message?.type === "vr:provaSessione") {
+      VR.provaSessione().then(sendResponse, () => sendResponse({ ok: false, categoria: "errore" }));
+      return true;
+    }
     if (message?.type !== "vr:ping") return false;
     const c = VR.contesto();
     sendResponse({ build: VR.BUILD, manifest: chrome.runtime.getManifest().version, pagina: c.tipo, utenteNoto: Boolean(c.me), lavorazioni: VR.lavorazioniAttive?.() ?? null });

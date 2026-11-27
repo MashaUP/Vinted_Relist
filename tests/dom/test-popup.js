@@ -14,7 +14,7 @@ const ZIP_FINTO = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.f
 const SHA_FINTO = require('crypto').createHash('sha256').update(ZIP_FINTO).digest('hex');
 
 async function apri(store, { hash = '', session = {}, versioneRemota = null, statoRemoto = 200, inScheda = false,
-  linkRemoto = null, statoLink = 404, linksPacchetto = LINKS, zip = null } = {}) {
+  linkRemoto = null, statoLink = 404, linksPacchetto = LINKS, zip = null, schedeVinted = [], provaScheda = null } = {}) {
   const sorgente = fs.readFileSync(SRC + 'popup.html', 'utf8');
   // Gli script nell'ordine dell'HTML: un file aggiunto alla pagina entra anche nel test.
   const script = [...sorgente.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]);
@@ -55,7 +55,7 @@ async function apri(store, { hash = '', session = {}, versioneRemota = null, sta
       sendMessage: async (m) => { messaggi.push(m); return { ok: true }; },
       reload: () => { ricaricata = true; },
     },
-    tabs: { query: async () => [], create: async (o) => schede.push(o.url), getCurrent: async () => (inScheda ? { id: 1 } : undefined) },
+    tabs: { query: async () => schedeVinted, sendMessage: async (id, m) => { if (typeof provaScheda === 'function') return provaScheda(id, m); throw new Error('Could not establish connection. Receiving end does not exist.'); }, create: async (o) => schede.push(o.url), getCurrent: async () => (inScheda ? { id: 1 } : undefined) },
     downloads: { download: async (o) => { scaricati.push(o); return 1; } },
   };
   w.fetch = async function (url) {
@@ -195,12 +195,36 @@ const EVENTI = [
   // ------------------------------------------------------------------ salute
   p = await apri({ userId: '129315368', vintedOrigin: 'https://www.vinted.it', colorMap: { 1: 'Nero' }, delayMs: 1500,
     vrQueue: { running: false, finishedAt: 2, startedAt: 1700, items: [{ id: '9', title: 'Mail mario@example.com', status: 'error', error: 'token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.abc' }] } },
-  { session: { vrTokens: { csrf: 'SEGRETO-CSRF-123' } } });
+  { session: { vrTokens: { 'https://www.vinted.it': { csrf: 'SEGRETO-CSRF-123' } } }, schedeVinted: [{ id: 7, url: 'https://www.vinted.it/member/1', active: true }], provaScheda: () => ({ ok: true, fonte: 'richieste', origine: 'https://www.vinted.it' }) });
   p.tab('salute').click(); await tick(20);
   const checks = p.d.getElementById('checks').textContent;
   ok('controlli elencati', p.d.querySelectorAll('#checks li').length === 9);
   ok('2.7.0: riga «Richieste di Vinted»', /Richieste di Vinted/.test(checks));
-  ok('sessione attiva ma token mai mostrato', /attiva/.test(checks) && !/SEGRETO/.test(p.d.body.innerHTML));
+  ok('sessione pronta (prova dalla scheda) ma token mai mostrato', /pronta su vinted\.it: token letto dalle richieste di Vinted/.test(checks) && !/SEGRETO/.test(p.d.body.innerHTML));
+  // 2.7.1: la riga «Sessione» dice lo stato vero della scheda, non solo se un token è stato visto
+  const rigaSessione = async (opz) => {
+    const q = await apri({ userId: '1' }, opz);
+    q.tab('salute').click(); await tick(20);
+    const li = [...q.d.querySelectorAll('#checks li')].find((x) => /Sessione/.test(x.textContent));
+    return { testo: li?.textContent || '', classe: li?.querySelector('.dot')?.className || '' };
+  };
+  const scheda = [{ id: 3, url: 'https://www.vinted.fr/catalog', active: true }];
+  let rs = await rigaSessione({ schedeVinted: [] });
+  ok('S1. nessuna scheda di Vinted: lo dice, non «ok»', /nessuna scheda di Vinted aperta/.test(rs.testo) && !/\bok\b/.test(rs.classe), rs.testo + ' ' + rs.classe);
+  rs = await rigaSessione({ schedeVinted: scheda, provaScheda: () => ({ ok: true, fonte: 'pagina', origine: 'https://www.vinted.fr' }) });
+  ok('S2. token letto dalla pagina su vinted.fr: «pronta su vinted.fr»', /pronta su vinted\.fr: token letto dalla pagina aperta/.test(rs.testo) && /\bok\b/.test(rs.classe), rs.testo);
+  rs = await rigaSessione({ schedeVinted: scheda, provaScheda: () => ({ ok: false, categoria: 'non-nella-pagina', origine: 'https://www.vinted.fr' }) });
+  ok('S3. profilo e cookie ci sono ma il token non è nella pagina: «da verificare», non «pronta»', /da verificare su vinted\.fr/.test(rs.testo) && !/pronta/.test(rs.testo), rs.testo);
+  rs = await rigaSessione({ schedeVinted: scheda, provaScheda: () => ({ ok: false, categoria: 'non-nella-pagina' }), session: { vrSessione: { 'https://www.vinted.fr': { esito: 'errore', categoria: 'token-assente', at: Date.now() } } } });
+  ok('S4. ultimo invio fallito per token assente: «non pronta», manda la diagnostica', /non pronta su vinted\.fr: token di sessione non trovato/.test(rs.testo) && /warn/.test(rs.classe), rs.testo + ' ' + rs.classe);
+  rs = await rigaSessione({ schedeVinted: scheda, provaScheda: () => ({ ok: false, categoria: 'non-nella-pagina' }), session: { vrSessione: { 'https://www.vinted.fr': { esito: 'ok', fonte: 'pagina-pubblicazione', at: Date.now() } } } });
+  ok('S5. letto prima dalla pagina di pubblicazione: «pronta», con la fonte', /pronta su vinted\.fr: token letto dalla pagina di pubblicazione/.test(rs.testo), rs.testo);
+  rs = await rigaSessione({ schedeVinted: scheda, provaScheda: () => ({ ok: false, categoria: 'scollegata' }) });
+  ok('S6. scheda con il codice vecchio: «ricaricala (F5)»', /codice di prima dell'aggiornamento: ricaricala/.test(rs.testo), rs.testo);
+  rs = await rigaSessione({ schedeVinted: scheda });
+  ok('S7. scheda che non risponde: lo dice', /non risponde/.test(rs.testo), rs.testo);
+  rs = await rigaSessione({ schedeVinted: [{ id: 1, url: 'https://www.vinted.it/x', active: false }, { id: 2, url: 'https://www.vinted.fr/y', active: true }], provaScheda: (id) => (id === 2 ? { ok: true, fonte: 'pagina' } : { ok: false, categoria: 'non-nella-pagina' }) });
+  ok('S8. si prova la scheda attiva (vinted.fr), non la prima a caso', /pronta su vinted\.fr/.test(rs.testo), rs.testo);
   ok('changelog incluso nel pacchetto', /2\.0\.0 · Popup nuovo/.test(p.d.getElementById('changelog').textContent) && /Popup a schede/.test(p.d.getElementById('changelog').textContent));
   p.btn('Prepara la diagnostica').click(); await tick(20);
   const diag = p.d.getElementById('diagText').value;

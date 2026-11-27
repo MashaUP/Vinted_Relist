@@ -6,7 +6,7 @@ Erweiterung für **Brave und Chrome**, die Ihre Vinted-Anzeigen mit einem Klick 
 einzeln oder in einer Warteschlange –, damit sie wieder oben in den Ergebnissen erscheinen, ohne
 dass Sie sie von Hand neu anlegen müssen.
 
-**Version 2.7.0** · [Neuigkeiten (auf Italienisch)](CHANGELOG.md) · [Discord-Community](https://discord.gg/EPsbQCuAkx) ·
+**Version 2.7.1** · [Neuigkeiten (auf Italienisch)](CHANGELOG.md) · [Discord-Community](https://discord.gg/EPsbQCuAkx) ·
 [Problem melden](https://github.com/MashaUP/Vinted_Relist/issues/new?template=segnalazione-bug.yml) ·
 [Entwicklung auf Ko-fi unterstützen](https://ko-fi.com/mashaup)
 
@@ -36,7 +36,7 @@ im Chrome Web Store**. **Probieren Sie sie zuerst an einem unwichtigen Artikel a
 
 ## Installation
 
-1. Laden Sie **`Vinted_Relist-2.7.0.zip`** von der
+1. Laden Sie **`Vinted_Relist-2.7.1.zip`** von der
    [Release-Seite auf GitHub](https://github.com/MashaUP/Vinted_Relist/releases) (unter „Assets“)
    oder aus dem Hauptverzeichnis des Repositorys herunter.
 2. Entpacken Sie sie **in einen dauerhaften Ordner**, z. B. `Dokumente\Vinted_Relist` (nicht in
@@ -138,8 +138,13 @@ können sie auf Discord oder in einer Fehlermeldung einfügen.
   wurden, zählen nicht. Unter Status zeigt **„Vinted-Anfragen“**, wann die Erweiterung Vinted
   zuletzt gesehen hat und ob das Konto-Cookie da war; steht dort „neues Format“, schicken Sie uns
   die Diagnose.
-- **„CSRF-Token nicht gefunden“ oder „Seite neu laden“ nach einem Update.** Den Vinted-Tab neu
-  laden (F5): bereits geöffnete Seiten laufen noch mit dem alten Code.
+- **„Seite neu laden“ nach einem Update.** Den Vinted-Tab neu laden (F5): bereits geöffnete Seiten
+  laufen noch mit dem alten Code.
+- **Sitzungsfehler** (seit 2.7.1 sagt die Meldung, welcher). Unter Status zeigt die Zeile
+  **„Sitzung“**, ob der Vinted-Tab bereit ist. „Sitzung abgelaufen“: in diesem Tab erneut bei
+  Vinted anmelden. „Token in keiner bekannten Form gefunden“: Vinted hat die Seite vielleicht
+  geändert, schicken Sie uns die Diagnose auf Discord. Ein erkanntes Profil allein reicht zum
+  Veröffentlichen nicht.
 - **Handys: Vinted verlangt, das Modell auszuwählen.** Seit 2.6 wird das Modell automatisch
   übernommen. Passiert es trotzdem: die Anzeige auf Vinted öffnen › **Bearbeiten** › Modell prüfen ›
   speichern, dann erneut versuchen (die Erweiterung lernt die Felder dieser Kategorie). Reicht das

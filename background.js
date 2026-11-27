@@ -52,7 +52,7 @@ const V = self.Versione;
  * memoria file vecchi dopo un aggiornamento, si vede (e si dice) invece di
  * fallire con un errore generico.
  */
-const BUILD = "2.7.0";
+const BUILD = "2.7.1";
 const AVVIO_SW = Date.now();
 
 // ------------------------------------------------------------ registro errori
@@ -167,6 +167,33 @@ function cookieDi(details) {
 
 let ultimoUtente = null;
 
+/**
+ * 2.7.1 — Token di sessione per sito: { "https://www.vinted.fr": { csrf, anonId, at } }.
+ * Fino alla 2.7.0 era uno solo per tutti i siti; la forma vecchia si scarta.
+ */
+function tokenPerSito(valore) {
+  if (!valore || typeof valore !== "object" || "csrf" in valore || "anonId" in valore) return {};
+  const fuori = {};
+  for (const [o, t] of Object.entries(valore)) if (origineVinted(o) && t && typeof t === "object") fuori[o] = t;
+  return fuori;
+}
+/** "https://www.vinted.xx" se l'indirizzo e' di uno dei siti supportati, altrimenti null. */
+function origineVinted(indirizzo) {
+  try {
+    const o = new URL(indirizzo).origin;
+    return SITI.some((s) => s.startsWith(`${o}/`)) ? o : null;
+  } catch {
+    return null;
+  }
+}
+/** Il sito della scheda che scrive; il campo del messaggio solo se il mittente non lo dice. */
+function origineDelMittente(sender, message) {
+  return origineVinted(sender?.origin) || origineVinted(sender?.tab?.url) || origineVinted(sender?.url) || origineVinted(message?.origine);
+}
+const ESITI_SESSIONE = new Set(["ok", "errore"]);
+const CATEGORIE_SESSIONE = new Set(["sessione-scaduta", "pagina-non-letta", "token-assente", "comunicazione"]);
+const FONTI_SESSIONE = new Set(["richieste", "pagina", "pagina-pubblicazione"]);
+
 /** Scrive solo quando cambia: questo listener scatta su ogni chiamata API. */
 function ricordaUtente(userId, url) {
   const origine = new URL(url).origin;
@@ -197,15 +224,14 @@ chrome.webRequest.onSendHeaders.addListener(
 
     if (!csrf && !anonId) return;
 
+    // 2.7.1: per sito. Un token di vinted.it non vale su vinted.fr.
+    const origine = new URL(details.url).origin;
     chrome.storage.session.get(TOKEN_KEY).then((stored) => {
-      const previous = stored[TOKEN_KEY] || {};
-      chrome.storage.session.set({
-        [TOKEN_KEY]: {
-          csrf: csrf || previous.csrf || null,
-          anonId: anonId || previous.anonId || null,
-          at: Date.now(),
-        },
-      });
+      const tutti = tokenPerSito(stored[TOKEN_KEY]);
+      const previous = tutti[origine] || {};
+      if (previous.csrf === (csrf || previous.csrf) && previous.anonId === (anonId || previous.anonId) && Date.now() - (previous.at || 0) < 60_000) return;
+      tutti[origine] = { csrf: csrf || previous.csrf || null, anonId: anonId || previous.anonId || null, at: Date.now() };
+      chrome.storage.session.set({ [TOKEN_KEY]: tutti });
     });
   },
   { urls: apiDi("*") },
@@ -407,7 +433,7 @@ async function scaricaFile(url, nome) {
 
 // ---------------------------------------------------------------- messaggi
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 
 
@@ -481,11 +507,52 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
 
+  // 2.7.1: solo i token del sito della scheda che li chiede.
   if (message?.type === "vr:getTokens") {
+    const origine = origineDelMittente(sender, message);
     chrome.storage.session
       .get(TOKEN_KEY)
-      .then((stored) => sendResponse({ ok: true, tokens: stored[TOKEN_KEY] || {} }))
+      .then((stored) => sendResponse({ ok: true, origine, tokens: (origine && tokenPerSito(stored[TOKEN_KEY])[origine]) || {} }))
       .catch((error) => sendResponse({ ok: false, error: String(error) }));
+    return true;
+  }
+
+  // Vinted ha rifiutato questo token (403): non va piu' dato a nessuno.
+  if (message?.type === "vr:tokenRifiutato") {
+    const origine = origineDelMittente(sender, message);
+    chrome.storage.session
+      .get(TOKEN_KEY)
+      .then(async (stored) => {
+        const tutti = tokenPerSito(stored[TOKEN_KEY]);
+        if (origine && message.csrf && tutti[origine]?.csrf === message.csrf) {
+          tutti[origine] = { ...tutti[origine], csrf: null, at: Date.now() };
+          await chrome.storage.session.set({ [TOKEN_KEY]: tutti });
+        }
+        sendResponse({ ok: true });
+      })
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
+  // Esito dell'ultima lettura del token, per la Salute e il report: mai il valore.
+  if (message?.type === "vr:statoSessione") {
+    const origine = origineDelMittente(sender, message);
+    if (!origine || !ESITI_SESSIONE.has(message.esito)) {
+      sendResponse({ ok: false });
+      return false;
+    }
+    const voce = {
+      esito: message.esito,
+      categoria: CATEGORIE_SESSIONE.has(message.categoria) ? message.categoria : null,
+      fonte: FONTI_SESSIONE.has(message.fonte) ? message.fonte : null,
+      comunicazione: message.comunicazione === "errore" ? "errore" : null,
+      at: Date.now(),
+    };
+    chrome.storage.session
+      .get("vrSessione")
+      .then(({ vrSessione = {} }) => chrome.storage.session.set({ vrSessione: { ...vrSessione, [origine]: voce } }))
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
     return true;
   }
 
@@ -2022,7 +2089,16 @@ async function rapportoDiagnostico() {
     .sort((x, y) => x.nome.localeCompare(y.nome)), []);
   const sessione = await sicuro(async () => {
     const s = await chrome.storage.session.get(null);
-    return { chiavi: Object.keys(s).sort(), tokenCsrf: Boolean(s.vrTokens?.csrf), passoInCorso: Boolean(s.vrQueueStep) };
+    // 2.7.1: per sito, solo se il token c'e' e da quanto; l'ultima lettura con fonte o categoria.
+    const dominio = (o) => o.replace(/^https:\/\/(www\.)?/, "");
+    const tokens = tokenPerSito(s[TOKEN_KEY]);
+    return {
+      chiavi: Object.keys(s).sort(),
+      tokenCsrf: Object.values(tokens).some((t) => t?.csrf),
+      siti: Object.entries(tokens).map(([o, t]) => ({ dominio: dominio(o), csrf: Boolean(t?.csrf), anonId: Boolean(t?.anonId), daS: t?.at ? Math.round((ora - t.at) / 1000) : null })),
+      ultimaLettura: Object.entries(s.vrSessione || {}).map(([o, v]) => ({ dominio: dominio(o), esito: v.esito, categoria: v.categoria, fonte: v.fonte, comunicazione: v.comunicazione, daS: Math.round((ora - v.at) / 1000) })),
+      passoInCorso: Boolean(s.vrQueueStep),
+    };
   });
 
   // Le schede Vinted: il content script risponde? con quale codice? su che tipo di pagina?

@@ -35,7 +35,7 @@ global.chrome = {
   idle: { queryState: async () => 'active' },
   tabs: { query: async () => [], get: async (id) => ({ id }), sendMessage: async () => ({}) },
   permissions: { getAll: async () => ({ permissions: [] }), contains: async () => true },
-  runtime: { onMessage: { addListener: (f) => L.message.push(f) }, getURL: (p) => p, getManifest: () => ({ version: '2.7.0', permissions: [], host_permissions: [] }),
+  runtime: { onMessage: { addListener: (f) => L.message.push(f) }, getURL: (p) => p, getManifest: () => ({ version: '2.7.1', permissions: [], host_permissions: [] }),
     onStartup: { addListener() {} }, onInstalled: { addListener() {} } },
   webRequest: {
     onSendHeaders: { addListener: (f, filtro, extra) => ascoltatori.push({ f, filtro, extra }) },
@@ -116,7 +116,7 @@ const richiesta = (a, url, cookie, altri = []) => a.f({ url, requestHeaders: [..
 
   // ------------------------------------------------ testo della diagnostica
   const V = require(path.join(RADICE, 'src', 'versione.js'));
-  const testo = V.costruisciDiagnostica({ versione: '2.7.0', controlli: [
+  const testo = V.costruisciDiagnostica({ versione: '2.7.1', controlli: [
     { ok: true, livello: 'ok', nome: 'A', dettaglio: 'x' }, { ok: true, livello: 'info', nome: 'B', dettaglio: 'y' }, { ok: false, livello: 'warn', nome: 'C', dettaglio: 'z' }, { ok: true, nome: 'D', dettaglio: 'vecchio formato' }] });
   ok('18. diagnostica: «ok», «--» per le informative, «!!»; senza livello come prima',
     testo.includes('  ok A: x') && testo.includes('  -- B: y') && testo.includes('  !! C: z') && testo.includes('  ok D: vecchio formato'));

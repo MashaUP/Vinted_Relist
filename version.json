@@ -1,13 +1,12 @@
 {
-  "version": "2.7.0",
-  "date": "2026-11-20",
-  "zip": "Vinted_Relist-2.7.0.zip",
-  "sha256": "e4bf52fcd0c97a75fd3cc6d2dd281130f9ead32d51b19459a411eae6e255d7a3",
+  "version": "2.7.1",
+  "date": "2026-11-27",
+  "zip": "Vinted_Relist-2.7.1.zip",
+  "sha256": "4fc3d1493ee892ccc1b85d16cf17fe82787e94aff3048191c7f0c4e0a8464fcd",
   "notes": [
-    "«Scarica lo zip» controlla l'impronta SHA-256 prima di salvare: se lo zip non è quello pubblicato non viene salvato",
-    "Aggiornamenti e link letti da raw.githubusercontent.com invece dell'API di GitHub (niente più limite di 60 richieste l'ora)",
-    "Account Vinted riconosciuto anche dal caricamento delle pagine: corretto «Profilo non rilevato» da loggati",
-    "Salute › «Richieste di Vinted»: quando l'estensione ha visto Vinted e se c'era il cookie dell'account",
-    "Traduzioni mancanti in Salute e in alcuni messaggi"
+    "Corretto «Token CSRF non trovato» con il profilo rilevato: il token di sessione si legge anche dai dati delle pagine di Vinted",
+    "Token di sessione tenuti per sito (vinted.fr, vinted.it…) e scartati quando Vinted li rifiuta",
+    "Errori di sessione distinti: sessione scaduta, pagina non letta, token non trovato, estensione che non risponde",
+    "Salute › «Sessione»: dice se la scheda di Vinted è davvero pronta, non solo se l'account è stato visto"
   ]
 }
